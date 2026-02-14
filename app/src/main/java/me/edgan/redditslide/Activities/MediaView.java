@@ -18,8 +18,11 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.graphics.PointF;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -123,6 +126,11 @@ public class MediaView extends BaseSaveActivity {
     private ImageView directGifViewer;
     private GifDrawable activeGifDrawable; // To manage its lifecycle
 
+    // Swipe gesture detection
+    private GestureDetector swipeGestureDetector;
+    private static final int SWIPE_MIN_DISTANCE = 100; // dp
+    private static final int SWIPE_THRESHOLD_VELOCITY = 1000; // pixels per second
+
     private static final String TAG = "MediaView";
 
     private static boolean shouldTruncate(String url) {
@@ -145,6 +153,16 @@ public class MediaView extends BaseSaveActivity {
                 videoView.play();
             }
         }
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        // Pass touch events to swipe gesture detector
+        if (swipeGestureDetector != null) {
+            swipeGestureDetector.onTouchEvent(event);
+        }
+        // Continue with normal touch event handling
+        return super.dispatchTouchEvent(event);
     }
 
     public void showBottomSheetImage() {
@@ -595,6 +613,56 @@ public class MediaView extends BaseSaveActivity {
         if (!SettingValues.imageDownloadButton) {
             findViewById(R.id.save).setVisibility(View.INVISIBLE);
         }
+
+        // Initialize swipe gesture detector for swipe-to-download
+        final float density = getResources().getDisplayMetrics().density;
+        final int minSwipeDistance = (int) (SWIPE_MIN_DISTANCE * density);
+        
+        swipeGestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+                if (e1 == null || e2 == null) {
+                    return false;
+                }
+                
+                float diffY = e2.getY() - e1.getY();
+                float diffX = e2.getX() - e1.getX();
+                
+                // Check if this is a downward swipe
+                if (Math.abs(diffY) > Math.abs(diffX) && // More vertical than horizontal
+                    diffY > minSwipeDistance && // Downward direction
+                    Math.abs(velocityY) > SWIPE_THRESHOLD_VELOCITY) { // Fast enough
+                    
+                    // Check if the image view is at the top (cannot pan further up)
+                    // This prevents conflicts with normal panning gestures
+                    SubsamplingScaleImageView imageView = findViewById(R.id.submission_image);
+                    boolean canTriggerDownload = true;
+                    
+                    if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
+                        // If image is visible and can be panned, check if we're at the top
+                        PointF vTranslate = imageView.vTranslate;
+                        if (vTranslate != null && vTranslate.y < -10) {
+                            // Image is not at the top, don't trigger download
+                            canTriggerDownload = false;
+                        }
+                    }
+                    
+                    if (canTriggerDownload) {
+                        // Trigger download
+                        String urlToSave = actuallyLoaded != null ? actuallyLoaded : contentUrl;
+                        doImageSave(isGif, urlToSave, index);
+                        
+                        // Provide haptic feedback
+                        findViewById(R.id.save).performHapticFeedback(
+                            android.view.HapticFeedbackConstants.LONG_PRESS);
+                        
+                        return true;
+                    }
+                }
+                
+                return false;
+            }
+        });
 
         hideOnLongClick();
     }
