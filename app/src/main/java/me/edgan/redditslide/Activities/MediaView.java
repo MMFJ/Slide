@@ -635,7 +635,7 @@ public class MediaView extends BaseSaveActivity {
                     
                     // Check if the image view is at the top (cannot pan further up)
                     // This prevents conflicts with normal panning gestures
-                    SubsamplingScaleImageView imageView = findViewById(R.id.submission_image);
+                    SubsamplingScaleImageView imageView = (SubsamplingScaleImageView) findViewById(R.id.submission_image);
                     boolean canTriggerDownload = true;
                     
                     if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
