@@ -86,6 +86,7 @@ android {
 
     buildTypes {
         release {
+            applicationIdSuffix ".mmfj"
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.withGPlay
             } else {
@@ -93,11 +94,11 @@ android {
             }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            resValue "string", "app_name", "Slide"
+            resValue "string", "app_name", "Slide MMFJ"
         }
         debug {
-            applicationIdSuffix ".debug"
-            resValue "string", "app_name", "Slide Debug"
+            applicationIdSuffix ".mmfj.debug"
+            resValue "string", "app_name", "Slide MMFJ Debug"
         }
     }
 
