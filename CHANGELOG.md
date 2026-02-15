@@ -4,6 +4,29 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ---
 
+## MMFJ Fork Changes
+
+7.3.9.6 / 2026-02-15
+===================
+* Fixed image upvoting by adding DataShare.sharedSubmission in SubmissionThumbnailHelper
+* Implemented zoom-level check for upvote gesture (only works when image fully zoomed out)
+* Improved download gesture to require 2x more vertical movement (reduces back gesture conflicts)
+* Added upstream remote to cygnusx-1-org/Slide repository
+* Adopted 4-part versioning scheme (7.3.9.X) matching upstream
+* Fixed changelog link in About screen to point to MMFJ/Slide
+* Created VERSIONING.md documentation
+
+7.3.8.742 / 2026-02-15
+===================
+* Fixed MediaView swipe-up gesture logic for images
+* Fixed double toast notification when downloading videos
+* Added UI refresh in SubmissionsView.onResume() to sync vote states
+* Updated DataShare.sharedSubmission in PopulateNewsViewHolder
+
+---
+
+## Upstream (cygnusx-1-org/Slide) Changes
+
 7.3.8 / 2025-12-31
 =============
 * Added a search button to You/Profile tabs

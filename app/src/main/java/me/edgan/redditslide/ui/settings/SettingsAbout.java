@@ -42,8 +42,7 @@ public class SettingsAbout extends BaseActivityAnim {
                     new View.OnLongClickListener() {
                         @Override
                         public boolean onLongClick(View view) {
-                            SharedPreferences prefs =
-                                    getSharedPreferences("STACKTRACE", Context.MODE_PRIVATE);
+                            SharedPreferences prefs = getSharedPreferences("STACKTRACE", Context.MODE_PRIVATE);
                             String stacktrace = prefs.getString("stacktrace", null);
                             if (stacktrace != null) {
                                 ClipboardUtil.copyToClipboard(
@@ -61,9 +60,9 @@ public class SettingsAbout extends BaseActivityAnim {
                         String versionNumber = version.getText().toString();
                         ClipboardUtil.copyToClipboard(SettingsAbout.this, "Version", versionNumber);
                         Toast.makeText(
-                                        SettingsAbout.this,
-                                        R.string.settings_about_version_copied_toast,
-                                        Toast.LENGTH_SHORT)
+                                SettingsAbout.this,
+                                R.string.settings_about_version_copied_toast,
+                                Toast.LENGTH_SHORT)
                                 .show();
                     }
                 });
@@ -107,7 +106,7 @@ public class SettingsAbout extends BaseActivityAnim {
                     @Override
                     public void onClick(View v) {
                         LinkUtil.openExternally(
-                                "https://github.com/edgan/Slide/blob/master/CHANGELOG.md");
+                                "https://github.com/MMFJ/Slide/blob/mmfj-mod/CHANGELOG.md");
                     }
                 });
 
