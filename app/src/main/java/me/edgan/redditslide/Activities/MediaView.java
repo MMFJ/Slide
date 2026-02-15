@@ -672,7 +672,7 @@ public class MediaView extends BaseSaveActivity {
                     if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
                         // If image is visible and can be panned, check if we're at the bottom
                         PointF vTranslate = imageView.vTranslate;
-                        if (vTranslate != null && imageView.getScale() != null) {
+                        if (vTranslate != null) {
                             // Calculate the maximum Y translation (bottom position)
                             float maxY = Math.max(0,
                                     (imageView.getScale() * imageView.getSHeight()) - imageView.getHeight());
