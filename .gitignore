@@ -39,3 +39,6 @@ app/noGPlay/
 app/withGPlay/
 
 changelog_override.txt
+
+# Local documentation (not synced to GitHub)
+docs/

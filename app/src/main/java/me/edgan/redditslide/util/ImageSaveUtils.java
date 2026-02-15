@@ -24,12 +24,12 @@ public class ImageSaveUtils {
     /**
      * Saves an image or gif to the device storage
      *
-     * @param activity The activity context
-     * @param isGif Whether the content is a gif/video
-     * @param contentUrl The URL of the content to save
-     * @param index The index of the image in a gallery
-     * @param subreddit The subreddit the content is from
-     * @param submissionTitle The title of the submission
+     * @param activity                The activity context
+     * @param isGif                   Whether the content is a gif/video
+     * @param contentUrl              The URL of the content to save
+     * @param index                   The index of the image in a gallery
+     * @param subreddit               The subreddit the content is from
+     * @param submissionTitle         The title of the submission
      * @param showFirstDialogCallback Callback to show the storage access dialog
      */
     public static void doImageSave(
@@ -57,8 +57,7 @@ public class ImageSaveUtils {
                         subreddit,
                         submissionTitle,
                         showFirstDialogCallback,
-                        index
-                ).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+                        index).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
             } else {
                 // Handle image save (remains synchronous start of service)
                 Intent i = new Intent(activity, ImageDownloadNotificationService.class);
@@ -69,7 +68,8 @@ public class ImageSaveUtils {
                     i.putExtra("subreddit", subreddit);
                 }
 
-                Log.d(TAG, "ImageSaveUtils - Saving with submissionTitle: " + (submissionTitle != null ? "'" + submissionTitle + "'" : "null"));
+                Log.d(TAG, "ImageSaveUtils - Saving with submissionTitle: "
+                        + (submissionTitle != null ? "'" + submissionTitle + "'" : "null"));
                 if (submissionTitle != null) {
                     i.putExtra(EXTRA_SUBMISSION_TITLE, submissionTitle);
                 }
@@ -90,11 +90,13 @@ public class ImageSaveUtils {
         private final int index;
         private Exception error = null;
 
-        ResolveAndSaveGifTask(Activity activity, String initialUrl, String subreddit, String submissionTitle, Runnable showFirstDialogCallback) {
+        ResolveAndSaveGifTask(Activity activity, String initialUrl, String subreddit, String submissionTitle,
+                Runnable showFirstDialogCallback) {
             this(activity, initialUrl, subreddit, submissionTitle, showFirstDialogCallback, -1);
         }
 
-        ResolveAndSaveGifTask(Activity activity, String initialUrl, String subreddit, String submissionTitle, Runnable showFirstDialogCallback, int index) {
+        ResolveAndSaveGifTask(Activity activity, String initialUrl, String subreddit, String submissionTitle,
+                Runnable showFirstDialogCallback, int index) {
             this.activity = activity;
             this.initialUrl = initialUrl;
             this.subreddit = subreddit;
@@ -121,7 +123,8 @@ public class ImageSaveUtils {
                         String name = url.substring(url.lastIndexOf("/"));
                         Uri gfyUri = GifUtils.AsyncLoadGif.loadGfycat(name, url, null, null, false, null);
                         if (gfyUri != null && gfyUri.toString().contains("gifdeliverynetwork")) {
-                            Log.w(TAG, "Gfycat resolved to gifdeliverynetwork, saving might fail or be incorrect: " + url);
+                            Log.w(TAG,
+                                    "Gfycat resolved to gifdeliverynetwork, saving might fail or be incorrect: " + url);
                             return gfyUri;
                         }
                         return gfyUri;
@@ -135,20 +138,24 @@ public class ImageSaveUtils {
                     case STREAMABLE:
                         String hash = url.substring(url.lastIndexOf("/") + 1);
                         String streamableUrl = "https://api.streamable.com/videos/" + hash;
-                        JsonObject result = HttpUtil.getJsonObject(GifUtils.AsyncLoadGif.client, GifUtils.AsyncLoadGif.gson, streamableUrl);
+                        JsonObject result = HttpUtil.getJsonObject(GifUtils.AsyncLoadGif.client,
+                                GifUtils.AsyncLoadGif.gson, streamableUrl);
                         if (result == null
                                 || result.get("files") == null
                                 || !(result.getAsJsonObject("files").has("mp4")
-                                || result.getAsJsonObject("files").has("mp4-mobile"))) {
+                                        || result.getAsJsonObject("files").has("mp4-mobile"))) {
                             error = new Exception("Streamable API response invalid for: " + url);
                             return null;
                         } else {
                             String obj;
                             if (result.getAsJsonObject("files").getAsJsonObject().has("mp4-mobile")
-                                    && !result.getAsJsonObject("files").getAsJsonObject().get("mp4-mobile").getAsJsonObject().get("url").getAsString().isEmpty()) {
-                                obj = result.getAsJsonObject("files").getAsJsonObject().get("mp4-mobile").getAsJsonObject().get("url").getAsString();
+                                    && !result.getAsJsonObject("files").getAsJsonObject().get("mp4-mobile")
+                                            .getAsJsonObject().get("url").getAsString().isEmpty()) {
+                                obj = result.getAsJsonObject("files").getAsJsonObject().get("mp4-mobile")
+                                        .getAsJsonObject().get("url").getAsString();
                             } else {
-                                obj = result.getAsJsonObject("files").getAsJsonObject().get("mp4").getAsJsonObject().get("url").getAsString();
+                                obj = result.getAsJsonObject("files").getAsJsonObject().get("mp4").getAsJsonObject()
+                                        .get("url").getAsString();
                             }
                             return Uri.parse(obj);
                         }
@@ -173,20 +180,26 @@ public class ImageSaveUtils {
 
             if (resolvedUri != null) {
                 // Show toast before starting the potentially long save operation
-                try {
-                    Toast.makeText(activity, activity.getString(R.string.mediaview_notif_video), Toast.LENGTH_SHORT).show();
-                } catch (Exception ignored) {} // Ignore if toast fails
+                // Show toast before starting the potentially long save operation
+                // Toast removed as it is handled in GifUtils.cacheSaveGif
+                // try {
+                // Toast.makeText(activity, activity.getString(R.string.mediaview_notif_video),
+                // Toast.LENGTH_SHORT).show();
+                // } catch (Exception ignored) {} // Ignore if toast fails
 
                 // Proceed with saving using the resolved URI
-                GifUtils.cacheSaveGif(resolvedUri, activity, subreddit != null ? subreddit : "", submissionTitle != null ? submissionTitle : "", true, index);
+                GifUtils.cacheSaveGif(resolvedUri, activity, subreddit != null ? subreddit : "",
+                        submissionTitle != null ? submissionTitle : "", true, index);
             } else {
                 // Handle errors during resolution
-                Log.e(TAG, "Failed to resolve URI for " + initialUrl + (error != null ? ": " + error.getMessage() : ""));
+                Log.e(TAG,
+                        "Failed to resolve URI for " + initialUrl + (error != null ? ": " + error.getMessage() : ""));
                 // Show error dialog or toast
                 if (activity instanceof androidx.appcompat.app.AppCompatActivity) {
                     DialogUtil.showErrorDialog((androidx.appcompat.app.AppCompatActivity) activity);
                 } else {
-                     // Fallback or log error if casting is not possible (shouldn't happen in practice)
+                    // Fallback or log error if casting is not possible (shouldn't happen in
+                    // practice)
                     Log.e(TAG, "Activity is not an AppCompatActivity, cannot show error dialog.");
                 }
             }
