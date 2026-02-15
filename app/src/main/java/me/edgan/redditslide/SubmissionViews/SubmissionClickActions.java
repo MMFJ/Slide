@@ -7,7 +7,6 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.android.material.snackbar.Snackbar;
 
@@ -31,6 +30,7 @@ import me.edgan.redditslide.Activities.Tumblr;
 import me.edgan.redditslide.Activities.TumblrPager;
 import me.edgan.redditslide.Adapters.SubmissionViewHolder;
 import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.DataShare;
 import me.edgan.redditslide.ForceTouch.PeekViewActivity;
 import me.edgan.redditslide.HasSeen;
 import me.edgan.redditslide.R;
@@ -89,7 +89,8 @@ public class SubmissionClickActions {
                                                 myIntent.putExtra(MediaView.SUBREDDIT, submission.getSubredditName());
                                                 myIntent.putExtra(MediaView.EXTRA_URL, submission.getUrl());
                                                 myIntent.putExtra(EXTRA_SUBMISSION_TITLE, submission.getTitle());
-                                                PopulateBase.addAdaptorPosition(myIntent, submission, holder.getBindingAdapterPosition());
+                                                PopulateBase.addAdaptorPosition(myIntent, submission,
+                                                        holder.getBindingAdapterPosition());
                                                 contextActivity.startActivity(myIntent);
                                             } else {
                                                 LinkUtil.openExternally(submission.getUrl());
@@ -100,11 +101,13 @@ public class SubmissionClickActions {
                                         case DEVIANTART:
                                         case XKCD:
                                         case IMAGE:
-                                            SubmissionThumbnailHelper.openImage(type, contextActivity, submission, holder.leadImage, holder.getBindingAdapterPosition());
+                                            SubmissionThumbnailHelper.openImage(type, contextActivity, submission,
+                                                    holder.leadImage, holder.getBindingAdapterPosition());
                                             break;
                                         case EMBEDDED:
                                             if (SettingValues.video) {
-                                                String data = CompatUtil.fromHtml(submission.getDataNode().get("media_embed").get("content").asText()).toString();
+                                                String data = CompatUtil.fromHtml(submission.getDataNode()
+                                                        .get("media_embed").get("content").asText()).toString();
                                                 {
                                                     Intent i = new Intent(contextActivity, FullscreenVideo.class);
                                                     i.putExtra(FullscreenVideo.EXTRA_HTML, data);
@@ -115,7 +118,8 @@ public class SubmissionClickActions {
                                             }
                                             break;
                                         case REDDIT:
-                                            SubmissionThumbnailHelper.openRedditContent(submission.getUrl(), contextActivity);
+                                            SubmissionThumbnailHelper.openRedditContent(submission.getUrl(),
+                                                    contextActivity);
                                             break;
                                         case REDDIT_GALLERY:
                                             if (SettingValues.album) {
@@ -137,8 +141,11 @@ public class SubmissionClickActions {
 
                                                 if (dataNode.has("gallery_data")) {
                                                     JsonUtil.getGalleryData(dataNode, urls);
-                                                } else if (dataNode.has("crosspost_parent_list")) { // Else, try getting crosspost gallery data
-                                                    JsonNode crosspost_parent = dataNode.get("crosspost_parent_list").get(0);
+                                                } else if (dataNode.has("crosspost_parent_list")) { // Else, try getting
+                                                                                                    // crosspost gallery
+                                                                                                    // data
+                                                    JsonNode crosspost_parent = dataNode.get("crosspost_parent_list")
+                                                            .get(0);
                                                     if (crosspost_parent.has("gallery_data")) {
                                                         JsonUtil.getGalleryData(crosspost_parent, urls);
                                                     }
@@ -148,9 +155,14 @@ public class SubmissionClickActions {
                                                 urlsBundle.putSerializable(RedditGallery.GALLERY_URLS, urls);
                                                 i.putExtras(urlsBundle);
 
-                                                PopulateBase.addAdaptorPosition(i, submission, holder.getBindingAdapterPosition());
+                                                // Set DataShare for upvoting in gallery
+                                                DataShare.sharedSubmission = submission;
+
+                                                PopulateBase.addAdaptorPosition(i, submission,
+                                                        holder.getBindingAdapterPosition());
                                                 contextActivity.startActivity(i);
-                                                contextActivity.overridePendingTransition(R.anim.slideright, R.anim.fade_out);
+                                                contextActivity.overridePendingTransition(R.anim.slideright,
+                                                        R.anim.fade_out);
                                             } else {
                                                 LinkUtil.openExternally(submission.getUrl());
                                             }
@@ -183,9 +195,11 @@ public class SubmissionClickActions {
                                                 i.putExtra(EXTRA_SUBMISSION_TITLE, submission.getTitle());
                                                 i.putExtra(Album.EXTRA_URL, submission.getUrl());
 
-                                                PopulateBase.addAdaptorPosition(i, submission, holder.getBindingAdapterPosition());
+                                                PopulateBase.addAdaptorPosition(i, submission,
+                                                        holder.getBindingAdapterPosition());
                                                 contextActivity.startActivity(i);
-                                                contextActivity.overridePendingTransition(R.anim.slideright, R.anim.fade_out);
+                                                contextActivity.overridePendingTransition(R.anim.slideright,
+                                                        R.anim.fade_out);
                                             } else {
                                                 LinkUtil.openExternally(submission.getUrl());
                                             }
@@ -202,9 +216,11 @@ public class SubmissionClickActions {
                                                 }
                                                 i.putExtra(Album.EXTRA_URL, submission.getUrl());
 
-                                                PopulateBase.addAdaptorPosition(i, submission, holder.getBindingAdapterPosition());
+                                                PopulateBase.addAdaptorPosition(i, submission,
+                                                        holder.getBindingAdapterPosition());
                                                 contextActivity.startActivity(i);
-                                                contextActivity.overridePendingTransition(R.anim.slideright, R.anim.fade_out);
+                                                contextActivity.overridePendingTransition(R.anim.slideright,
+                                                        R.anim.fade_out);
                                             } else {
                                                 LinkUtil.openExternally(submission.getUrl());
                                             }
@@ -212,7 +228,8 @@ public class SubmissionClickActions {
                                         case VREDDIT_REDIRECT:
                                         case GIF:
                                         case VREDDIT_DIRECT:
-                                            SubmissionThumbnailHelper.openGif(contextActivity, submission, holder.getBindingAdapterPosition());
+                                            SubmissionThumbnailHelper.openGif(contextActivity, submission,
+                                                    holder.getBindingAdapterPosition());
                                             break;
                                         case NONE:
                                             if (holder != null) {
@@ -222,7 +239,8 @@ public class SubmissionClickActions {
                                             break;
                                         case VIDEO:
                                             if (!LinkUtil.tryOpenWithVideoPlugin(submission.getUrl())) {
-                                                LinkUtil.openUrl(submission.getUrl(), Palette.getStatusBarColor(), contextActivity);
+                                                LinkUtil.openUrl(submission.getUrl(), Palette.getStatusBarColor(),
+                                                        contextActivity);
                                             }
 
                                             break;
@@ -232,9 +250,11 @@ public class SubmissionClickActions {
                                 }
                             }
                         } else {
-                            if (!(contextActivity instanceof PeekViewActivity) || !((PeekViewActivity) contextActivity).isPeeking()) {
+                            if (!(contextActivity instanceof PeekViewActivity)
+                                    || !((PeekViewActivity) contextActivity).isPeeking()) {
 
-                                Snackbar s = Snackbar.make(holder.itemView, R.string.go_online_view_content, Snackbar.LENGTH_SHORT);
+                                Snackbar s = Snackbar.make(holder.itemView, R.string.go_online_view_content,
+                                        Snackbar.LENGTH_SHORT);
                                 LayoutUtils.showSnackbar(s);
                             }
                         }

@@ -46,6 +46,7 @@ import me.edgan.redditslide.Activities.Tumblr;
 import me.edgan.redditslide.Activities.TumblrPager;
 import me.edgan.redditslide.Activities.Website;
 import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.DataShare;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SecretConstants;
@@ -239,14 +240,13 @@ public class MediaFragment extends Fragment {
                                 getActivity().startActivity(i2);
                             }
                         });
-        final View.OnClickListener openClick =
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        ((SlidingUpPanelLayout) rootView.findViewById(R.id.sliding_layout))
-                                .setPanelState(SlidingUpPanelLayout.PanelState.EXPANDED);
-                    }
-                };
+        final View.OnClickListener openClick = new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                ((SlidingUpPanelLayout) rootView.findViewById(R.id.sliding_layout))
+                        .setPanelState(SlidingUpPanelLayout.PanelState.EXPANDED);
+            }
+        };
         rootView.findViewById(R.id.base).setOnClickListener(openClick);
         final View title = rootView.findViewById(R.id.title);
         title.getViewTreeObserver()
@@ -271,10 +271,9 @@ public class MediaFragment extends Fragment {
                                             new View.OnClickListener() {
                                                 @Override
                                                 public void onClick(View v) {
-                                                    Intent i2 =
-                                                            new Intent(
-                                                                    getActivity(),
-                                                                    CommentsScreen.class);
+                                                    Intent i2 = new Intent(
+                                                            getActivity(),
+                                                            CommentsScreen.class);
                                                     i2.putExtra(CommentsScreen.EXTRA_PAGE, i);
                                                     i2.putExtra(
                                                             CommentsScreen.EXTRA_SUBREDDIT, sub);
@@ -344,15 +343,13 @@ public class MediaFragment extends Fragment {
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        if (slidingPanel.getPanelState()
-                                == SlidingUpPanelLayout.PanelState.EXPANDED) {
+                        if (slidingPanel.getPanelState() == SlidingUpPanelLayout.PanelState.EXPANDED) {
                             slidingPanel.setPanelState(SlidingUpPanelLayout.PanelState.COLLAPSED);
                         } else {
                             switch (type) {
                                 case STREAMABLE:
                                     if (SettingValues.video) {
-                                        Intent myIntent =
-                                                new Intent(contextActivity, MediaView.class);
+                                        Intent myIntent = new Intent(contextActivity, MediaView.class);
                                         myIntent.putExtra(MediaView.EXTRA_URL, submission.getUrl());
                                         myIntent.putExtra(
                                                 MediaView.SUBREDDIT, submission.getSubredditName());
@@ -365,16 +362,14 @@ public class MediaFragment extends Fragment {
                                 case EMBEDDED:
                                     if (SettingValues.video) {
                                         LinkUtil.openExternally(submission.getUrl());
-                                        String data =
-                                                submission
-                                                        .getDataNode()
-                                                        .get("media_embed")
-                                                        .get("content")
-                                                        .asText();
+                                        String data = submission
+                                                .getDataNode()
+                                                .get("media_embed")
+                                                .get("content")
+                                                .asText();
                                         {
-                                            Intent i =
-                                                    new Intent(
-                                                            contextActivity, FullscreenVideo.class);
+                                            Intent i = new Intent(
+                                                    contextActivity, FullscreenVideo.class);
                                             i.putExtra(FullscreenVideo.EXTRA_HTML, data);
                                             contextActivity.startActivity(i);
                                         }
@@ -422,10 +417,9 @@ public class MediaFragment extends Fragment {
                                     if (SettingValues.album) {
                                         Intent i;
                                         if (SettingValues.albumSwipe) {
-                                            i =
-                                                    new Intent(
-                                                            contextActivity,
-                                                            RedditGalleryPager.class);
+                                            i = new Intent(
+                                                    contextActivity,
+                                                    RedditGalleryPager.class);
                                             i.putExtra(
                                                     AlbumPager.SUBREDDIT,
                                                     submission.getSubredditName());
@@ -452,6 +446,9 @@ public class MediaFragment extends Fragment {
                                                 RedditGallery.GALLERY_URLS, urls);
                                         LogUtil.v("Opening gallery with " + urls.size());
                                         i.putExtras(urlsBundle);
+
+                                        // Set DataShare for upvoting in gallery
+                                        DataShare.sharedSubmission = submission;
 
                                         contextActivity.startActivity(i);
                                     } else {
@@ -509,40 +506,37 @@ public class MediaFragment extends Fragment {
         rootView.findViewById(R.id.gifarea).setVisibility(View.VISIBLE);
         rootView.findViewById(R.id.submission_image).setVisibility(View.GONE);
         final ProgressBar loader = rootView.findViewById(R.id.gifprogress);
-        gif =
-                new GifUtils.AsyncLoadGif(
-                        getActivity(),
-                        videoView,
-                        loader,
-                        rootView.findViewById(R.id.placeholder),
-                        false,
-                        !(getActivity() instanceof Shadowbox)
-                                || ((Shadowbox) (getActivity())).pager.getCurrentItem() == i,
-                        sub);
+        gif = new GifUtils.AsyncLoadGif(
+                getActivity(),
+                videoView,
+                loader,
+                rootView.findViewById(R.id.placeholder),
+                false,
+                !(getActivity() instanceof Shadowbox)
+                        || ((Shadowbox) (getActivity())).pager.getCurrentItem() == i,
+                sub);
         GifUtils.AsyncLoadGif.VideoType t = GifUtils.AsyncLoadGif.getVideoType(s.getUrl());
 
         String toLoadURL;
         if (t == GifUtils.AsyncLoadGif.VideoType.VREDDIT) {
             if (s.getDataNode().has("media") && s.getDataNode().get("media").has("reddit_video")) {
-                toLoadURL =
-                        StringEscapeUtils.unescapeJson(
-                                        s.getDataNode()
-                                                .get("media")
-                                                .get("reddit_video")
-                                                .get("dash_url")
-                                                .asText())
-                                .replace("&amp;", "&");
+                toLoadURL = StringEscapeUtils.unescapeJson(
+                        s.getDataNode()
+                                .get("media")
+                                .get("reddit_video")
+                                .get("dash_url")
+                                .asText())
+                        .replace("&amp;", "&");
             } else if (s.getDataNode().has("crosspost_parent_list")) {
-                toLoadURL =
-                        StringEscapeUtils.unescapeJson(
-                                        s.getDataNode()
-                                                .get("crosspost_parent_list")
-                                                .get(0)
-                                                .get("media")
-                                                .get("reddit_video")
-                                                .get("dash_url")
-                                                .asText())
-                                .replace("&amp;", "&");
+                toLoadURL = StringEscapeUtils.unescapeJson(
+                        s.getDataNode()
+                                .get("crosspost_parent_list")
+                                .get(0)
+                                .get("media")
+                                .get("reddit_video")
+                                .get("dash_url")
+                                .asText())
+                        .replace("&amp;", "&");
             } else {
                 // We shouldn't get here, will be caught in initializer
                 return;
@@ -557,40 +551,37 @@ public class MediaFragment extends Fragment {
                         .get(0)
                         .get("variants")
                         .has("mp4"))) {
-            toLoadURL =
-                    StringEscapeUtils.unescapeJson(
-                                    s.getDataNode()
-                                            .get("preview")
-                                            .get("images")
-                                            .get(0)
-                                            .get("variants")
-                                            .get("mp4")
-                                            .get("source")
-                                            .get("url")
-                                            .asText())
-                            .replace("&amp;", "&");
+            toLoadURL = StringEscapeUtils.unescapeJson(
+                    s.getDataNode()
+                            .get("preview")
+                            .get("images")
+                            .get(0)
+                            .get("variants")
+                            .get("mp4")
+                            .get("source")
+                            .get("url")
+                            .asText())
+                    .replace("&amp;", "&");
         } else if ((t.shouldLoadPreview()
                 && s.getDataNode().has("preview")
                 && s.getDataNode().get("preview").has("reddit_video_preview"))) {
-            toLoadURL =
-                    StringEscapeUtils.unescapeJson(
-                            s.getDataNode()
-                                    .get("preview")
-                                    .get("reddit_video_preview")
-                                    .get("dash_url")
-                                    .asText());
+            toLoadURL = StringEscapeUtils.unescapeJson(
+                    s.getDataNode()
+                            .get("preview")
+                            .get("reddit_video_preview")
+                            .get("dash_url")
+                            .asText());
         } else if (t == GifUtils.AsyncLoadGif.VideoType.DIRECT
                 && s.getDataNode().has("media")
                 && s.getDataNode().get("media").has("reddit_video")
                 && s.getDataNode().get("media").get("reddit_video").has("fallback_url")) {
-            toLoadURL =
-                    StringEscapeUtils.unescapeJson(
-                                    s.getDataNode()
-                                            .get("media")
-                                            .get("reddit_video")
-                                            .get("fallback_url")
-                                            .asText())
-                            .replace("&amp;", "&");
+            toLoadURL = StringEscapeUtils.unescapeJson(
+                    s.getDataNode()
+                            .get("media")
+                            .get("reddit_video")
+                            .get("fallback_url")
+                            .asText())
+                    .replace("&amp;", "&");
 
         } else if (t != GifUtils.AsyncLoadGif.VideoType.OTHER) {
             toLoadURL = s.getUrl();
@@ -609,16 +600,15 @@ public class MediaFragment extends Fragment {
         rootView.findViewById(R.id.gifarea).setVisibility(View.VISIBLE);
         rootView.findViewById(R.id.submission_image).setVisibility(View.GONE);
         final ProgressBar loader = rootView.findViewById(R.id.gifprogress);
-        gif =
-                new GifUtils.AsyncLoadGif(
-                        getActivity(),
-                        videoView,
-                        loader,
-                        rootView.findViewById(R.id.placeholder),
-                        false,
-                        !(getActivity() instanceof Shadowbox)
-                                || ((Shadowbox) (getActivity())).pager.getCurrentItem() == i,
-                        sub);
+        gif = new GifUtils.AsyncLoadGif(
+                getActivity(),
+                videoView,
+                loader,
+                rootView.findViewById(R.id.placeholder),
+                false,
+                !(getActivity() instanceof Shadowbox)
+                        || ((Shadowbox) (getActivity())).pager.getCurrentItem() == i,
+                sub);
 
         gif.execute(s);
         rootView.findViewById(R.id.progress).setVisibility(View.GONE);
@@ -665,7 +655,8 @@ public class MediaFragment extends Fragment {
 
         if (NetworkUtil.isConnected(getActivity())) {
 
-            if (hash.startsWith("/")) hash = hash.substring(1);
+            if (hash.startsWith("/"))
+                hash = hash.substring(1);
             final String apiUrl = "https://api.imgur.com/3/image/" + hash;
             LogUtil.v(apiUrl);
 
@@ -683,20 +674,18 @@ public class MediaFragment extends Fragment {
                     } else {
                         try {
                             if (result != null && !result.isJsonNull() && result.has("image")) {
-                                String type =
-                                        result.get("image")
-                                                .getAsJsonObject()
-                                                .get("image")
-                                                .getAsJsonObject()
-                                                .get("type")
-                                                .getAsString();
-                                String urls =
-                                        result.get("image")
-                                                .getAsJsonObject()
-                                                .get("links")
-                                                .getAsJsonObject()
-                                                .get("original")
-                                                .getAsString();
+                                String type = result.get("image")
+                                        .getAsJsonObject()
+                                        .get("image")
+                                        .getAsJsonObject()
+                                        .get("type")
+                                        .getAsString();
+                                String urls = result.get("image")
+                                        .getAsJsonObject()
+                                        .get("links")
+                                        .getAsJsonObject()
+                                        .get("original")
+                                        .getAsString();
 
                                 if (type.contains("gif")) {
                                     doLoadGifDirect(urls);
@@ -704,23 +693,20 @@ public class MediaFragment extends Fragment {
                                     doLoadImage(urls);
                                 }
                             } else if (result != null && result.has("data")) {
-                                String type =
-                                        result.get("data")
-                                                .getAsJsonObject()
-                                                .get("type")
-                                                .getAsString();
-                                String urls =
-                                        result.get("data")
-                                                .getAsJsonObject()
-                                                .get("link")
-                                                .getAsString();
+                                String type = result.get("data")
+                                        .getAsJsonObject()
+                                        .get("type")
+                                        .getAsString();
+                                String urls = result.get("data")
+                                        .getAsJsonObject()
+                                        .get("link")
+                                        .getAsString();
                                 String mp4 = "";
                                 if (result.get("data").getAsJsonObject().has("mp4")) {
-                                    mp4 =
-                                            result.get("data")
-                                                    .getAsJsonObject()
-                                                    .get("mp4")
-                                                    .getAsString();
+                                    mp4 = result.get("data")
+                                            .getAsJsonObject()
+                                            .get("mp4")
+                                            .getAsString();
                                 }
 
                                 if (type.contains("gif")) {
@@ -729,7 +715,8 @@ public class MediaFragment extends Fragment {
                                     doLoadImage(urls);
                                 }
                             } else {
-                                if (!imageShown) doLoadImage(finalUrl);
+                                if (!imageShown)
+                                    doLoadImage(finalUrl);
                             }
                         } catch (Exception e) {
                             LogUtil.e(
@@ -867,10 +854,9 @@ public class MediaFragment extends Fragment {
                                                         }
                                                         actuallyLoaded = finalUrl2;
                                                     } else if (!imageShown) {
-                                                        Intent i =
-                                                                new Intent(
-                                                                        getActivity(),
-                                                                        Website.class);
+                                                        Intent i = new Intent(
+                                                                getActivity(),
+                                                                Website.class);
                                                         i.putExtra(LinkUtil.EXTRA_URL, finalUrl2);
                                                         getActivity().startActivity(i);
                                                     }
@@ -912,30 +898,28 @@ public class MediaFragment extends Fragment {
             bar.setProgress(0);
 
             final Handler handler = new Handler();
-            final Runnable progressBarDelayRunner =
-                    new Runnable() {
-                        public void run() {
-                            bar.setVisibility(View.VISIBLE);
-                        }
-                    };
+            final Runnable progressBarDelayRunner = new Runnable() {
+                public void run() {
+                    bar.setVisibility(View.VISIBLE);
+                }
+            };
             handler.postDelayed(progressBarDelayRunner, 500);
 
             ImageView fakeImage = new ImageView(getActivity());
             fakeImage.setLayoutParams(new LinearLayout.LayoutParams(i.getWidth(), i.getHeight()));
             fakeImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
 
-            File f =
-                    ((Reddit) getActivity().getApplicationContext())
-                            .getImageLoader()
-                            .getDiskCache()
-                            .get(url);
+            File f = ((Reddit) getActivity().getApplicationContext())
+                    .getImageLoader()
+                    .getDiskCache()
+                    .get(url);
             if (f != null && f.exists()) {
                 imageShown = true;
 
                 try {
                     i.loader.setImage(ImageSource.uri(f.getAbsolutePath()));
                 } catch (Exception e) {
-                    // todo  i.setImage(ImageSource.bitmap(loadedImage));
+                    // todo i.setImage(ImageSource.bitmap(loadedImage));
                 }
                 (rootView.findViewById(R.id.progress)).setVisibility(View.GONE);
                 handler.removeCallbacks(progressBarDelayRunner);
@@ -957,8 +941,7 @@ public class MediaFragment extends Fragment {
                                             new ValueAnimator.AnimatorUpdateListener() {
                                                 public void onAnimationUpdate(
                                                         ValueAnimator animation) {
-                                                    Float value =
-                                                            (Float) animation.getAnimatedValue();
+                                                    Float value = (Float) animation.getAnimatedValue();
                                                     base.setAlpha(value);
                                                 }
                                             });
@@ -975,8 +958,7 @@ public class MediaFragment extends Fragment {
                                             new ValueAnimator.AnimatorUpdateListener() {
                                                 public void onAnimationUpdate(
                                                         ValueAnimator animation) {
-                                                    Float value =
-                                                            (Float) animation.getAnimatedValue();
+                                                    Float value = (Float) animation.getAnimatedValue();
                                                     base.setAlpha(value);
                                                 }
                                             });
@@ -1017,11 +999,10 @@ public class MediaFragment extends Fragment {
                                         imageShown = true;
                                         File f = null;
                                         if (getActivity() != null) {
-                                            f =
-                                                    ((Reddit) getActivity().getApplicationContext())
-                                                            .getImageLoader()
-                                                            .getDiskCache()
-                                                            .get(url);
+                                            f = ((Reddit) getActivity().getApplicationContext())
+                                                    .getImageLoader()
+                                                    .getDiskCache()
+                                                    .get(url);
                                         }
                                         if (f != null && f.exists()) {
                                             i.loader.setImage(ImageSource.uri(f.getAbsolutePath()));
@@ -1035,8 +1016,7 @@ public class MediaFragment extends Fragment {
                                         previous = i.scale;
                                         final float base = i.scale;
                                         i.setOnStateChangedListener(
-                                                new SubsamplingScaleImageView
-                                                        .DefaultOnStateChangedListener() {
+                                                new SubsamplingScaleImageView.DefaultOnStateChangedListener() {
                                                     @Override
                                                     public void onScaleChanged(
                                                             float newScale, int origin) {
@@ -1044,26 +1024,19 @@ public class MediaFragment extends Fragment {
                                                                 && !hidden
                                                                 && newScale > base) {
                                                             hidden = true;
-                                                            final View base =
-                                                                    rootView.findViewById(
-                                                                            R.id.base);
+                                                            final View base = rootView.findViewById(
+                                                                    R.id.base);
 
-                                                            ValueAnimator va =
-                                                                    ValueAnimator.ofFloat(
-                                                                            1.0f, 0.2f);
+                                                            ValueAnimator va = ValueAnimator.ofFloat(
+                                                                    1.0f, 0.2f);
                                                             int mDuration = 250; // in millis
                                                             va.setDuration(mDuration);
                                                             va.addUpdateListener(
-                                                                    new ValueAnimator
-                                                                            .AnimatorUpdateListener() {
-                                                                        public void
-                                                                                onAnimationUpdate(
-                                                                                        ValueAnimator
-                                                                                                animation) {
-                                                                            Float value =
-                                                                                    (Float)
-                                                                                            animation
-                                                                                                    .getAnimatedValue();
+                                                                    new ValueAnimator.AnimatorUpdateListener() {
+                                                                        public void onAnimationUpdate(
+                                                                                ValueAnimator animation) {
+                                                                            Float value = (Float) animation
+                                                                                    .getAnimatedValue();
                                                                             base.setAlpha(value);
                                                                         }
                                                                     });
@@ -1071,26 +1044,19 @@ public class MediaFragment extends Fragment {
                                                             // hide
                                                         } else if (newScale <= previous && hidden) {
                                                             hidden = false;
-                                                            final View base =
-                                                                    rootView.findViewById(
-                                                                            R.id.base);
+                                                            final View base = rootView.findViewById(
+                                                                    R.id.base);
 
-                                                            ValueAnimator va =
-                                                                    ValueAnimator.ofFloat(
-                                                                            0.2f, 1.0f);
+                                                            ValueAnimator va = ValueAnimator.ofFloat(
+                                                                    0.2f, 1.0f);
                                                             int mDuration = 250; // in millis
                                                             va.setDuration(mDuration);
                                                             va.addUpdateListener(
-                                                                    new ValueAnimator
-                                                                            .AnimatorUpdateListener() {
-                                                                        public void
-                                                                                onAnimationUpdate(
-                                                                                        ValueAnimator
-                                                                                                animation) {
-                                                                            Float value =
-                                                                                    (Float)
-                                                                                            animation
-                                                                                                    .getAnimatedValue();
+                                                                    new ValueAnimator.AnimatorUpdateListener() {
+                                                                        public void onAnimationUpdate(
+                                                                                ValueAnimator animation) {
+                                                                            Float value = (Float) animation
+                                                                                    .getAnimatedValue();
                                                                             base.setAlpha(value);
                                                                         }
                                                                     });
