@@ -677,7 +677,11 @@ public class MediaView extends BaseSaveActivity {
                             float maxY = Math.max(0,
                                     (imageView.getScale() * imageView.getSHeight()) - imageView.getHeight());
                             // Check if we're not at the bottom (with a small threshold)
-                            if (vTranslate.y < maxY - 10) {
+                            // Check if we're not at the bottom (with a small threshold)
+                            // vTranslate.y is negative when scrolled down.
+                            // Bottom is when vTranslate.y <= -maxY.
+                            // So if vTranslate.y > -maxY + 10, we are NOT at the bottom.
+                            if (vTranslate.y > -maxY + 10) {
                                 // Image is not at the bottom, don't trigger upvote
                                 canTriggerUpvote = false;
                             }
