@@ -200,7 +200,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
     public void doTopBarNotify(Submission submission, CommentAdapter adapter2) {
         doTopBar(submission);
-        if (adapter2 != null) adapter2.notifyItemChanged(0);
+        if (adapter2 != null)
+            adapter2.notifyItemChanged(0);
     }
 
     public void doRefresh(boolean b) {
@@ -253,9 +254,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                 comments.mLoadData.cancel(true);
                             }
 
-                            comments =
-                                    new SubmissionComments(
-                                            fullname, CommentPage.this, mSwipeRefreshLayout);
+                            comments = new SubmissionComments(
+                                    fullname, CommentPage.this, mSwipeRefreshLayout);
                             comments.setSorting(CommentSort.CONFIDENCE);
                             loadMore = false;
 
@@ -299,7 +299,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
         headerHeight = headerV.getMeasuredHeight() + shownHeaders;
 
-        // If we use 'findViewById(R.id.header).getMeasuredHeight()', 0 is always returned.
+        // If we use 'findViewById(R.id.header).getMeasuredHeight()', 0 is always
+        // returned.
         // So, we estimate the height of the header in dp. Account for show headers.
         mSwipeRefreshLayout.setProgressViewOffset(
                 false,
@@ -339,11 +340,10 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                     new View.OnClickListener() {
                         @Override
                         public void onClick(View v) {
-                            final MaterialDialog replyDialog =
-                                    new MaterialDialog.Builder(getActivity())
-                                            .customView(R.layout.edit_comment, false)
-                                            .cancelable(false)
-                                            .build();
+                            final MaterialDialog replyDialog = new MaterialDialog.Builder(getActivity())
+                                    .customView(R.layout.edit_comment, false)
+                                    .cancelable(false)
+                                    .build();
                             final View replyView = replyDialog.getCustomView();
 
                             // Make the account selector visible
@@ -354,8 +354,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                             // Tint the replyLine appropriately if the base theme is Light or Sepia
                             if (SettingValues.currentTheme == 1
                                     || SettingValues.currentTheme == 5) {
-                                final int TINT =
-                                        ContextCompat.getColor(getContext(), R.color.md_grey_600);
+                                final int TINT = ContextCompat.getColor(getContext(), R.color.md_grey_600);
 
                                 e.setHintTextColor(TINT);
                                 BlendModeUtil.tintDrawableAsSrcIn(e.getBackground(), TINT);
@@ -369,7 +368,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     adapter.submission.isSelfPost()
                                             ? adapter.submission.getSelftext()
                                             : null,
-                                    new String[] {adapter.submission.getAuthor()});
+                                    new String[] { adapter.submission.getAuthor() });
 
                             replyDialog
                                     .getWindow()
@@ -386,30 +385,26 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                 }
                                             });
                             final TextView profile = replyView.findViewById(R.id.profile);
-                            final String[] changedProfile = {Authentication.name};
+                            final String[] changedProfile = { Authentication.name };
                             profile.setText("/u/" + changedProfile[0]);
                             profile.setOnClickListener(
                                     new View.OnClickListener() {
                                         @Override
                                         public void onClick(View v) {
-                                            final HashMap<String, String> accounts =
-                                                    new HashMap<>();
+                                            final HashMap<String, String> accounts = new HashMap<>();
 
-                                            for (String s :
-                                                    Authentication.authentication.getStringSet(
-                                                            "accounts", new HashSet<String>())) {
+                                            for (String s : Authentication.authentication.getStringSet(
+                                                    "accounts", new HashSet<String>())) {
                                                 if (s.contains(":")) {
                                                     accounts.put(s.split(":")[0], s.split(":")[1]);
                                                 } else {
                                                     accounts.put(s, "");
                                                 }
                                             }
-                                            final ArrayList<String> keys =
-                                                    new ArrayList<>(accounts.keySet());
+                                            final ArrayList<String> keys = new ArrayList<>(accounts.keySet());
                                             final int i = keys.indexOf(changedProfile[0]);
 
-                                            MaterialDialog.Builder builder =
-                                                    new MaterialDialog.Builder(getContext());
+                                            MaterialDialog.Builder builder = new MaterialDialog.Builder(getContext());
                                             builder.title(
                                                     getString(R.string.replies_switch_accounts));
                                             builder.items(keys.toArray(new String[0]));
@@ -441,10 +436,9 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                 public void onClick(View v) {
                                                     adapter.dataSet.refreshLayout.setRefreshing(
                                                             true);
-                                                    adapter
-                                                            .new ReplyTaskComment(
-                                                                    adapter.submission,
-                                                                    changedProfile[0])
+                                                    adapter.new ReplyTaskComment(
+                                                            adapter.submission,
+                                                            changedProfile[0])
                                                             .execute(e.getText().toString());
                                                     replyDialog.dismiss();
                                                 }
@@ -454,7 +448,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                         }
                     });
         }
-        if (fab != null) fab.show();
+        if (fab != null)
+            fab.show();
         resetScroll(false);
         fastScroll = v.findViewById(R.id.commentnav);
         if (!SettingValues.fastscroll) {
@@ -499,7 +494,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                 public void onClick(View v) {
                                     if (adapter != null
                                             && adapter.keys != null
-                                            && adapter.keys.size() > 0) goUp();
+                                            && adapter.keys.size() > 0)
+                                        goUp();
                                 }
                             });
             v.findViewById(R.id.nav)
@@ -516,14 +512,14 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         for (CommentObject o : adapter.currentComments) {
                                             if (o.comment != null
                                                     && !(o instanceof MoreChildItem)) {
-                                                if (o.comment.isTopLevel()) parentCount++;
+                                                if (o.comment.isTopLevel())
+                                                    parentCount++;
                                                 if (o.comment.getComment().getTimesGilded() > 0
-                                                        || o.comment.getComment().getTimesSilvered()
-                                                                > 0
+                                                        || o.comment.getComment().getTimesSilvered() > 0
                                                         || o.comment
-                                                                        .getComment()
-                                                                        .getTimesPlatinized()
-                                                                > 0) awardCount++;
+                                                                .getComment()
+                                                                .getTimesPlatinized() > 0)
+                                                    awardCount++;
                                                 if (o.comment.getComment().getAuthor() != null
                                                         && o.comment
                                                                 .getComment()
@@ -532,9 +528,9 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                     opCount++;
                                                 }
                                                 if (o.comment
-                                                                .getComment()
-                                                                .getDataNode()
-                                                                .has("body_html")
+                                                        .getComment()
+                                                        .getDataNode()
+                                                        .has("body_html")
                                                         && o.comment
                                                                 .getComment()
                                                                 .getDataNode()
@@ -549,130 +545,99 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                 .setTitle(R.string.set_nav_mode)
                                                 .setSingleChoiceItems(
                                                         StringUtil.stringToArray(
-                                                                        "Parent comment ("
-                                                                                + parentCount
-                                                                                + "),Children"
-                                                                                + " comment"
-                                                                                + " (highlight"
-                                                                                + " child comment &"
-                                                                                + " navigate),OP ("
-                                                                                + opCount
-                                                                                + ")"
-                                                                                + ","
-                                                                                + "Time"
-                                                                                + ","
-                                                                                + "Link ("
-                                                                                + linkCount
-                                                                                + ")"
-                                                                                + ","
-                                                                                + ((Authentication
-                                                                                                .isLoggedIn)
-                                                                                        ? "You,"
-                                                                                        : "")
-                                                                                + "Awarded ("
-                                                                                + awardCount
-                                                                                + ")")
+                                                                "Parent comment ("
+                                                                        + parentCount
+                                                                        + "),Children"
+                                                                        + " comment"
+                                                                        + " (highlight"
+                                                                        + " child comment &"
+                                                                        + " navigate),OP ("
+                                                                        + opCount
+                                                                        + ")"
+                                                                        + ","
+                                                                        + "Time"
+                                                                        + ","
+                                                                        + "Link ("
+                                                                        + linkCount
+                                                                        + ")"
+                                                                        + ","
+                                                                        + ((Authentication.isLoggedIn)
+                                                                                ? "You,"
+                                                                                : "")
+                                                                        + "Awarded ("
+                                                                        + awardCount
+                                                                        + ")")
                                                                 .toArray(
-                                                                        new String
-                                                                                [Authentication
-                                                                                                .isLoggedIn
-                                                                                        ? 6
-                                                                                        : 5]),
+                                                                        new String[Authentication.isLoggedIn
+                                                                                ? 6
+                                                                                : 5]),
                                                         getCurrentSort(),
                                                         (dialog, which) -> {
                                                             switch (which) {
                                                                 case 0:
-                                                                    currentSort =
-                                                                            CommentNavType.PARENTS;
+                                                                    currentSort = CommentNavType.PARENTS;
                                                                     break;
                                                                 case 1:
-                                                                    currentSort =
-                                                                            CommentNavType.CHILDREN;
+                                                                    currentSort = CommentNavType.CHILDREN;
                                                                     break;
                                                                 case 2:
                                                                     currentSort = CommentNavType.OP;
                                                                     break;
                                                                 case 3:
-                                                                    currentSort =
-                                                                            CommentNavType.TIME;
-                                                                    LayoutInflater inflater1 =
-                                                                            getActivity()
-                                                                                    .getLayoutInflater();
-                                                                    final View dialoglayout =
-                                                                            inflater1.inflate(
-                                                                                    R.layout
-                                                                                            .commenttime,
-                                                                                    null);
-                                                                    final Slider landscape =
-                                                                            dialoglayout
-                                                                                    .findViewById(
-                                                                                            R.id
-                                                                                                    .landscape);
+                                                                    currentSort = CommentNavType.TIME;
+                                                                    LayoutInflater inflater1 = getActivity()
+                                                                            .getLayoutInflater();
+                                                                    final View dialoglayout = inflater1.inflate(
+                                                                            R.layout.commenttime,
+                                                                            null);
+                                                                    final Slider landscape = dialoglayout
+                                                                            .findViewById(
+                                                                                    R.id.landscape);
 
-                                                                    final TextView since =
-                                                                            dialoglayout
-                                                                                    .findViewById(
-                                                                                            R.id
-                                                                                                    .time_string);
+                                                                    final TextView since = dialoglayout
+                                                                            .findViewById(
+                                                                                    R.id.time_string);
                                                                     landscape.setValueRange(
                                                                             60, 18000, false);
                                                                     landscape
                                                                             .setOnPositionChangeListener(
-                                                                                    new Slider
-                                                                                            .OnPositionChangeListener() {
+                                                                                    new Slider.OnPositionChangeListener() {
                                                                                         @Override
-                                                                                        public void
-                                                                                                onPositionChanged(
-                                                                                                        Slider
-                                                                                                                slider,
-                                                                                                        boolean
-                                                                                                                b,
-                                                                                                        float
-                                                                                                                v12,
-                                                                                                        float
-                                                                                                                v1,
-                                                                                                        int
-                                                                                                                i,
-                                                                                                        int
-                                                                                                                i1) {
-                                                                                            Calendar
-                                                                                                    c =
-                                                                                                            Calendar
-                                                                                                                    .getInstance();
-                                                                                            sortTime =
-                                                                                                    c
-                                                                                                                    .getTimeInMillis()
-                                                                                                            - i1
-                                                                                                                    * 1000L;
+                                                                                        public void onPositionChanged(
+                                                                                                Slider slider,
+                                                                                                boolean b,
+                                                                                                float v12,
+                                                                                                float v1,
+                                                                                                int i,
+                                                                                                int i1) {
+                                                                                            Calendar c = Calendar
+                                                                                                    .getInstance();
+                                                                                            sortTime = c
+                                                                                                    .getTimeInMillis()
+                                                                                                    - i1
+                                                                                                            * 1000L;
 
-                                                                                            int
-                                                                                                    commentcount =
-                                                                                                            0;
-                                                                                            for (CommentObject
-                                                                                                    o :
-                                                                                                            adapter.currentComments) {
-                                                                                                if (o.comment
-                                                                                                                != null
+                                                                                            int commentcount = 0;
+                                                                                            for (CommentObject o : adapter.currentComments) {
+                                                                                                if (o.comment != null
                                                                                                         && o.comment
                                                                                                                 .getComment()
                                                                                                                 .getDataNode()
                                                                                                                 .has(
                                                                                                                         "created")
                                                                                                         && o.comment
-                                                                                                                        .getComment()
-                                                                                                                        .getCreated()
-                                                                                                                        .getTime()
-                                                                                                                > sortTime) {
-                                                                                                    commentcount +=
-                                                                                                            1;
+                                                                                                                .getComment()
+                                                                                                                .getCreated()
+                                                                                                                .getTime() > sortTime) {
+                                                                                                    commentcount += 1;
                                                                                                 }
                                                                                             }
                                                                                             since
                                                                                                     .setText(
                                                                                                             TimeUtils
-                                                                                                                            .getTimeAgo(
-                                                                                                                                    sortTime,
-                                                                                                                                    getActivity())
+                                                                                                                    .getTimeAgo(
+                                                                                                                            sortTime,
+                                                                                                                            getActivity())
                                                                                                                     + " ("
                                                                                                                     + commentcount
                                                                                                                     + " comments)");
@@ -681,30 +646,24 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                     landscape.setValue(600, false);
 
                                                                     new AlertDialog.Builder(
-                                                                                    getActivity())
+                                                                            getActivity())
                                                                             .setView(dialoglayout)
                                                                             .setPositiveButton(
-                                                                                    R.string
-                                                                                            .btn_set,
+                                                                                    R.string.btn_set,
                                                                                     null)
                                                                             .show();
                                                                     break;
                                                                 case 5:
-                                                                    currentSort =
-                                                                            (Authentication
-                                                                                            .isLoggedIn
-                                                                                    ? CommentNavType
-                                                                                            .YOU
-                                                                                    : CommentNavType
-                                                                                            .GILDED); // gilded is 5 if not logged in
+                                                                    currentSort = (Authentication.isLoggedIn
+                                                                            ? CommentNavType.YOU
+                                                                            : CommentNavType.GILDED); // gilded is 5 if
+                                                                                                      // not logged in
                                                                     break;
                                                                 case 4:
-                                                                    currentSort =
-                                                                            CommentNavType.LINK;
+                                                                    currentSort = CommentNavType.LINK;
                                                                     break;
                                                                 case 6:
-                                                                    currentSort =
-                                                                            CommentNavType.GILDED;
+                                                                    currentSort = CommentNavType.GILDED;
                                                                     break;
                                                             }
                                                         })
@@ -730,10 +689,12 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                     .setOnTouchListener(
                             new OnFlingGestureListener() {
                                 @Override
-                                public void onRightToLeft() {}
+                                public void onRightToLeft() {
+                                }
 
                                 @Override
-                                public void onLeftToRight() {}
+                                public void onLeftToRight() {
+                                }
 
                                 @Override
                                 public void onBottomToTop() {
@@ -753,7 +714,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                 }
 
                                 @Override
-                                public void onTopToBottom() {}
+                                public void onTopToBottom() {
+                                }
                             });
         }
 
@@ -762,10 +724,12 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                     .setOnTouchListener(
                             new OnFlingGestureListener() {
                                 @Override
-                                public void onRightToLeft() {}
+                                public void onRightToLeft() {
+                                }
 
                                 @Override
-                                public void onLeftToRight() {}
+                                public void onLeftToRight() {
+                                }
 
                                 @Override
                                 public void onBottomToTop() {
@@ -785,7 +749,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                 }
 
                                 @Override
-                                public void onTopToBottom() {}
+                                public void onTopToBottom() {
+                                }
                             });
         }
 
@@ -861,19 +826,18 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
     public boolean onMenuItemClick(MenuItem item) {
         switch (item.getItemId()) {
-            case R.id.search:
-                {
-                    if (comments.comments != null && comments.submission != null) {
-                        DataShare.sharedComments = comments.comments;
-                        DataShare.subAuthor = comments.submission.getAuthor();
-                        Intent i = new Intent(getActivity(), CommentSearch.class);
-                        if (getActivity() instanceof MainActivity) {
-                            getActivity().startActivityForResult(i, 423);
-                        } else {
-                            startActivityForResult(i, 423);
-                        }
+            case R.id.search: {
+                if (comments.comments != null && comments.submission != null) {
+                    DataShare.sharedComments = comments.comments;
+                    DataShare.subAuthor = comments.submission.getAuthor();
+                    Intent i = new Intent(getActivity(), CommentSearch.class);
+                    if (getActivity() instanceof MainActivity) {
+                        getActivity().startActivityForResult(i, 423);
+                    } else {
+                        startActivityForResult(i, 423);
                     }
                 }
+            }
                 return true;
             case R.id.sidebar:
                 doSidebarOpen();
@@ -901,12 +865,11 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     .get("body_html")
                                     .asText()
                                     .contains("&lt;/a")) {
-                                String body =
-                                        c.comment
-                                                .getComment()
-                                                .getDataNode()
-                                                .get("body_html")
-                                                .asText();
+                                String body = c.comment
+                                        .getComment()
+                                        .getDataNode()
+                                        .get("body_html")
+                                        .asText();
                                 String url;
                                 String[] split = body.split("&lt;a href=\"");
                                 if (split.length > 1) {
@@ -938,261 +901,261 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                         startActivity(i);
                     } else {
                         Snackbar.make(
-                                        mSwipeRefreshLayout,
-                                        R.string.shadowbox_comments_nolinks,
-                                        Snackbar.LENGTH_SHORT)
+                                mSwipeRefreshLayout,
+                                R.string.shadowbox_comments_nolinks,
+                                Snackbar.LENGTH_SHORT)
                                 .show();
                     }
                 }
                 return true;
-            case R.id.sort:
-                {
-                    openPopup(toolbar);
-                    return true;
-                }
-            case R.id.content:
-                {
-                    if (adapter != null && adapter.submission != null) {
-                        if (!PostMatch.openExternal(adapter.submission.getUrl())) {
-                            ContentType.Type type = ContentType.getContentType(adapter.submission);
-                            switch (type) {
-                                case STREAMABLE:
-                                    if (SettingValues.video) {
-                                        Intent myIntent =
-                                                new Intent(getActivity(), MediaView.class);
-                                        myIntent.putExtra(MediaView.SUBREDDIT, subreddit);
-                                        myIntent.putExtra(
-                                                MediaView.EXTRA_URL, adapter.submission.getUrl());
-                                        myIntent.putExtra(
-                                                EXTRA_SUBMISSION_TITLE,
-                                                adapter.submission.getTitle());
-                                        getActivity().startActivity(myIntent);
+            case R.id.sort: {
+                openPopup(toolbar);
+                return true;
+            }
+            case R.id.content: {
+                if (adapter != null && adapter.submission != null) {
+                    if (!PostMatch.openExternal(adapter.submission.getUrl())) {
+                        ContentType.Type type = ContentType.getContentType(adapter.submission);
+                        switch (type) {
+                            case STREAMABLE:
+                                if (SettingValues.video) {
+                                    Intent myIntent = new Intent(getActivity(), MediaView.class);
+                                    myIntent.putExtra(MediaView.SUBREDDIT, subreddit);
+                                    myIntent.putExtra(
+                                            MediaView.EXTRA_URL, adapter.submission.getUrl());
+                                    myIntent.putExtra(
+                                            EXTRA_SUBMISSION_TITLE,
+                                            adapter.submission.getTitle());
+                                    getActivity().startActivity(myIntent);
 
-                                    } else {
-                                        LinkUtil.openExternally(adapter.submission.getUrl());
+                                } else {
+                                    LinkUtil.openExternally(adapter.submission.getUrl());
+                                }
+                                break;
+                            case IMGUR:
+                            case XKCD:
+                                Intent i2 = new Intent(getActivity(), MediaView.class);
+                                i2.putExtra(MediaView.SUBREDDIT, subreddit);
+                                i2.putExtra(
+                                        EXTRA_SUBMISSION_TITLE, adapter.submission.getTitle());
+                                if (adapter.submission.getDataNode().has("preview")
+                                        && adapter.submission
+                                                .getDataNode()
+                                                .get("preview")
+                                                .get("images")
+                                                .get(0)
+                                                .get("source")
+                                                .has("height")
+                                        && type != ContentType.Type.XKCD) { // Load the preview image which
+                                    // has probably already been
+                                    // cached in memory instead of
+                                    // the direct link
+                                    String previewUrl = adapter.submission
+                                            .getDataNode()
+                                            .get("preview")
+                                            .get("images")
+                                            .get(0)
+                                            .get("source")
+                                            .get("url")
+                                            .asText();
+                                    i2.putExtra(MediaView.EXTRA_DISPLAY_URL, previewUrl);
+                                }
+                                i2.putExtra(MediaView.EXTRA_URL, adapter.submission.getUrl());
+                                getActivity().startActivity(i2);
+                                break;
+                            case EMBEDDED:
+                                if (SettingValues.video) {
+                                    String data = adapter.submission
+                                            .getDataNode()
+                                            .get("media_embed")
+                                            .get("content")
+                                            .asText();
+                                    {
+                                        Intent i = new Intent(
+                                                getActivity(), FullscreenVideo.class);
+                                        i.putExtra(FullscreenVideo.EXTRA_HTML, data);
+                                        getActivity().startActivity(i);
                                     }
+                                } else {
+                                    LinkUtil.openExternally(adapter.submission.getUrl());
+                                }
+                                break;
+                            case REDDIT_GALLERY:
+                                // Instead of opening externally, parse the gallery and open RedditGallery or
+                                // RedditGalleryPager in-app
+                                if (!adapter.submission.getDataNode().has("gallery_data")
+                                        || !adapter.submission.getDataNode().has("media_metadata")) {
+                                    Log.d("RedditSlide", "No gallery data found");
+                                    // Fallback if Reddit’s JSON is missing the expected gallery fields
+                                    LinkUtil.openExternally(adapter.submission.getUrl());
                                     break;
-                                case IMGUR:
-                                case XKCD:
-                                    Intent i2 = new Intent(getActivity(), MediaView.class);
-                                    i2.putExtra(MediaView.SUBREDDIT, subreddit);
-                                    i2.putExtra(
-                                            EXTRA_SUBMISSION_TITLE, adapter.submission.getTitle());
-                                    if (adapter.submission.getDataNode().has("preview")
-                                            && adapter.submission
-                                                    .getDataNode()
-                                                    .get("preview")
-                                                    .get("images")
-                                                    .get(0)
-                                                    .get("source")
-                                                    .has("height")
-                                            && type
-                                                    != ContentType.Type
-                                                            .XKCD) { // Load the preview image which
-                                        // has probably already been
-                                        // cached in memory instead of
-                                        // the direct link
-                                        String previewUrl =
-                                                adapter.submission
-                                                        .getDataNode()
-                                                        .get("preview")
-                                                        .get("images")
-                                                        .get(0)
-                                                        .get("source")
-                                                        .get("url")
-                                                        .asText();
-                                        i2.putExtra(MediaView.EXTRA_DISPLAY_URL, previewUrl);
-                                    }
-                                    i2.putExtra(MediaView.EXTRA_URL, adapter.submission.getUrl());
-                                    getActivity().startActivity(i2);
-                                    break;
-                                case EMBEDDED:
-                                    if (SettingValues.video) {
-                                        String data =
-                                                adapter.submission
-                                                        .getDataNode()
-                                                        .get("media_embed")
-                                                        .get("content")
-                                                        .asText();
-                                        {
-                                            Intent i =
-                                                    new Intent(
-                                                            getActivity(), FullscreenVideo.class);
-                                            i.putExtra(FullscreenVideo.EXTRA_HTML, data);
-                                            getActivity().startActivity(i);
+                                }
+
+                                try {
+                                    ArrayList<GalleryImage> images = new ArrayList<>();
+                                    JsonNode galleryItems = adapter.submission.getDataNode().get("gallery_data")
+                                            .get("items");
+                                    JsonNode mediaMetadata = adapter.submission.getDataNode().get("media_metadata");
+
+                                    // Build up our list of GalleryImage objects
+                                    for (JsonNode galleryItem : galleryItems) {
+                                        String mediaId = galleryItem.get("media_id").asText();
+                                        JsonNode metaNode = mediaMetadata.get(mediaId);
+                                        if (metaNode != null) {
+                                            images.add(new GalleryImage(metaNode));
                                         }
-                                    } else {
-                                        LinkUtil.openExternally(adapter.submission.getUrl());
                                     }
-                                    break;
-                                case REDDIT_GALLERY:
-                                    // Instead of opening externally, parse the gallery and open RedditGallery or RedditGalleryPager in-app
-                                    if (!adapter.submission.getDataNode().has("gallery_data")
-                                            || !adapter.submission.getDataNode().has("media_metadata")) {
-                                        Log.d("RedditSlide", "No gallery data found");
-                                        // Fallback if Reddit’s JSON is missing the expected gallery fields
+
+                                    // If we didn’t get any images, fallback to opening in a browser
+                                    if (images.isEmpty()) {
                                         LinkUtil.openExternally(adapter.submission.getUrl());
                                         break;
                                     }
 
-                                    try {
-                                        ArrayList<GalleryImage> images = new ArrayList<>();
-                                        JsonNode galleryItems = adapter.submission.getDataNode().get("gallery_data").get("items");
-                                        JsonNode mediaMetadata = adapter.submission.getDataNode().get("media_metadata");
+                                    // Decide whether to launch the Pager (horizontal swipe) or vertical Gallery
+                                    if (SettingValues.albumSwipe) {
+                                        // Open horizontal ViewPager
+                                        Intent i = new Intent(getActivity(), RedditGalleryPager.class);
+                                        i.putExtra(RedditGalleryPager.SUBREDDIT, subreddit);
+                                        i.putExtra(MediaView.SUBMISSION_URL, adapter.submission.getUrl());
+                                        i.putExtra(EXTRA_SUBMISSION_TITLE, adapter.submission.getTitle());
+                                        // Pass the list of GalleryImage via a Serializable extra
+                                        i.putExtra(RedditGallery.GALLERY_URLS, images);
 
-                                        // Build up our list of GalleryImage objects
-                                        for (JsonNode galleryItem : galleryItems) {
-                                            String mediaId = galleryItem.get("media_id").asText();
-                                            JsonNode metaNode = mediaMetadata.get(mediaId);
-                                            if (metaNode != null) {
-                                                images.add(new GalleryImage(metaNode));
-                                            }
-                                        }
+                                        // Set DataShare for upvoting in gallery
+                                        DataShare.sharedSubmission = adapter.submission;
 
-                                        // If we didn’t get any images, fallback to opening in a browser
-                                        if (images.isEmpty()) {
-                                            LinkUtil.openExternally(adapter.submission.getUrl());
-                                            break;
-                                        }
+                                        startActivity(i);
+                                        getActivity().overridePendingTransition(R.anim.slideright, R.anim.fade_out);
+                                    } else {
+                                        // Open the vertical Gallery
+                                        Intent i = new Intent(getActivity(), RedditGallery.class);
+                                        i.putExtra(RedditGallery.SUBREDDIT, subreddit);
+                                        i.putExtra(MediaView.SUBMISSION_URL, adapter.submission.getUrl());
+                                        i.putExtra(EXTRA_SUBMISSION_TITLE, adapter.submission.getTitle());
+                                        // Pass the list of GalleryImage via a Serializable extra
+                                        i.putExtra(RedditGallery.GALLERY_URLS, images);
 
-                                        // Decide whether to launch the Pager (horizontal swipe) or vertical Gallery
-                                        if (SettingValues.albumSwipe) {
-                                            // Open horizontal ViewPager
-                                            Intent i = new Intent(getActivity(), RedditGalleryPager.class);
-                                            i.putExtra(RedditGalleryPager.SUBREDDIT, subreddit);
-                                            i.putExtra(MediaView.SUBMISSION_URL, adapter.submission.getUrl());
-                                            i.putExtra(EXTRA_SUBMISSION_TITLE, adapter.submission.getTitle());
-                                            // Pass the list of GalleryImage via a Serializable extra
-                                            i.putExtra(RedditGallery.GALLERY_URLS, images);
-                                            startActivity(i);
-                                            getActivity().overridePendingTransition(R.anim.slideright, R.anim.fade_out);
-                                        } else {
-                                            // Open the vertical Gallery
-                                            Intent i = new Intent(getActivity(), RedditGallery.class);
-                                            i.putExtra(RedditGallery.SUBREDDIT, subreddit);
-                                            i.putExtra(MediaView.SUBMISSION_URL, adapter.submission.getUrl());
-                                            i.putExtra(EXTRA_SUBMISSION_TITLE, adapter.submission.getTitle());
-                                            // Pass the list of GalleryImage via a Serializable extra
-                                            i.putExtra(RedditGallery.GALLERY_URLS, images);
-                                            startActivity(i);
-                                            getActivity().overridePendingTransition(R.anim.slideright, R.anim.fade_out);
-                                        }
-                                    } catch (Exception e) {
-                                        e.printStackTrace();
-                                        // If parsing fails, gracefully open externally as a fallback
-                                        LinkUtil.openExternally(adapter.submission.getUrl());
+                                        // Set DataShare for upvoting in gallery
+                                        DataShare.sharedSubmission = adapter.submission;
+
+                                        startActivity(i);
+                                        getActivity().overridePendingTransition(R.anim.slideright, R.anim.fade_out);
                                     }
-                                    break;
-                                case REDDIT:
-                                    SubmissionThumbnailHelper.openRedditContent(
-                                            adapter.submission.getUrl(), getActivity());
-                                    break;
-                                case LINK:
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                    // If parsing fails, gracefully open externally as a fallback
+                                    LinkUtil.openExternally(adapter.submission.getUrl());
+                                }
+                                break;
+                            case REDDIT:
+                                SubmissionThumbnailHelper.openRedditContent(
+                                        adapter.submission.getUrl(), getActivity());
+                                break;
+                            case LINK:
+                                LinkUtil.openUrl(
+                                        adapter.submission.getUrl(),
+                                        Palette.getColor(adapter.submission.getSubredditName()),
+                                        getActivity());
+                                break;
+                            case NONE:
+                            case SELF:
+                                if (adapter.submission.getSelftext().isEmpty()) {
+                                    Snackbar s = Snackbar.make(
+                                            rv,
+                                            R.string.submission_nocontent,
+                                            Snackbar.LENGTH_SHORT);
+                                    LayoutUtils.showSnackbar(s);
+
+                                } else {
+                                    LayoutInflater inflater = getActivity().getLayoutInflater();
+                                    final View dialoglayout = inflater.inflate(
+                                            R.layout.parent_comment_dialog, null);
+                                    adapter.setViews(
+                                            adapter.submission
+                                                    .getDataNode()
+                                                    .get("selftext_html")
+                                                    .asText(),
+                                            adapter.submission.getSubredditName(),
+                                            dialoglayout.findViewById(R.id.firstTextView),
+                                            dialoglayout.findViewById(R.id.commentOverflow));
+
+                                    new AlertDialog.Builder(getActivity())
+                                            .setView(dialoglayout)
+                                            .show();
+                                }
+                                break;
+                            case ALBUM:
+                                if (SettingValues.album) {
+                                    Intent i;
+                                    if (SettingValues.albumSwipe) {
+                                        i = new Intent(getActivity(), AlbumPager.class);
+                                        i.putExtra(
+                                                Album.EXTRA_URL, adapter.submission.getUrl());
+                                        i.putExtra(AlbumPager.SUBREDDIT, subreddit);
+                                    } else {
+                                        i = new Intent(getActivity(), Album.class);
+                                        i.putExtra(
+                                                Album.EXTRA_URL, adapter.submission.getUrl());
+                                        i.putExtra(Album.SUBREDDIT, subreddit);
+                                    }
+                                    i.putExtra(
+                                            EXTRA_SUBMISSION_TITLE,
+                                            adapter.submission.getTitle());
+                                    getActivity().startActivity(i);
+                                    getActivity()
+                                            .overridePendingTransition(
+                                                    R.anim.slideright, R.anim.fade_out);
+                                } else {
+                                    LinkUtil.openExternally(adapter.submission.getUrl());
+                                }
+                                break;
+                            case TUMBLR:
+                                if (SettingValues.image) {
+                                    Intent i;
+                                    if (SettingValues.albumSwipe) {
+                                        i = new Intent(getActivity(), TumblrPager.class);
+                                        i.putExtra(
+                                                Album.EXTRA_URL, adapter.submission.getUrl());
+                                        i.putExtra(TumblrPager.SUBREDDIT, subreddit);
+                                    } else {
+                                        i = new Intent(getActivity(), Tumblr.class);
+                                        i.putExtra(Tumblr.SUBREDDIT, subreddit);
+                                        i.putExtra(
+                                                Album.EXTRA_URL, adapter.submission.getUrl());
+                                    }
+                                    getActivity().startActivity(i);
+                                    getActivity()
+                                            .overridePendingTransition(
+                                                    R.anim.slideright, R.anim.fade_out);
+                                } else {
+                                    LinkUtil.openExternally(adapter.submission.getUrl());
+                                }
+                                break;
+                            case IMAGE:
+                                SubmissionThumbnailHelper.openImage(
+                                        type, getActivity(), adapter.submission, null, -1);
+                                break;
+                            case VREDDIT_REDIRECT:
+                            case VREDDIT_DIRECT:
+                            case GIF:
+                                SubmissionThumbnailHelper.openGif(
+                                        getActivity(), adapter.submission, -1);
+                                break;
+                            case VIDEO:
+                                if (!LinkUtil.tryOpenWithVideoPlugin(
+                                        adapter.submission.getUrl())) {
                                     LinkUtil.openUrl(
                                             adapter.submission.getUrl(),
-                                            Palette.getColor(adapter.submission.getSubredditName()),
+                                            Palette.getStatusBarColor(),
                                             getActivity());
-                                    break;
-                                case NONE:
-                                case SELF:
-                                    if (adapter.submission.getSelftext().isEmpty()) {
-                                        Snackbar s =
-                                                Snackbar.make(
-                                                        rv,
-                                                        R.string.submission_nocontent,
-                                                        Snackbar.LENGTH_SHORT);
-                                        LayoutUtils.showSnackbar(s);
-
-                                    } else {
-                                        LayoutInflater inflater = getActivity().getLayoutInflater();
-                                        final View dialoglayout =
-                                                inflater.inflate(
-                                                        R.layout.parent_comment_dialog, null);
-                                        adapter.setViews(
-                                                adapter.submission
-                                                        .getDataNode()
-                                                        .get("selftext_html")
-                                                        .asText(),
-                                                adapter.submission.getSubredditName(),
-                                                dialoglayout.findViewById(R.id.firstTextView),
-                                                dialoglayout.findViewById(R.id.commentOverflow));
-
-                                        new AlertDialog.Builder(getActivity())
-                                                .setView(dialoglayout)
-                                                .show();
-                                    }
-                                    break;
-                                case ALBUM:
-                                    if (SettingValues.album) {
-                                        Intent i;
-                                        if (SettingValues.albumSwipe) {
-                                            i = new Intent(getActivity(), AlbumPager.class);
-                                            i.putExtra(
-                                                    Album.EXTRA_URL, adapter.submission.getUrl());
-                                            i.putExtra(AlbumPager.SUBREDDIT, subreddit);
-                                        } else {
-                                            i = new Intent(getActivity(), Album.class);
-                                            i.putExtra(
-                                                    Album.EXTRA_URL, adapter.submission.getUrl());
-                                            i.putExtra(Album.SUBREDDIT, subreddit);
-                                        }
-                                        i.putExtra(
-                                                EXTRA_SUBMISSION_TITLE,
-                                                adapter.submission.getTitle());
-                                        getActivity().startActivity(i);
-                                        getActivity()
-                                                .overridePendingTransition(
-                                                        R.anim.slideright, R.anim.fade_out);
-                                    } else {
-                                        LinkUtil.openExternally(adapter.submission.getUrl());
-                                    }
-                                    break;
-                                case TUMBLR:
-                                    if (SettingValues.image) {
-                                        Intent i;
-                                        if (SettingValues.albumSwipe) {
-                                            i = new Intent(getActivity(), TumblrPager.class);
-                                            i.putExtra(
-                                                    Album.EXTRA_URL, adapter.submission.getUrl());
-                                            i.putExtra(TumblrPager.SUBREDDIT, subreddit);
-                                        } else {
-                                            i = new Intent(getActivity(), Tumblr.class);
-                                            i.putExtra(Tumblr.SUBREDDIT, subreddit);
-                                            i.putExtra(
-                                                    Album.EXTRA_URL, adapter.submission.getUrl());
-                                        }
-                                        getActivity().startActivity(i);
-                                        getActivity()
-                                                .overridePendingTransition(
-                                                        R.anim.slideright, R.anim.fade_out);
-                                    } else {
-                                        LinkUtil.openExternally(adapter.submission.getUrl());
-                                    }
-                                    break;
-                                case IMAGE:
-                                    SubmissionThumbnailHelper.openImage(
-                                            type, getActivity(), adapter.submission, null, -1);
-                                    break;
-                                case VREDDIT_REDIRECT:
-                                case VREDDIT_DIRECT:
-                                case GIF:
-                                    SubmissionThumbnailHelper.openGif(
-                                            getActivity(), adapter.submission, -1);
-                                    break;
-                                case VIDEO:
-                                    if (!LinkUtil.tryOpenWithVideoPlugin(
-                                            adapter.submission.getUrl())) {
-                                        LinkUtil.openUrl(
-                                                adapter.submission.getUrl(),
-                                                Palette.getStatusBarColor(),
-                                                getActivity());
-                                    }
-                            }
-                        } else {
-                            LinkUtil.openExternally(adapter.submission.getUrl());
+                                }
                         }
+                    } else {
+                        LinkUtil.openExternally(adapter.submission.getUrl());
                     }
                 }
+            }
                 return true;
             case R.id.reload:
                 if (comments != null) {
@@ -1200,12 +1163,11 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                     comments.loadMore(adapter, subreddit);
                 }
                 return true;
-            case R.id.collapse:
-                {
-                    if (adapter != null) {
-                        adapter.collapseAll();
-                    }
+            case R.id.collapse: {
+                if (adapter != null) {
+                    adapter.collapseAll();
                 }
+            }
                 return true;
             case android.R.id.home:
                 getActivity().onBackPressed();
@@ -1231,8 +1193,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                 currentlySubbed = Authentication.isLoggedIn && baseSub.isUserSubscriber();
                 subreddit = baseSub.getDisplayName();
                 try {
-                    View sidebar =
-                            getActivity().getLayoutInflater().inflate(R.layout.subinfo, null);
+                    View sidebar = getActivity().getLayoutInflater().inflate(R.layout.subinfo, null);
                     {
                         sidebar.findViewById(R.id.loader).setVisibility(View.GONE);
                         sidebar.findViewById(R.id.sidebar_text).setVisibility(View.GONE);
@@ -1311,22 +1272,18 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         new View.OnClickListener() {
                                             @Override
                                             public void onClick(View v) {
-                                                int style =
-                                                        new ColorPreferences(getActivity())
-                                                                .getThemeSubreddit(subreddit);
+                                                int style = new ColorPreferences(getActivity())
+                                                        .getThemeSubreddit(subreddit);
 
-                                                final Context contextThemeWrapper =
-                                                        new ContextThemeWrapper(
-                                                                getActivity(), style);
-                                                LayoutInflater localInflater =
-                                                        getActivity()
-                                                                .getLayoutInflater()
-                                                                .cloneInContext(
-                                                                        contextThemeWrapper);
+                                                final Context contextThemeWrapper = new ContextThemeWrapper(
+                                                        getActivity(), style);
+                                                LayoutInflater localInflater = getActivity()
+                                                        .getLayoutInflater()
+                                                        .cloneInContext(
+                                                                contextThemeWrapper);
 
-                                                final View dialoglayout =
-                                                        localInflater.inflate(
-                                                                R.layout.colorsub, null);
+                                                final View dialoglayout = localInflater.inflate(
+                                                        R.layout.colorsub, null);
 
                                                 ArrayList<String> arrayList = new ArrayList<>();
                                                 arrayList.add(subreddit);
@@ -1339,24 +1296,22 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         new View.OnClickListener() {
                                             @Override
                                             public void onClick(View v) {
-                                                final Dialog d =
-                                                        new MaterialDialog.Builder(getActivity())
-                                                                .title(R.string.sidebar_findingmods)
-                                                                .cancelable(true)
-                                                                .content(R.string.misc_please_wait)
-                                                                .progress(true, 100)
-                                                                .show();
+                                                final Dialog d = new MaterialDialog.Builder(getActivity())
+                                                        .title(R.string.sidebar_findingmods)
+                                                        .cancelable(true)
+                                                        .content(R.string.misc_please_wait)
+                                                        .progress(true, 100)
+                                                        .show();
                                                 new AsyncTask<Void, Void, Void>() {
                                                     ArrayList<UserRecord> mods;
 
                                                     @Override
                                                     protected Void doInBackground(Void... params) {
                                                         mods = new ArrayList<>();
-                                                        UserRecordPaginator paginator =
-                                                                new UserRecordPaginator(
-                                                                        Authentication.reddit,
-                                                                        subreddit,
-                                                                        "moderators");
+                                                        UserRecordPaginator paginator = new UserRecordPaginator(
+                                                                Authentication.reddit,
+                                                                subreddit,
+                                                                "moderators");
                                                         paginator.setSorting(Sorting.HOT);
                                                         paginator.setTimePeriod(TimePeriod.ALL);
                                                         while (paginator.hasNext()) {
@@ -1367,8 +1322,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
                                                     @Override
                                                     protected void onPostExecute(Void aVoid) {
-                                                        final ArrayList<String> names =
-                                                                new ArrayList<>();
+                                                        final ArrayList<String> names = new ArrayList<>();
                                                         for (UserRecord rec : mods) {
                                                             names.add(rec.getFullName());
                                                         }
@@ -1376,29 +1330,22 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                         new MaterialDialog.Builder(getActivity())
                                                                 .title(
                                                                         getString(
-                                                                                R.string
-                                                                                        .sidebar_submods,
+                                                                                R.string.sidebar_submods,
                                                                                 subreddit))
                                                                 .items(names)
                                                                 .itemsCallback(
-                                                                        new MaterialDialog
-                                                                                .ListCallback() {
+                                                                        new MaterialDialog.ListCallback() {
                                                                             @Override
                                                                             public void onSelection(
-                                                                                    MaterialDialog
-                                                                                            dialog,
+                                                                                    MaterialDialog dialog,
                                                                                     View itemView,
                                                                                     int which,
-                                                                                    CharSequence
-                                                                                            text) {
-                                                                                Intent i =
-                                                                                        new Intent(
-                                                                                                getActivity(),
-                                                                                                Profile
-                                                                                                        .class);
+                                                                                    CharSequence text) {
+                                                                                Intent i = new Intent(
+                                                                                        getActivity(),
+                                                                                        Profile.class);
                                                                                 i.putExtra(
-                                                                                        Profile
-                                                                                                .EXTRA_PROFILE,
+                                                                                        Profile.EXTRA_PROFILE,
                                                                                         names.get(
                                                                                                 which));
                                                                                 startActivity(i);
@@ -1406,24 +1353,16 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                         })
                                                                 .positiveText(R.string.btn_message)
                                                                 .onPositive(
-                                                                        new MaterialDialog
-                                                                                .SingleButtonCallback() {
+                                                                        new MaterialDialog.SingleButtonCallback() {
                                                                             @Override
                                                                             public void onClick(
-                                                                                    @NonNull
-                                                                                            MaterialDialog
-                                                                                                    dialog,
-                                                                                    @NonNull
-                                                                                            DialogAction
-                                                                                                    which) {
-                                                                                Intent i =
-                                                                                        new Intent(
-                                                                                                getActivity(),
-                                                                                                SendMessage
-                                                                                                        .class);
+                                                                                    @NonNull MaterialDialog dialog,
+                                                                                    @NonNull DialogAction which) {
+                                                                                Intent i = new Intent(
+                                                                                        getActivity(),
+                                                                                        SendMessage.class);
                                                                                 i.putExtra(
-                                                                                        SendMessage
-                                                                                                .EXTRA_NAME,
+                                                                                        SendMessage.EXTRA_NAME,
                                                                                         "/r/"
                                                                                                 + subreddit);
                                                                                 startActivity(i);
@@ -1442,10 +1381,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                         if (baseSub.getSidebar() != null && !baseSub.getSidebar().isEmpty()) {
                             sidebar.findViewById(R.id.sidebar_text).setVisibility(View.VISIBLE);
 
-                            final String text =
-                                    baseSub.getDataNode().get("description_html").asText();
-                            final SpoilerRobotoTextView body =
-                                    sidebar.findViewById(R.id.sidebar_text);
+                            final String text = baseSub.getDataNode().get("description_html").asText();
+                            final SpoilerRobotoTextView body = sidebar.findViewById(R.id.sidebar_text);
                             CommentOverflow overflow = sidebar.findViewById(R.id.commentOverflow);
                             setViews(text, baseSub.getDisplayName(), body, overflow);
                         } else {
@@ -1458,8 +1395,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         @Override
                                         public void onClick(View v) {
                                             new AsyncTask<Void, Void, Void>() {
-                                                HashMap<String, MultiReddit> multis =
-                                                        new HashMap<String, MultiReddit>();
+                                                HashMap<String, MultiReddit> multis = new HashMap<String, MultiReddit>();
 
                                                 @Override
                                                 protected Void doInBackground(Void... params) {
@@ -1467,8 +1403,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                         UserSubscriptions.syncMultiReddits(
                                                                 getContext());
                                                     }
-                                                    for (MultiReddit r :
-                                                            UserSubscriptions.multireddits) {
+                                                    for (MultiReddit r : UserSubscriptions.multireddits) {
                                                         multis.put(r.getDisplayName(), r);
                                                     }
                                                     return null;
@@ -1484,43 +1419,27 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                             + " to")
                                                             .items(multis.keySet())
                                                             .itemsCallback(
-                                                                    new MaterialDialog
-                                                                            .ListCallback() {
+                                                                    new MaterialDialog.ListCallback() {
                                                                         @Override
                                                                         public void onSelection(
-                                                                                MaterialDialog
-                                                                                        dialog,
+                                                                                MaterialDialog dialog,
                                                                                 View itemView,
                                                                                 final int which,
                                                                                 CharSequence text) {
-                                                                            new AsyncTask<
-                                                                                    Void,
-                                                                                    Void,
-                                                                                    Void>() {
+                                                                            new AsyncTask<Void, Void, Void>() {
                                                                                 @Override
-                                                                                protected Void
-                                                                                        doInBackground(
-                                                                                                Void
-                                                                                                                ...
-                                                                                                        params) {
+                                                                                protected Void doInBackground(
+                                                                                        Void... params) {
                                                                                     try {
-                                                                                        final String
-                                                                                                multiName =
-                                                                                                        multis
-                                                                                                                .keySet()
-                                                                                                                .toArray(
-                                                                                                                        new String
-                                                                                                                                [0])[
-                                                                                                                which];
-                                                                                        List<String>
-                                                                                                subs =
-                                                                                                        new ArrayList<
-                                                                                                                String>();
-                                                                                        for (MultiSubreddit
-                                                                                                sub :
-                                                                                                        multis.get(
-                                                                                                                        multiName)
-                                                                                                                .getSubreddits()) {
+                                                                                        final String multiName = multis
+                                                                                                .keySet()
+                                                                                                .toArray(
+                                                                                                        new String[0])[which];
+                                                                                        List<String> subs = new ArrayList<String>();
+                                                                                        for (MultiSubreddit sub : multis
+                                                                                                .get(
+                                                                                                        multiName)
+                                                                                                .getSubreddits()) {
                                                                                             subs
                                                                                                     .add(
                                                                                                             sub
@@ -1530,14 +1449,11 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                                 baseSub
                                                                                                         .getDisplayName());
                                                                                         new MultiRedditManager(
-                                                                                                        Authentication
-                                                                                                                .reddit)
+                                                                                                Authentication.reddit)
                                                                                                 .createOrUpdate(
-                                                                                                        new MultiRedditUpdateRequest
-                                                                                                                        .Builder(
-                                                                                                                        Authentication
-                                                                                                                                .name,
-                                                                                                                        multiName)
+                                                                                                        new MultiRedditUpdateRequest.Builder(
+                                                                                                                Authentication.name,
+                                                                                                                multiName)
                                                                                                                 .subreddits(
                                                                                                                         subs)
                                                                                                                 .build());
@@ -1550,53 +1466,38 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                                 .runOnUiThread(
                                                                                                         new Runnable() {
                                                                                                             @Override
-                                                                                                            public
-                                                                                                            void
-                                                                                                                    run() {
+                                                                                                            public void run() {
                                                                                                                 Snackbar
                                                                                                                         .make(
                                                                                                                                 toolbar,
                                                                                                                                 getString(
-                                                                                                                                        R
-                                                                                                                                                .string
-                                                                                                                                                .multi_subreddit_added,
+                                                                                                                                        R.string.multi_subreddit_added,
                                                                                                                                         multiName),
-                                                                                                                                Snackbar
-                                                                                                                                        .LENGTH_LONG)
+                                                                                                                                Snackbar.LENGTH_LONG)
                                                                                                                         .show();
                                                                                                             }
                                                                                                         });
                                                                                     } catch (final
                                                                                             NetworkException
-                                                                                            | ApiException
-                                                                                                    e) {
+                                                                                            | ApiException e) {
                                                                                         getActivity()
                                                                                                 .runOnUiThread(
                                                                                                         new Runnable() {
                                                                                                             @Override
-                                                                                                            public
-                                                                                                            void
-                                                                                                                    run() {
+                                                                                                            public void run() {
                                                                                                                 getActivity()
                                                                                                                         .runOnUiThread(
                                                                                                                                 new Runnable() {
                                                                                                                                     @Override
-                                                                                                                                    public
-                                                                                                                                    void
-                                                                                                                                            run() {
+                                                                                                                                    public void run() {
                                                                                                                                         Snackbar
                                                                                                                                                 .make(
                                                                                                                                                         toolbar,
                                                                                                                                                         getString(
-                                                                                                                                                                R
-                                                                                                                                                                        .string
-                                                                                                                                                                        .multi_error),
-                                                                                                                                                        Snackbar
-                                                                                                                                                                .LENGTH_LONG)
+                                                                                                                                                                R.string.multi_error),
+                                                                                                                                                        Snackbar.LENGTH_LONG)
                                                                                                                                                 .setAction(
-                                                                                                                                                        R
-                                                                                                                                                                .string
-                                                                                                                                                                .btn_ok,
+                                                                                                                                                        R.string.btn_ok,
                                                                                                                                                         null)
                                                                                                                                                 .show();
                                                                                                                                     }
@@ -1609,8 +1510,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                     return null;
                                                                                 }
                                                                             }.executeOnExecutor(
-                                                                                    AsyncTask
-                                                                                            .THREAD_POOL_EXECUTOR);
+                                                                                    AsyncTask.THREAD_POOL_EXECUTOR);
                                                                         }
                                                                     })
                                                             .show();
@@ -1626,13 +1526,12 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                         {
                             final TextView subscribe = sidebar.findViewById(R.id.subscribe);
 
-                            currentlySubbed =
-                                    Authentication.isLoggedIn
-                                            ? baseSub.isUserSubscriber()
-                                            : UserSubscriptions.getSubscriptions(getActivity())
-                                                    .contains(
-                                                            baseSub.getDisplayName()
-                                                                    .toLowerCase(Locale.ENGLISH));
+                            currentlySubbed = Authentication.isLoggedIn
+                                    ? baseSub.isUserSubscriber()
+                                    : UserSubscriptions.getSubscriptions(getActivity())
+                                            .contains(
+                                                    baseSub.getDisplayName()
+                                                            .toLowerCase(Locale.ENGLISH));
                             MiscUtil.doSubscribeButtonText(currentlySubbed, subscribe);
 
                             subscribe.setOnClickListener(
@@ -1646,88 +1545,69 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                         baseSub.getDisplayName()))
                                                         .setPositiveButton(
                                                                 R.string.reorder_add_subscribe,
-                                                                (dialog, which) ->
-                                                                        new AsyncTask<
-                                                                                Void,
-                                                                                Void,
-                                                                                Boolean>() {
-                                                                            @Override
-                                                                            public void
-                                                                                    onPostExecute(
-                                                                                            Boolean
-                                                                                                    success) {
-                                                                                if (!success) { // If subreddit was removed from account or not
-                                                                                    new AlertDialog
-                                                                                                    .Builder(
-                                                                                                    getActivity())
-                                                                                            .setTitle(
-                                                                                                    R
-                                                                                                            .string
-                                                                                                            .force_change_subscription)
-                                                                                            .setMessage(
-                                                                                                    R
-                                                                                                            .string
-                                                                                                            .force_change_subscription_desc)
-                                                                                            .setPositiveButton(
-                                                                                                    R
-                                                                                                            .string
-                                                                                                            .btn_yes,
-                                                                                                    (dialog1,
-                                                                                                            which1) -> {
-                                                                                                        changeSubscription(
-                                                                                                                baseSub,
-                                                                                                                true); // Force add the subscription
-                                                                                                        Snackbar
-                                                                                                                s =
-                                                                                                                        Snackbar
-                                                                                                                                .make(
-                                                                                                                                        toolbar,
-                                                                                                                                        getString(
-                                                                                                                                                R
-                                                                                                                                                        .string
-                                                                                                                                                        .misc_subscribed),
-                                                                                                                                        Snackbar
-                                                                                                                                                .LENGTH_SHORT);
-                                                                                                        LayoutUtils
-                                                                                                                .showSnackbar(
-                                                                                                                        s);
-                                                                                                    })
-                                                                                            .setNegativeButton(
-                                                                                                    R
-                                                                                                            .string
-                                                                                                            .btn_no,
-                                                                                                    null)
-                                                                                            .setCancelable(
-                                                                                                    false)
-                                                                                            .show();
-                                                                                } else {
-                                                                                    changeSubscription(
-                                                                                            baseSub,
-                                                                                            true);
-                                                                                }
-                                                                            }
+                                                                (dialog, which) -> new AsyncTask<Void, Void, Boolean>() {
+                                                                    @Override
+                                                                    public void onPostExecute(
+                                                                            Boolean success) {
+                                                                        if (!success) { // If subreddit was removed from
+                                                                                        // account or not
+                                                                            new AlertDialog.Builder(
+                                                                                    getActivity())
+                                                                                    .setTitle(
+                                                                                            R.string.force_change_subscription)
+                                                                                    .setMessage(
+                                                                                            R.string.force_change_subscription_desc)
+                                                                                    .setPositiveButton(
+                                                                                            R.string.btn_yes,
+                                                                                            (dialog1,
+                                                                                                    which1) -> {
+                                                                                                changeSubscription(
+                                                                                                        baseSub,
+                                                                                                        true); // Force
+                                                                                                               // add
+                                                                                                               // the
+                                                                                                               // subscription
+                                                                                                Snackbar s = Snackbar
+                                                                                                        .make(
+                                                                                                                toolbar,
+                                                                                                                getString(
+                                                                                                                        R.string.misc_subscribed),
+                                                                                                                Snackbar.LENGTH_SHORT);
+                                                                                                LayoutUtils
+                                                                                                        .showSnackbar(
+                                                                                                                s);
+                                                                                            })
+                                                                                    .setNegativeButton(
+                                                                                            R.string.btn_no,
+                                                                                            null)
+                                                                                    .setCancelable(
+                                                                                            false)
+                                                                                    .show();
+                                                                        } else {
+                                                                            changeSubscription(
+                                                                                    baseSub,
+                                                                                    true);
+                                                                        }
+                                                                    }
 
-                                                                            @Override
-                                                                            protected Boolean
-                                                                                    doInBackground(
-                                                                                            Void...
-                                                                                                    params) {
-                                                                                try {
-                                                                                    new AccountManager(
-                                                                                                    Authentication
-                                                                                                            .reddit)
-                                                                                            .subscribe(
-                                                                                                    baseSub);
-                                                                                } catch (
-                                                                                        NetworkException
-                                                                                                e) {
-                                                                                    return false; // Either network crashed or trying to unsubscribe to a subreddit that the account isn't subscribed to
-                                                                                }
-                                                                                return true;
-                                                                            }
-                                                                        }.executeOnExecutor(
-                                                                                AsyncTask
-                                                                                        .THREAD_POOL_EXECUTOR))
+                                                                    @Override
+                                                                    protected Boolean doInBackground(
+                                                                            Void... params) {
+                                                                        try {
+                                                                            new AccountManager(
+                                                                                    Authentication.reddit)
+                                                                                    .subscribe(
+                                                                                            baseSub);
+                                                                        } catch (NetworkException e) {
+                                                                            return false; // Either network crashed or
+                                                                                          // trying to unsubscribe to a
+                                                                                          // subreddit that the account
+                                                                                          // isn't subscribed to
+                                                                        }
+                                                                        return true;
+                                                                    }
+                                                                }.executeOnExecutor(
+                                                                        AsyncTask.THREAD_POOL_EXECUTOR))
                                                         .setNegativeButton(
                                                                 R.string.btn_cancel, null)
                                                         .setNeutralButton(
@@ -1737,13 +1617,10 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                             baseSub,
                                                                             true); // Force add the
                                                                     // subscription
-                                                                    Snackbar s =
-                                                                            Snackbar.make(
-                                                                                    toolbar,
-                                                                                    R.string
-                                                                                            .sub_added,
-                                                                                    Snackbar
-                                                                                            .LENGTH_SHORT);
+                                                                    Snackbar s = Snackbar.make(
+                                                                            toolbar,
+                                                                            R.string.sub_added,
+                                                                            Snackbar.LENGTH_SHORT);
                                                                     LayoutUtils.showSnackbar(s);
                                                                 })
                                                         .show();
@@ -1772,88 +1649,69 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                         baseSub.getDisplayName()))
                                                         .setPositiveButton(
                                                                 R.string.reorder_remove_unsubscribe,
-                                                                (dialog, which) ->
-                                                                        new AsyncTask<
-                                                                                Void,
-                                                                                Void,
-                                                                                Boolean>() {
-                                                                            @Override
-                                                                            public void
-                                                                                    onPostExecute(
-                                                                                            Boolean
-                                                                                                    success) {
-                                                                                if (!success) { // If subreddit was removed from account or not
-                                                                                    new AlertDialog
-                                                                                                    .Builder(
-                                                                                                    getContext())
-                                                                                            .setTitle(
-                                                                                                    R
-                                                                                                            .string
-                                                                                                            .force_change_subscription)
-                                                                                            .setMessage(
-                                                                                                    R
-                                                                                                            .string
-                                                                                                            .force_change_subscription_desc)
-                                                                                            .setPositiveButton(
-                                                                                                    R
-                                                                                                            .string
-                                                                                                            .btn_yes,
-                                                                                                    (dialog12,
-                                                                                                            which12) -> {
-                                                                                                        changeSubscription(
-                                                                                                                baseSub,
-                                                                                                                false); // Force add the subscription
-                                                                                                        Snackbar
-                                                                                                                s =
-                                                                                                                        Snackbar
-                                                                                                                                .make(
-                                                                                                                                        toolbar,
-                                                                                                                                        getString(
-                                                                                                                                                R
-                                                                                                                                                        .string
-                                                                                                                                                        .misc_unsubscribed),
-                                                                                                                                        Snackbar
-                                                                                                                                                .LENGTH_SHORT);
-                                                                                                        LayoutUtils
-                                                                                                                .showSnackbar(
-                                                                                                                        s);
-                                                                                                    })
-                                                                                            .setNegativeButton(
-                                                                                                    R
-                                                                                                            .string
-                                                                                                            .btn_no,
-                                                                                                    null)
-                                                                                            .setCancelable(
-                                                                                                    false)
-                                                                                            .show();
-                                                                                } else {
-                                                                                    changeSubscription(
-                                                                                            baseSub,
-                                                                                            false);
-                                                                                }
-                                                                            }
+                                                                (dialog, which) -> new AsyncTask<Void, Void, Boolean>() {
+                                                                    @Override
+                                                                    public void onPostExecute(
+                                                                            Boolean success) {
+                                                                        if (!success) { // If subreddit was removed from
+                                                                                        // account or not
+                                                                            new AlertDialog.Builder(
+                                                                                    getContext())
+                                                                                    .setTitle(
+                                                                                            R.string.force_change_subscription)
+                                                                                    .setMessage(
+                                                                                            R.string.force_change_subscription_desc)
+                                                                                    .setPositiveButton(
+                                                                                            R.string.btn_yes,
+                                                                                            (dialog12,
+                                                                                                    which12) -> {
+                                                                                                changeSubscription(
+                                                                                                        baseSub,
+                                                                                                        false); // Force
+                                                                                                                // add
+                                                                                                                // the
+                                                                                                                // subscription
+                                                                                                Snackbar s = Snackbar
+                                                                                                        .make(
+                                                                                                                toolbar,
+                                                                                                                getString(
+                                                                                                                        R.string.misc_unsubscribed),
+                                                                                                                Snackbar.LENGTH_SHORT);
+                                                                                                LayoutUtils
+                                                                                                        .showSnackbar(
+                                                                                                                s);
+                                                                                            })
+                                                                                    .setNegativeButton(
+                                                                                            R.string.btn_no,
+                                                                                            null)
+                                                                                    .setCancelable(
+                                                                                            false)
+                                                                                    .show();
+                                                                        } else {
+                                                                            changeSubscription(
+                                                                                    baseSub,
+                                                                                    false);
+                                                                        }
+                                                                    }
 
-                                                                            @Override
-                                                                            protected Boolean
-                                                                                    doInBackground(
-                                                                                            Void...
-                                                                                                    params) {
-                                                                                try {
-                                                                                    new AccountManager(
-                                                                                                    Authentication
-                                                                                                            .reddit)
-                                                                                            .unsubscribe(
-                                                                                                    baseSub);
-                                                                                } catch (
-                                                                                        NetworkException
-                                                                                                e) {
-                                                                                    return false; // Either network crashed or trying to unsubscribe to a subreddit that the account isn't subscribed to
-                                                                                }
-                                                                                return true;
-                                                                            }
-                                                                        }.executeOnExecutor(
-                                                                                AsyncTask
-                                                                                        .THREAD_POOL_EXECUTOR))
+                                                                    @Override
+                                                                    protected Boolean doInBackground(
+                                                                            Void... params) {
+                                                                        try {
+                                                                            new AccountManager(
+                                                                                    Authentication.reddit)
+                                                                                    .unsubscribe(
+                                                                                            baseSub);
+                                                                        } catch (NetworkException e) {
+                                                                            return false; // Either network crashed or
+                                                                                          // trying to unsubscribe to a
+                                                                                          // subreddit that the account
+                                                                                          // isn't subscribed to
+                                                                        }
+                                                                        return true;
+                                                                    }
+                                                                }.executeOnExecutor(
+                                                                        AsyncTask.THREAD_POOL_EXECUTOR))
                                                         .setNeutralButton(
                                                                 R.string.just_unsub,
                                                                 (dialog, which) -> {
@@ -1861,13 +1719,10 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                             baseSub,
                                                                             false); // Force add the
                                                                     // subscription
-                                                                    Snackbar s =
-                                                                            Snackbar.make(
-                                                                                    toolbar,
-                                                                                    R.string
-                                                                                            .misc_unsubscribed,
-                                                                                    Snackbar
-                                                                                            .LENGTH_SHORT);
+                                                                    Snackbar s = Snackbar.make(
+                                                                            toolbar,
+                                                                            R.string.misc_unsubscribed,
+                                                                            Snackbar.LENGTH_SHORT);
                                                                     LayoutUtils.showSnackbar(s);
                                                                 })
                                                         .setNegativeButton(
@@ -1951,13 +1806,12 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
         @Override
         protected void onPreExecute() {
-            d =
-                    new MaterialDialog.Builder(getActivity())
-                            .title(R.string.subreddit_sidebar_progress)
-                            .progress(true, 100)
-                            .content(R.string.misc_please_wait)
-                            .cancelable(false)
-                            .show();
+            d = new MaterialDialog.Builder(getActivity())
+                    .title(R.string.subreddit_sidebar_progress)
+                    .progress(true, 100)
+                    .content(R.string.misc_please_wait)
+                    .cancelable(false)
+                    .show();
         }
     }
 
@@ -1988,8 +1842,10 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
     public void doAdapter(boolean load) {
         commentSorting = SettingValues.getCommentSorting(subreddit);
-        if (load) doRefresh(true);
-        if (load) loaded = true;
+        if (load)
+            doRefresh(true);
+        if (load)
+            loaded = true;
         if (!single
                 && getActivity() instanceof CommentsScreen
                 && ((CommentsScreen) getActivity()).subredditPosts != null
@@ -2010,12 +1866,14 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                 String sorting = s.getDataNode().get("suggested_sort").asText().toUpperCase();
                 sorting = sorting.replace("İ", "I");
                 commentSorting = CommentSort.valueOf(sorting);
-                Log.d("CommentPage", "Using suggested sort: " + commentSorting.name() + " because no custom preference exists");
+                Log.d("CommentPage",
+                        "Using suggested sort: " + commentSorting.name() + " because no custom preference exists");
             } else if (s != null) {
                 commentSorting = SettingValues.getCommentSorting(s.getSubredditName());
                 Log.d("CommentPage", "Using saved comment sort preference: " + commentSorting.name());
             }
-            if (load) comments.setSorting(commentSorting);
+            if (load)
+                comments.setSorting(commentSorting);
             if (adapter == null) {
                 adapter = new CommentAdapter(this, comments, rv, s, getFragmentManager());
                 rv.setAdapter(adapter);
@@ -2035,12 +1893,14 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                     String sorting = s.getDataNode().get("suggested_sort").asText().toUpperCase();
                     sorting = sorting.replace("İ", "I");
                     commentSorting = CommentSort.valueOf(sorting);
-                    Log.d("CommentPage", "Using suggested sort: " + commentSorting.name() + " because no custom preference exists");
+                    Log.d("CommentPage",
+                            "Using suggested sort: " + commentSorting.name() + " because no custom preference exists");
                 } else if (s != null) {
                     commentSorting = SettingValues.getCommentSorting(s.getSubredditName());
                     Log.d("CommentPage", "Using saved comment sort preference: " + commentSorting.name());
                 }
-                if (load) comments.setSorting(commentSorting);
+                if (load)
+                    comments.setSorting(commentSorting);
                 if (adapter == null) {
                     adapter = new CommentAdapter(this, comments, rv, s, getFragmentManager());
                     rv.setAdapter(adapter);
@@ -2057,12 +1917,11 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         } else {
             Submission s = null;
             try {
-                s =
-                        OfflineSubreddit.getSubmissionFromStorage(
-                                fullname.contains("_") ? fullname : "t3_" + fullname,
-                                getContext(),
-                                !NetworkUtil.isConnected(getActivity()),
-                                new ObjectMapper().reader());
+                s = OfflineSubreddit.getSubmissionFromStorage(
+                        fullname.contains("_") ? fullname : "t3_" + fullname,
+                        getContext(),
+                        !NetworkUtil.isConnected(getActivity()),
+                        new ObjectMapper().reader());
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -2088,20 +1947,19 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                 if (context.equals(Reddit.EMPTY_STRING)) {
                     comments = new SubmissionComments(fullname, this, mSwipeRefreshLayout);
                 } else {
-                    comments =
-                            new SubmissionComments(
-                                    fullname, this, mSwipeRefreshLayout, context, contextNumber);
+                    comments = new SubmissionComments(
+                            fullname, this, mSwipeRefreshLayout, context, contextNumber);
                 }
-                if (load) comments.setSorting(commentSorting);
+                if (load)
+                    comments.setSorting(commentSorting);
             }
         }
     }
 
     public void doData(Boolean b) {
         if (adapter == null || single) {
-            adapter =
-                    new CommentAdapter(
-                            this, comments, rv, comments.submission, getFragmentManager());
+            adapter = new CommentAdapter(
+                    this, comments, rv, comments.submission, getFragmentManager());
 
             rv.setAdapter(adapter);
             adapter.currentSelectedItem = context;
@@ -2154,7 +2012,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         contest = bundle.getBoolean("contest", false);
 
         loadMore = (!context.isEmpty() && !context.equals(Reddit.EMPTY_STRING));
-        if (!single) loadMore = false;
+        if (!single)
+            loadMore = false;
         int subredditStyle = new ColorPreferences(getActivity()).getThemeSubreddit(subreddit);
         contextThemeWrapper = new ContextThemeWrapper(getActivity(), subredditStyle);
         mLayoutManager = new PreCachingLayoutManagerComments(getActivity());
@@ -2163,15 +2022,16 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (comments != null) comments.cancelLoad();
+        if (comments != null)
+            comments.cancelLoad();
         if (adapter != null && adapter.currentComments != null) {
             if (adapter.currentlyEditing != null
                     && !adapter.currentlyEditing.getText().toString().isEmpty()) {
                 Drafts.addDraft(adapter.currentlyEditing.getText().toString());
                 Toast.makeText(
-                                getActivity().getApplicationContext(),
-                                R.string.msg_save_draft,
-                                Toast.LENGTH_LONG)
+                        getActivity().getApplicationContext(),
+                        R.string.msg_save_draft,
+                        Toast.LENGTH_LONG)
                         .show();
             }
         }
@@ -2199,39 +2059,36 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
     public void resetScroll(boolean override) {
         if (toolbarScroll == null) {
-            toolbarScroll =
-                    new ToolbarScrollHideHandler(
-                            toolbar,
-                            v.findViewById(R.id.header),
-                            v.findViewById(R.id.progress),
-                            SettingValues.commentAutoHide
-                                    ? v.findViewById(R.id.commentnav)
-                                    : null) {
-                        @Override
-                        public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
-                            super.onScrolled(recyclerView, dx, dy);
-                            if (SettingValues.fabComments) {
-                                if (recyclerView.getScrollState()
-                                                == RecyclerView.SCROLL_STATE_DRAGGING
-                                        && !overrideFab) {
-                                    diff += dy;
-                                } else if (!overrideFab) {
-                                    diff = 0;
+            toolbarScroll = new ToolbarScrollHideHandler(
+                    toolbar,
+                    v.findViewById(R.id.header),
+                    v.findViewById(R.id.progress),
+                    SettingValues.commentAutoHide
+                            ? v.findViewById(R.id.commentnav)
+                            : null) {
+                @Override
+                public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                    super.onScrolled(recyclerView, dx, dy);
+                    if (SettingValues.fabComments) {
+                        if (recyclerView.getScrollState() == RecyclerView.SCROLL_STATE_DRAGGING
+                                && !overrideFab) {
+                            diff += dy;
+                        } else if (!overrideFab) {
+                            diff = 0;
+                        }
+                        if (fab != null && !overrideFab) {
+                            if (dy <= 0 && fab.getId() != 0) {
+                                if (recyclerView.getScrollState() != RecyclerView.SCROLL_STATE_DRAGGING
+                                        || diff < -fab.getHeight() * 2) {
+                                    fab.show();
                                 }
-                                if (fab != null && !overrideFab) {
-                                    if (dy <= 0 && fab.getId() != 0) {
-                                        if (recyclerView.getScrollState()
-                                                        != RecyclerView.SCROLL_STATE_DRAGGING
-                                                || diff < -fab.getHeight() * 2) {
-                                            fab.show();
-                                        }
-                                    } else {
-                                        fab.hide();
-                                    }
-                                }
+                            } else {
+                                fab.hide();
                             }
                         }
-                    };
+                    }
+                }
+            };
             rv.addOnScrollListener(toolbarScroll);
         } else {
             toolbarScroll.reset = true;
@@ -2240,7 +2097,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         // This is the filter
-        if (event.getAction() != KeyEvent.ACTION_DOWN) return true;
+        if (event.getAction() != KeyEvent.ACTION_DOWN)
+            return true;
         if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
             goDown();
             return true;
@@ -2261,48 +2119,46 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
     private void openPopup(View view) {
         if (comments.comments != null && !comments.comments.isEmpty()) {
-            final DialogInterface.OnClickListener l2 =
-                    new DialogInterface.OnClickListener() {
+            final DialogInterface.OnClickListener l2 = new DialogInterface.OnClickListener() {
 
-                        @Override
-                        public void onClick(DialogInterface dialogInterface, int i) {
-                            switch (i) {
-                                case 0:
-                                    commentSorting = CommentSort.CONFIDENCE;
-                                    break;
-                                case 1:
-                                    commentSorting = CommentSort.TOP;
-                                    break;
-                                case 2:
-                                    commentSorting = CommentSort.NEW;
-                                    break;
-                                case 3:
-                                    commentSorting = CommentSort.CONTROVERSIAL;
-                                    break;
-                                case 4:
-                                    commentSorting = CommentSort.OLD;
-                                    break;
-                                case 5:
-                                    commentSorting = CommentSort.QA;
-                                    break;
-                            }
-                        }
-                    };
+                @Override
+                public void onClick(DialogInterface dialogInterface, int i) {
+                    switch (i) {
+                        case 0:
+                            commentSorting = CommentSort.CONFIDENCE;
+                            break;
+                        case 1:
+                            commentSorting = CommentSort.TOP;
+                            break;
+                        case 2:
+                            commentSorting = CommentSort.NEW;
+                            break;
+                        case 3:
+                            commentSorting = CommentSort.CONTROVERSIAL;
+                            break;
+                        case 4:
+                            commentSorting = CommentSort.OLD;
+                            break;
+                        case 5:
+                            commentSorting = CommentSort.QA;
+                            break;
+                    }
+                }
+            };
 
-            final int i =
-                    commentSorting == CommentSort.CONFIDENCE
-                            ? 0
-                            : commentSorting == CommentSort.TOP
-                                    ? 1
-                                    : commentSorting == CommentSort.NEW
-                                            ? 2
-                                            : commentSorting == CommentSort.CONTROVERSIAL
-                                                    ? 3
-                                                    : commentSorting == CommentSort.OLD
-                                                            ? 4
-                                                            : commentSorting == CommentSort.QA
-                                                                    ? 5
-                                                                    : 0;
+            final int i = commentSorting == CommentSort.CONFIDENCE
+                    ? 0
+                    : commentSorting == CommentSort.TOP
+                            ? 1
+                            : commentSorting == CommentSort.NEW
+                                    ? 2
+                                    : commentSorting == CommentSort.CONTROVERSIAL
+                                            ? 3
+                                            : commentSorting == CommentSort.OLD
+                                                    ? 4
+                                                    : commentSorting == CommentSort.QA
+                                                            ? 5
+                                                            : 0;
 
             Resources res = requireActivity().getBaseContext().getResources();
 
@@ -2310,12 +2166,12 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                     .setTitle(R.string.sorting_choose)
                     .setSingleChoiceItems(
                             new String[] {
-                                res.getString(R.string.sorting_best),
-                                res.getString(R.string.sorting_top),
-                                res.getString(R.string.sorting_new),
-                                res.getString(R.string.sorting_controversial),
-                                res.getString(R.string.sorting_old),
-                                res.getString(R.string.sorting_ama)
+                                    res.getString(R.string.sorting_best),
+                                    res.getString(R.string.sorting_top),
+                                    res.getString(R.string.sorting_new),
+                                    res.getString(R.string.sorting_controversial),
+                                    res.getString(R.string.sorting_old),
+                                    res.getString(R.string.sorting_ama)
                             },
                             i,
                             l2)
@@ -2353,48 +2209,41 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                 matches = o.comment.getDepth() == depth;
                                 if (matches) {
                                     adapter.currentNode = o.comment;
-                                    adapter.currentSelectedItem =
-                                            o.comment.getComment().getFullName();
+                                    adapter.currentSelectedItem = o.comment.getComment().getFullName();
                                 }
                             }
                             break;
                         case TIME:
-                            matches =
-                                    (o.comment.getComment() != null
-                                            && o.comment.getComment().getCreated().getTime()
-                                                    > sortTime);
+                            matches = (o.comment.getComment() != null
+                                    && o.comment.getComment().getCreated().getTime() > sortTime);
 
                             break;
                         case GILDED:
-                            matches =
-                                    (o.comment.getComment().getTimesGilded() > 0
-                                            || o.comment.getComment().getTimesSilvered() > 0
-                                            || o.comment.getComment().getTimesPlatinized() > 0);
+                            matches = (o.comment.getComment().getTimesGilded() > 0
+                                    || o.comment.getComment().getTimesSilvered() > 0
+                                    || o.comment.getComment().getTimesPlatinized() > 0);
                             break;
                         case OP:
-                            matches =
-                                    adapter.submission != null
-                                            && o.comment
-                                                    .getComment()
-                                                    .getAuthor()
-                                                    .equals(adapter.submission.getAuthor());
+                            matches = adapter.submission != null
+                                    && o.comment
+                                            .getComment()
+                                            .getAuthor()
+                                            .equals(adapter.submission.getAuthor());
                             break;
                         case YOU:
-                            matches =
-                                    adapter.submission != null
-                                            && o.comment
-                                                    .getComment()
-                                                    .getAuthor()
-                                                    .equals(Authentication.name);
+                            matches = adapter.submission != null
+                                    && o.comment
+                                            .getComment()
+                                            .getAuthor()
+                                            .equals(Authentication.name);
                             break;
                         case LINK:
-                            matches =
-                                    o.comment
-                                            .getComment()
-                                            .getDataNode()
-                                            .get("body_html")
-                                            .asText()
-                                            .contains("&lt;/a");
+                            matches = o.comment
+                                    .getComment()
+                                    .getDataNode()
+                                    .get("body_html")
+                                    .asText()
+                                    .contains("&lt;/a");
                             break;
                     }
                     if (matches) {
@@ -2449,7 +2298,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
             depth = adapter.currentNode.getDepth();
         }
         int pos = old - 2;
-        if (pos < 0) pos = 0;
+        if (pos < 0)
+            pos = 0;
         String original = adapter.currentComments.get(adapter.getRealPosition(pos)).getName();
         if (old < 2) {
             (((PreCachingLayoutManagerComments) rv.getLayoutManager()))
@@ -2475,8 +2325,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     matches = o.comment.getDepth() == depth;
                                     if (matches) {
                                         adapter.currentNode = o.comment;
-                                        adapter.currentSelectedItem =
-                                                o.comment.getComment().getFullName();
+                                        adapter.currentSelectedItem = o.comment.getComment().getFullName();
                                     }
                                 }
                                 break;
@@ -2484,35 +2333,31 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                 matches = o.comment.getComment().getCreated().getTime() > sortTime;
                                 break;
                             case GILDED:
-                                matches =
-                                        (o.comment.getComment().getTimesGilded() > 0
-                                                || o.comment.getComment().getTimesSilvered() > 0
-                                                || o.comment.getComment().getTimesPlatinized() > 0);
+                                matches = (o.comment.getComment().getTimesGilded() > 0
+                                        || o.comment.getComment().getTimesSilvered() > 0
+                                        || o.comment.getComment().getTimesPlatinized() > 0);
                                 break;
                             case OP:
-                                matches =
-                                        adapter.submission != null
-                                                && o.comment
-                                                        .getComment()
-                                                        .getAuthor()
-                                                        .equals(adapter.submission.getAuthor());
+                                matches = adapter.submission != null
+                                        && o.comment
+                                                .getComment()
+                                                .getAuthor()
+                                                .equals(adapter.submission.getAuthor());
                                 break;
                             case YOU:
-                                matches =
-                                        adapter.submission != null
-                                                && o.comment
-                                                        .getComment()
-                                                        .getAuthor()
-                                                        .equals(Authentication.name);
+                                matches = adapter.submission != null
+                                        && o.comment
+                                                .getComment()
+                                                .getAuthor()
+                                                .equals(Authentication.name);
                                 break;
                             case LINK:
-                                matches =
-                                        o.comment
-                                                .getComment()
-                                                .getDataNode()
-                                                .get("body_html")
-                                                .asText()
-                                                .contains("&lt;/a");
+                                matches = o.comment
+                                        .getComment()
+                                        .getDataNode()
+                                        .get("body_html")
+                                        .asText()
+                                        .contains("&lt;/a");
                                 break;
                         }
                         if (matches) {
@@ -2568,13 +2413,12 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         UserSubscriptions.addSubreddit(
                 subreddit.getDisplayName().toLowerCase(Locale.ENGLISH), getContext());
 
-        Snackbar s =
-                Snackbar.make(
-                        toolbar,
-                        isChecked
-                                ? getString(R.string.misc_subscribed)
-                                : getString(R.string.misc_unsubscribed),
-                        Snackbar.LENGTH_SHORT);
+        Snackbar s = Snackbar.make(
+                toolbar,
+                isChecked
+                        ? getString(R.string.misc_subscribed)
+                        : getString(R.string.misc_unsubscribed),
+                Snackbar.LENGTH_SHORT);
         LayoutUtils.showSnackbar(s);
     }
 
@@ -2590,7 +2434,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         List<String> blocks = SubmissionParser.getBlocks(rawHTML);
 
         int startIndex = 0;
-        // the <div class="md"> case is when the body contains a table or code block first
+        // the <div class="md"> case is when the body contains a table or code block
+        // first
         if (!blocks.get(0).equals("<div class=\"md\">")) {
             firstTextView.setVisibility(View.VISIBLE);
             firstTextView.setTextHtml(blocks.get(0), subreddit);
@@ -2615,9 +2460,12 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
     long sortTime = 0;
 
     /**
-     * This method will get the measured height of the text view taking into account if the text is
-     * multiline. This is done by drawing the text using TextPaint and measuring the height of the
-     * text in a text view with padding and alignment using StaticLayout. More details can be found
+     * This method will get the measured height of the text view taking into account
+     * if the text is
+     * multiline. This is done by drawing the text using TextPaint and measuring the
+     * height of the
+     * text in a text view with padding and alignment using StaticLayout. More
+     * details can be found
      * in this thread:
      * https://stackoverflow.com/questions/41779934/how-is-staticlayout-used-in-android/41779935#41779935
      */
@@ -2627,26 +2475,26 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         textPaint.setTextSize(tv.getTextSize());
         textPaint.setColor(tv.getCurrentTextColor());
 
-        // Since these text views takes the whole width of the screen, we get the width of the
-        // screen and subtract right and left padding to get the actual width of the text view
-        int deviceWidth =
-                getResources().getDisplayMetrics().widthPixels
-                        - tv.getPaddingLeft()
-                        - tv.getPaddingRight();
+        // Since these text views takes the whole width of the screen, we get the width
+        // of the
+        // screen and subtract right and left padding to get the actual width of the
+        // text view
+        int deviceWidth = getResources().getDisplayMetrics().widthPixels
+                - tv.getPaddingLeft()
+                - tv.getPaddingRight();
         Layout.Alignment alignment = Layout.Alignment.ALIGN_CENTER;
 
         float spacingMultiplier = tv.getLineSpacingMultiplier();
         float spacingAddition = tv.getLineSpacingExtra();
 
-        StaticLayout staticLayout =
-                new StaticLayout(
-                        tv.getText(),
-                        textPaint,
-                        deviceWidth,
-                        alignment,
-                        spacingMultiplier,
-                        spacingAddition,
-                        false);
+        StaticLayout staticLayout = new StaticLayout(
+                tv.getText(),
+                textPaint,
+                deviceWidth,
+                alignment,
+                spacingMultiplier,
+                spacingAddition,
+                false);
 
         // Add top and bottom padding to the height and return the value
         return staticLayout.getHeight() + tv.getPaddingTop() + tv.getPaddingBottom();
