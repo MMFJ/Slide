@@ -666,22 +666,23 @@ public class MediaView extends BaseSaveActivity {
                         diffY < -minSwipeDistance && // Upward direction
                         Math.abs(velocityY) > SWIPE_THRESHOLD_VELOCITY) { // Fast enough
 
-                    // For images, only check if we can pan down (i.e., we're not already at top)
-                    // This allows upvoting from anywhere except the very top of a pannable image
+                    // For images, only allow upvote when fully zoomed out
+                    // This is simpler and more intuitive than checking scroll position
                     SubsamplingScaleImageView imageView = (SubsamplingScaleImageView) findViewById(
                             R.id.submission_image);
                     boolean canTriggerUpvote = true;
 
                     if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
-                        // If image is visible and can be panned, check if we're at the top
-                        PointF vTranslate = imageView.vTranslate;
-                        if (vTranslate != null && vTranslate.y > 10) {
-                            // Image is not at the top (we're panned down), don't trigger upvote
-                            // This prevents conflict with panning gesture
+                        // Check if image is zoomed in
+                        float currentScale = imageView.getScale();
+                        float minScale = imageView.getMinScale();
+
+                        // Allow small tolerance (1%) for floating point comparison
+                        if (currentScale > minScale * 1.01f) {
+                            // Image is zoomed in, don't trigger upvote to avoid conflict with panning
                             canTriggerUpvote = false;
                         }
-                        // If vTranslate is null or near 0, image fits on screen or is at top - allow
-                        // upvote
+                        // If at minimum scale (fully zoomed out), allow upvote
                     }
 
                     if (canTriggerUpvote) {
