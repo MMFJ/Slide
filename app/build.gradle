@@ -50,7 +50,8 @@ android {
         targetSdk 35
         vectorDrawables.useSupportLibrary true
         versionCode 742
-        versionName androidGitVersion.name()
+        // MMFJ versioning: upstream version (7.3.8) + build number
+        versionName "7.3.8.${versionCode}"
     }
 
     flavorDimensions "variant"
