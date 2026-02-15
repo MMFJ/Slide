@@ -49,10 +49,17 @@ android {
         multiDexEnabled true
         targetSdk 35
         vectorDrawables.useSupportLibrary true
+<<<<<<< HEAD
         versionCode 1
         // MMFJ versioning: cygnusx-1-org/Slide version (7.4.0) + build number
         versionName "7.4.0.${versionCode}"
 >>>>>>> ef855dd56... Fix image upvote gesture and improve download gesture (v7.4.1)
+=======
+        versionCode 742
+        // MMFJ versioning: cygnusx-1-org/Slide version (7.3.9) + build number
+        // TODO: Update to 7.3.9.X in next release
+        versionName "7.3.8.${versionCode}"
+>>>>>>> fecc21020... Fix image upvote DataShare and setup repository (v7.3.8.742)
     }
 
     flavorDimensions "variant"
