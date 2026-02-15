@@ -2,6 +2,8 @@ package me.edgan.redditslide.Activities;
 
 import static me.edgan.redditslide.Notifications.ImageDownloadNotificationService.EXTRA_SUBMISSION_TITLE;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.app.NotificationManager;
 import android.content.ComponentName;
@@ -43,7 +45,10 @@ import com.nostra13.universalimageloader.core.imageaware.ImageViewAware;
 import com.nostra13.universalimageloader.core.listener.ImageLoadingListener;
 import com.nostra13.universalimageloader.core.listener.ImageLoadingProgressListener;
 
+import me.edgan.redditslide.ActionStates;
+import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.DataShare;
 import me.edgan.redditslide.Fragments.SubmissionsView;
 import me.edgan.redditslide.Notifications.ImageDownloadNotificationService;
 import me.edgan.redditslide.R;
@@ -55,6 +60,7 @@ import me.edgan.redditslide.Views.ExoVideoView;
 import me.edgan.redditslide.Views.ImageSource;
 import me.edgan.redditslide.Views.SubsamplingScaleImageView;
 import me.edgan.redditslide.Visuals.ColorPreferences;
+import me.edgan.redditslide.Vote;
 import me.edgan.redditslide.util.AnimatorUtil;
 import me.edgan.redditslide.util.BlendModeUtil;
 import me.edgan.redditslide.util.CompatUtil;
@@ -69,6 +75,9 @@ import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.ShareUtil;
 import me.edgan.redditslide.util.StorageUtil;
 import me.edgan.redditslide.util.MiscUtil;
+
+import net.dean.jraw.models.Submission;
+import net.dean.jraw.models.VoteDirection;
 
 import org.apache.commons.text.StringEscapeUtils;
 
@@ -166,7 +175,7 @@ public class MediaView extends BaseSaveActivity {
     }
 
     public void showBottomSheetImage() {
-        int[] attrs = new int[] {R.attr.tintColor};
+        int[] attrs = new int[] { R.attr.tintColor };
         TypedArray ta = obtainStyledAttributes(attrs);
 
         int color = ta.getColor(0, Color.WHITE);
@@ -178,8 +187,7 @@ public class MediaView extends BaseSaveActivity {
         Drawable file = getResources().getDrawable(R.drawable.ic_save);
         Drawable thread = getResources().getDrawable(R.drawable.ic_forum);
 
-        final List<Drawable> drawableSet =
-                Arrays.asList(external, share, image, save, collection, file, thread);
+        final List<Drawable> drawableSet = Arrays.asList(external, share, image, save, collection, file, thread);
         BlendModeUtil.tintDrawablesAsSrcAtop(drawableSet, color);
 
         ta.recycle();
@@ -191,7 +199,8 @@ public class MediaView extends BaseSaveActivity {
         b.sheet(2, external, getString(R.string.open_externally));
         b.sheet(5, share, getString(R.string.submission_link_share));
 
-        if (!isGif) b.sheet(3, image, getString(R.string.share_image));
+        if (!isGif)
+            b.sheet(3, image, getString(R.string.share_image));
         b.sheet(4, save, "Save " + (isGif ? "MP4" : "image"));
         Drawable folder = getResources().getDrawable(R.drawable.ic_folder);
         if (isGif
@@ -219,54 +228,45 @@ public class MediaView extends BaseSaveActivity {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         switch (which) {
-                            case (2):
-                                {
-                                    LinkUtil.openExternally(contentUrl);
-                                    break;
-                                }
-                            case (3):
-                                {
-                                    ShareUtil.shareImage(actuallyLoaded, MediaView.this);
-                                    break;
-                                }
-                            case (5):
-                                {
-                                    Reddit.defaultShareText(
-                                            "",
-                                            StringEscapeUtils.unescapeHtml4(contentUrl),
-                                            MediaView.this);
-                                    break;
-                                }
-                            case (6):
-                                {
-                                    saveFile(contentUrl);
-                                }
+                            case (2): {
+                                LinkUtil.openExternally(contentUrl);
                                 break;
-                            case (15):
-                                {
-                                    new OpenVRedditTask(MediaView.this, subreddit)
-                                            .executeOnExecutor(
-                                                    AsyncTask.THREAD_POOL_EXECUTOR, contentUrl);
-                                }
+                            }
+                            case (3): {
+                                ShareUtil.shareImage(actuallyLoaded, MediaView.this);
                                 break;
-                            case (9):
-                                {
-                                    shareGif(contentUrl);
-                                }
+                            }
+                            case (5): {
+                                Reddit.defaultShareText(
+                                        "",
+                                        StringEscapeUtils.unescapeHtml4(contentUrl),
+                                        MediaView.this);
                                 break;
-                            case (4):
-                                {
-                                    String urlToSave =
-                                            actuallyLoaded != null ? actuallyLoaded : contentUrl;
-                                    doImageSave(isGif, urlToSave, index);
-                                    break;
-                                }
-                            case (16):
-                                {
-                                    // Launch system directory picker for default save location
-                                    StorageUtil.showDirectoryChooser(MediaView.this);
-                                    break;
-                                }
+                            }
+                            case (6): {
+                                saveFile(contentUrl);
+                            }
+                                break;
+                            case (15): {
+                                new OpenVRedditTask(MediaView.this, subreddit)
+                                        .executeOnExecutor(
+                                                AsyncTask.THREAD_POOL_EXECUTOR, contentUrl);
+                            }
+                                break;
+                            case (9): {
+                                shareGif(contentUrl);
+                            }
+                                break;
+                            case (4): {
+                                String urlToSave = actuallyLoaded != null ? actuallyLoaded : contentUrl;
+                                doImageSave(isGif, urlToSave, index);
+                                break;
+                            }
+                            case (16): {
+                                // Launch system directory picker for default save location
+                                StorageUtil.showDirectoryChooser(MediaView.this);
+                                break;
+                            }
                         }
                     }
                 });
@@ -281,9 +281,9 @@ public class MediaView extends BaseSaveActivity {
                 index,
                 subreddit,
                 submissionTitle,
-                this::showFirstDialog
-        );
+                this::showFirstDialog);
     }
+
     public void saveFile(final String baseUrl) {
         Uri storageUri = StorageUtil.getStorageUri(this);
 
@@ -294,12 +294,15 @@ public class MediaView extends BaseSaveActivity {
         }
 
         Intent i = new Intent(this, ImageDownloadNotificationService.class);
-        // always download the original file, or use the cached original if that is currently
+        // always download the original file, or use the cached original if that is
+        // currently
         // displayed
         i.putExtra("actuallyLoaded", contentUrl);
         i.putExtra("downloadUri", storageUri.toString());
-        if (subreddit != null && !subreddit.isEmpty()) i.putExtra("subreddit", subreddit);
-        if (submissionTitle != null) i.putExtra(EXTRA_SUBMISSION_TITLE, submissionTitle);
+        if (subreddit != null && !subreddit.isEmpty())
+            i.putExtra("subreddit", subreddit);
+        if (submissionTitle != null)
+            i.putExtra(EXTRA_SUBMISSION_TITLE, submissionTitle);
         i.putExtra("index", index);
 
         ComponentName component = startService(i);
@@ -322,22 +325,19 @@ public class MediaView extends BaseSaveActivity {
                 } else if (!new File(Reddit.appRestart.getString("imagelocation", "")).exists()) {
                     showErrorDialog();
                 } else {
-                    final File f =
-                            new File(
-                                    Reddit.appRestart.getString("imagelocation", "")
-                                            + File.separator
-                                            + UUID.randomUUID().toString()
-                                            + baseUrl.substring(baseUrl.lastIndexOf(".")));
-                    mNotifyManager =
-                            ContextCompat.getSystemService(
-                                    MediaView.this, NotificationManager.class);
+                    final File f = new File(
+                            Reddit.appRestart.getString("imagelocation", "")
+                                    + File.separator
+                                    + UUID.randomUUID().toString()
+                                    + baseUrl.substring(baseUrl.lastIndexOf(".")));
+                    mNotifyManager = ContextCompat.getSystemService(
+                            MediaView.this, NotificationManager.class);
                     mBuilder = new NotificationCompat.Builder(MediaView.this, Reddit.CHANNEL_IMG);
                     mBuilder.setContentTitle(getString(R.string.mediaview_saving, baseUrl))
                             .setSmallIcon(R.drawable.ic_download);
                     try {
 
-                        final URL url =
-                                new URL(baseUrl); // wont exist on server yet, just load the full
+                        final URL url = new URL(baseUrl); // wont exist on server yet, just load the full
                         // version
                         URLConnection ucon = url.openConnection();
                         ucon.setReadTimeout(5000);
@@ -365,25 +365,22 @@ public class MediaView extends BaseSaveActivity {
                         inStream.close();
                         MediaScannerConnection.scanFile(
                                 MediaView.this,
-                                new String[] {f.getAbsolutePath()},
+                                new String[] { f.getAbsolutePath() },
                                 null,
                                 new MediaScannerConnection.OnScanCompletedListener() {
                                     public void onScanCompleted(String path, Uri uri) {
-                                        Intent mediaScanIntent =
-                                                FileUtil.getFileIntent(
-                                                        f,
-                                                        new Intent(
-                                                                Intent
-                                                                        .ACTION_MEDIA_SCANNER_SCAN_FILE),
-                                                        MediaView.this);
+                                        Intent mediaScanIntent = FileUtil.getFileIntent(
+                                                f,
+                                                new Intent(
+                                                        Intent.ACTION_MEDIA_SCANNER_SCAN_FILE),
+                                                MediaView.this);
                                         MediaView.this.sendBroadcast(mediaScanIntent);
 
                                         final Intent shareIntent = new Intent(Intent.ACTION_SEND);
                                         startActivity(
                                                 Intent.createChooser(shareIntent, "Share GIF"));
-                                        NotificationManager mNotificationManager =
-                                                ContextCompat.getSystemService(
-                                                        MediaView.this, NotificationManager.class);
+                                        NotificationManager mNotificationManager = ContextCompat.getSystemService(
+                                                MediaView.this, NotificationManager.class);
                                         if (mNotificationManager != null) {
                                             mNotificationManager.cancel(1);
                                         }
@@ -401,7 +398,8 @@ public class MediaView extends BaseSaveActivity {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (findViewById(R.id.submission_image) != null && ((SubsamplingScaleImageView) findViewById(R.id.submission_image)) != null) {
+        if (findViewById(R.id.submission_image) != null
+                && ((SubsamplingScaleImageView) findViewById(R.id.submission_image)) != null) {
             ((SubsamplingScaleImageView) findViewById(R.id.submission_image)).recycle();
         }
         if (gif != null) { // This is GifUtils.AsyncLoadGif for ExoVideoView
@@ -420,7 +418,8 @@ public class MediaView extends BaseSaveActivity {
         }
 
         if (!didLoadGif && fileLoc != null && !fileLoc.isEmpty()) {
-            // This fileLoc seems related to an old way of handling gifs, review if still needed
+            // This fileLoc seems related to an old way of handling gifs, review if still
+            // needed
             // For now, keeping it as is.
             new File(fileLoc).delete();
         }
@@ -558,10 +557,9 @@ public class MediaView extends BaseSaveActivity {
                 && (SettingValues.lowResAlways
                         || (!NetworkUtil.isConnectedWifi(this) && SettingValues.lowResMobile))) {
             String url = contentUrl;
-            url =
-                    url.substring(0, url.lastIndexOf("."))
-                            + (SettingValues.lqLow ? "m" : (SettingValues.lqMid ? "l" : "h"))
-                            + url.substring(url.lastIndexOf("."));
+            url = url.substring(0, url.lastIndexOf("."))
+                    + (SettingValues.lqLow ? "m" : (SettingValues.lqMid ? "l" : "h"))
+                    + url.substring(url.lastIndexOf("."));
 
             displayImage(url);
             findViewById(R.id.hq)
@@ -605,8 +603,7 @@ public class MediaView extends BaseSaveActivity {
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
-                                String urlToSave =
-                                        actuallyLoaded != null ? actuallyLoaded : contentUrl;
+                                String urlToSave = actuallyLoaded != null ? actuallyLoaded : contentUrl;
                                 doImageSave(isGif, urlToSave, index);
                             }
                         });
@@ -614,30 +611,31 @@ public class MediaView extends BaseSaveActivity {
             findViewById(R.id.save).setVisibility(View.INVISIBLE);
         }
 
-        // Initialize swipe gesture detector for swipe-to-download
+        // Initialize swipe gesture detector for swipe-to-download and swipe-to-upvote
         final float density = getResources().getDisplayMetrics().density;
         final int minSwipeDistance = (int) (SWIPE_MIN_DISTANCE * density);
-        
+
         swipeGestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
                 if (e1 == null || e2 == null) {
                     return false;
                 }
-                
+
                 float diffY = e2.getY() - e1.getY();
                 float diffX = e2.getX() - e1.getX();
-                
-                // Check if this is a downward swipe
+
+                // Check if this is a downward swipe (download)
                 if (Math.abs(diffY) > Math.abs(diffX) && // More vertical than horizontal
-                    diffY > minSwipeDistance && // Downward direction
-                    Math.abs(velocityY) > SWIPE_THRESHOLD_VELOCITY) { // Fast enough
-                    
+                        diffY > minSwipeDistance && // Downward direction
+                        Math.abs(velocityY) > SWIPE_THRESHOLD_VELOCITY) { // Fast enough
+
                     // Check if the image view is at the top (cannot pan further up)
                     // This prevents conflicts with normal panning gestures
-                    SubsamplingScaleImageView imageView = (SubsamplingScaleImageView) findViewById(R.id.submission_image);
+                    SubsamplingScaleImageView imageView = (SubsamplingScaleImageView) findViewById(
+                            R.id.submission_image);
                     boolean canTriggerDownload = true;
-                    
+
                     if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
                         // If image is visible and can be panned, check if we're at the top
                         PointF vTranslate = imageView.vTranslate;
@@ -646,20 +644,58 @@ public class MediaView extends BaseSaveActivity {
                             canTriggerDownload = false;
                         }
                     }
-                    
+
                     if (canTriggerDownload) {
                         // Trigger download
                         String urlToSave = actuallyLoaded != null ? actuallyLoaded : contentUrl;
                         doImageSave(isGif, urlToSave, index);
-                        
+
                         // Provide haptic feedback
                         findViewById(R.id.save).performHapticFeedback(
-                            android.view.HapticFeedbackConstants.LONG_PRESS);
-                        
+                                android.view.HapticFeedbackConstants.LONG_PRESS);
+
                         return true;
                     }
                 }
-                
+
+                // Check if this is an upward swipe (upvote)
+                if (Math.abs(diffY) > Math.abs(diffX) && // More vertical than horizontal
+                        diffY < -minSwipeDistance && // Upward direction
+                        Math.abs(velocityY) > SWIPE_THRESHOLD_VELOCITY) { // Fast enough
+
+                    // Check if the image view is at the bottom (cannot pan further down)
+                    // This prevents conflicts with normal panning gestures
+                    SubsamplingScaleImageView imageView = (SubsamplingScaleImageView) findViewById(
+                            R.id.submission_image);
+                    boolean canTriggerUpvote = true;
+
+                    if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
+                        // If image is visible and can be panned, check if we're at the bottom
+                        PointF vTranslate = imageView.vTranslate;
+                        if (vTranslate != null && imageView.getScale() != null) {
+                            // Calculate the maximum Y translation (bottom position)
+                            float maxY = Math.max(0,
+                                    (imageView.getScale() * imageView.getSHeight()) - imageView.getHeight());
+                            // Check if we're not at the bottom (with a small threshold)
+                            if (vTranslate.y < maxY - 10) {
+                                // Image is not at the bottom, don't trigger upvote
+                                canTriggerUpvote = false;
+                            }
+                        }
+                    }
+
+                    if (canTriggerUpvote) {
+                        // Trigger upvote
+                        handleUpvoteGesture();
+
+                        // Provide haptic feedback
+                        findViewById(R.id.save).performHapticFeedback(
+                                android.view.HapticFeedbackConstants.LONG_PRESS);
+
+                        return true;
+                    }
+                }
+
                 return false;
             }
         });
@@ -707,7 +743,8 @@ public class MediaView extends BaseSaveActivity {
             Log.v(TAG, "Loading direct GIF: " + gifUrl); // Changed to Log.v
             findViewById(R.id.gifarea).setVisibility(View.VISIBLE); // Ensure gifarea is visible for progress bar
             findViewById(R.id.submission_image).setVisibility(View.GONE);
-            if (videoView != null) videoView.setVisibility(View.GONE); // Hide ExoVideoView
+            if (videoView != null)
+                videoView.setVisibility(View.GONE); // Hide ExoVideoView
             directGifViewer.setVisibility(View.VISIBLE); // Show our ImageView
             loader.setVisibility(View.VISIBLE);
             loader.setIndeterminate(true); // Indeterminate for download phase
@@ -722,7 +759,8 @@ public class MediaView extends BaseSaveActivity {
             GifUtils.downloadGif(gifUrl, new GifUtils.GifDownloadCallback() {
                 @Override
                 public void onGifDownloaded(File gifFile) {
-                    if (isFinishing() || isDestroyed()) return;
+                    if (isFinishing() || isDestroyed())
+                        return;
                     runOnUiThread(() -> {
                         loader.setVisibility(View.GONE);
                         Movie movie = Movie.decodeFile(gifFile.getAbsolutePath());
@@ -746,19 +784,21 @@ public class MediaView extends BaseSaveActivity {
                             directGifViewer.setImageDrawable(activeGifDrawable);
                             activeGifDrawable.start();
                             didLoadGif = true; // Mark that a GIF was successfully loaded this way
-                            fileLoc = gifFile.getAbsolutePath(); // Potentially for cleanup, though this might need review
+                            fileLoc = gifFile.getAbsolutePath(); // Potentially for cleanup, though this might need
+                                                                 // review
                         } else {
                             Log.e(TAG, "Failed to decode direct GIF: " + gifUrl);
                             Toast.makeText(MediaView.this, "Failed to load GIF.", Toast.LENGTH_SHORT).show();
                             // Optionally, try to open externally or show a specific error view
-                             finish(); // Or handle error more gracefully
+                            finish(); // Or handle error more gracefully
                         }
                     });
                 }
 
                 @Override
                 public void onGifDownloadFailed(Exception e) {
-                    if (isFinishing() || isDestroyed()) return;
+                    if (isFinishing() || isDestroyed())
+                        return;
                     runOnUiThread(() -> {
                         loader.setVisibility(View.GONE);
                         Log.e(TAG, "Failed to download direct GIF: " + gifUrl, e);
@@ -769,9 +809,11 @@ public class MediaView extends BaseSaveActivity {
             }, this, submissionTitle);
 
         } else {
-            // Existing logic for Gfycat, Streamable, v.redd.it, etc., using ExoVideoView via AsyncLoadGif
+            // Existing logic for Gfycat, Streamable, v.redd.it, etc., using ExoVideoView
+            // via AsyncLoadGif
             Log.v(TAG, "Loading GIF/video via AsyncLoadGif (ExoPlayer): " + gifUrl); // Changed to Log.v
-            if (directGifViewer != null) directGifViewer.setVisibility(View.GONE); // Hide our direct ImageViewer
+            if (directGifViewer != null)
+                directGifViewer.setVisibility(View.GONE); // Hide our direct ImageViewer
             videoView = (ExoVideoView) findViewById(R.id.gif);
             videoView.setVisibility(View.VISIBLE); // Ensure ExoVideoView is visible
 
@@ -792,7 +834,8 @@ public class MediaView extends BaseSaveActivity {
             loader.setVisibility(View.VISIBLE); // Progress bar for AsyncLoadGif
             findViewById(R.id.progress).setVisibility(View.GONE); // Main progress bar for images
 
-            // Ensure this.gif (AsyncLoadGif) is not mixed up with activeGifDrawable (GifDrawable)
+            // Ensure this.gif (AsyncLoadGif) is not mixed up with activeGifDrawable
+            // (GifDrawable)
             if (this.gif != null) { // Cancel previous AsyncLoadGif if any
                 this.gif.cancel(true);
             }
@@ -809,7 +852,8 @@ public class MediaView extends BaseSaveActivity {
                             submissionTitle);
             // Show and attach speed button for GIFs (relevant for ExoVideoView)
             ImageView speedBtn = (ImageView) findViewById(R.id.speed);
-            if (speedBtn != null) speedBtn.setVisibility(View.VISIBLE);
+            if (speedBtn != null)
+                speedBtn.setVisibility(View.VISIBLE);
             videoView.attachMuteButton((ImageView) findViewById(R.id.mute));
             videoView.attachHqButton((ImageView) findViewById(R.id.hq));
             videoView.attachSpeedButton(speedBtn, this);
@@ -835,7 +879,8 @@ public class MediaView extends BaseSaveActivity {
         String hash = url.substring(url.lastIndexOf("/"));
 
         if (NetworkUtil.isConnected(this)) {
-            if (hash.startsWith("/")) hash = hash.substring(1);
+            if (hash.startsWith("/"))
+                hash = hash.substring(1);
             final String apiUrl = "https://api.imgur.com/3/image/" + hash;
             LogUtil.v(apiUrl);
 
@@ -853,20 +898,18 @@ public class MediaView extends BaseSaveActivity {
                     } else {
                         try {
                             if (result != null && !result.isJsonNull() && result.has("image")) {
-                                String type =
-                                        result.get("image")
-                                                .getAsJsonObject()
-                                                .get("image")
-                                                .getAsJsonObject()
-                                                .get("type")
-                                                .getAsString();
-                                String urls =
-                                        result.get("image")
-                                                .getAsJsonObject()
-                                                .get("links")
-                                                .getAsJsonObject()
-                                                .get("original")
-                                                .getAsString();
+                                String type = result.get("image")
+                                        .getAsJsonObject()
+                                        .get("image")
+                                        .getAsJsonObject()
+                                        .get("type")
+                                        .getAsString();
+                                String urls = result.get("image")
+                                        .getAsJsonObject()
+                                        .get("links")
+                                        .getAsJsonObject()
+                                        .get("original")
+                                        .getAsString();
 
                                 if (type.contains("gif")) {
                                     doLoadGif(urls);
@@ -874,23 +917,20 @@ public class MediaView extends BaseSaveActivity {
                                     displayImage(urls);
                                 }
                             } else if (result != null && result.has("data")) {
-                                String type =
-                                        result.get("data")
-                                                .getAsJsonObject()
-                                                .get("type")
-                                                .getAsString();
-                                String urls =
-                                        result.get("data")
-                                                .getAsJsonObject()
-                                                .get("link")
-                                                .getAsString();
+                                String type = result.get("data")
+                                        .getAsJsonObject()
+                                        .get("type")
+                                        .getAsString();
+                                String urls = result.get("data")
+                                        .getAsJsonObject()
+                                        .get("link")
+                                        .getAsString();
                                 String mp4 = "";
                                 if (result.get("data").getAsJsonObject().has("mp4")) {
-                                    mp4 =
-                                            result.get("data")
-                                                    .getAsJsonObject()
-                                                    .get("mp4")
-                                                    .getAsString();
+                                    mp4 = result.get("data")
+                                            .getAsJsonObject()
+                                            .get("mp4")
+                                            .getAsString();
                                 }
 
                                 if (type.contains("gif")) {
@@ -899,7 +939,8 @@ public class MediaView extends BaseSaveActivity {
                                     displayImage(urls);
                                 }
                             } else {
-                                if (!imageShown) doLoadImage(finalUrl);
+                                if (!imageShown)
+                                    doLoadImage(finalUrl);
                             }
                         } catch (Exception e2) {
                             e2.printStackTrace();
@@ -1095,8 +1136,7 @@ public class MediaView extends BaseSaveActivity {
 
         if (!imageShown) {
             actuallyLoaded = url;
-            final SubsamplingScaleImageView i =
-                    (SubsamplingScaleImageView) findViewById(R.id.submission_image);
+            final SubsamplingScaleImageView i = (SubsamplingScaleImageView) findViewById(R.id.submission_image);
 
             i.setMinimumDpi(70);
             i.setMinimumTileDpi(240);
@@ -1105,12 +1145,11 @@ public class MediaView extends BaseSaveActivity {
             bar.setProgress(0);
 
             final Handler handler = new Handler();
-            final Runnable progressBarDelayRunner =
-                    new Runnable() {
-                        public void run() {
-                            bar.setVisibility(View.VISIBLE);
-                        }
-                    };
+            final Runnable progressBarDelayRunner = new Runnable() {
+                public void run() {
+                    bar.setVisibility(View.VISIBLE);
+                }
+            };
             handler.postDelayed(progressBarDelayRunner, 500);
 
             ImageView fakeImage = new ImageView(MediaView.this);
@@ -1144,8 +1183,7 @@ public class MediaView extends BaseSaveActivity {
                             @Override
                             public void run() {
                                 i.setOnStateChangedListener(
-                                        new SubsamplingScaleImageView
-                                                .DefaultOnStateChangedListener() {
+                                        new SubsamplingScaleImageView.DefaultOnStateChangedListener() {
                                             @Override
                                             public void onScaleChanged(float newScale, int origin) {
                                                 if (newScale > previous
@@ -1154,19 +1192,15 @@ public class MediaView extends BaseSaveActivity {
                                                     hidden = true;
                                                     final View base = findViewById(R.id.gifheader);
 
-                                                    ValueAnimator va =
-                                                            ValueAnimator.ofFloat(1.0f, 0.2f);
+                                                    ValueAnimator va = ValueAnimator.ofFloat(1.0f, 0.2f);
                                                     int mDuration = 250; // in millis
                                                     va.setDuration(mDuration);
                                                     va.addUpdateListener(
-                                                            new ValueAnimator
-                                                                    .AnimatorUpdateListener() {
+                                                            new ValueAnimator.AnimatorUpdateListener() {
                                                                 public void onAnimationUpdate(
                                                                         ValueAnimator animation) {
-                                                                    Float value =
-                                                                            (Float)
-                                                                                    animation
-                                                                                            .getAnimatedValue();
+                                                                    Float value = (Float) animation
+                                                                            .getAnimatedValue();
                                                                     base.setAlpha(value);
                                                                 }
                                                             });
@@ -1176,19 +1210,15 @@ public class MediaView extends BaseSaveActivity {
                                                     hidden = false;
                                                     final View base = findViewById(R.id.gifheader);
 
-                                                    ValueAnimator va =
-                                                            ValueAnimator.ofFloat(0.2f, 1.0f);
+                                                    ValueAnimator va = ValueAnimator.ofFloat(0.2f, 1.0f);
                                                     int mDuration = 250; // in millis
                                                     va.setDuration(mDuration);
                                                     va.addUpdateListener(
-                                                            new ValueAnimator
-                                                                    .AnimatorUpdateListener() {
+                                                            new ValueAnimator.AnimatorUpdateListener() {
                                                                 public void onAnimationUpdate(
                                                                         ValueAnimator animation) {
-                                                                    Float value =
-                                                                            (Float)
-                                                                                    animation
-                                                                                            .getAnimatedValue();
+                                                                    Float value = (Float) animation
+                                                                            .getAnimatedValue();
                                                                     base.setAlpha(value);
                                                                 }
                                                             });
@@ -1221,7 +1251,8 @@ public class MediaView extends BaseSaveActivity {
                                     @Override
                                     public void onLoadingStarted(String imageUri, View view) {
                                         imageShown = true;
-                                        if (size != null) size.setVisibility(View.VISIBLE);
+                                        if (size != null)
+                                            size.setVisibility(View.VISIBLE);
                                     }
 
                                     @Override
@@ -1235,13 +1266,13 @@ public class MediaView extends BaseSaveActivity {
                                     public void onLoadingComplete(
                                             String imageUri, View view, Bitmap loadedImage) {
                                         imageShown = true;
-                                        if (size != null) size.setVisibility(View.GONE);
+                                        if (size != null)
+                                            size.setVisibility(View.GONE);
 
-                                        File f =
-                                                ((Reddit) getApplicationContext())
-                                                        .getImageLoader()
-                                                        .getDiskCache()
-                                                        .get(url);
+                                        File f = ((Reddit) getApplicationContext())
+                                                .getImageLoader()
+                                                .getDiskCache()
+                                                .get(url);
                                         if (f != null && f.exists()) {
                                             i.loader.setImage(ImageSource.uri(f.getAbsolutePath()));
                                         } else {
@@ -1253,8 +1284,7 @@ public class MediaView extends BaseSaveActivity {
                                         previous = i.scale;
                                         final float base = i.scale;
                                         i.setOnStateChangedListener(
-                                                new SubsamplingScaleImageView
-                                                        .DefaultOnStateChangedListener() {
+                                                new SubsamplingScaleImageView.DefaultOnStateChangedListener() {
                                                     @Override
                                                     public void onScaleChanged(
                                                             float newScale, int origin) {
@@ -1262,25 +1292,18 @@ public class MediaView extends BaseSaveActivity {
                                                                 && !hidden
                                                                 && newScale > base) {
                                                             hidden = true;
-                                                            final View base =
-                                                                    findViewById(R.id.gifheader);
+                                                            final View base = findViewById(R.id.gifheader);
 
-                                                            ValueAnimator va =
-                                                                    ValueAnimator.ofFloat(
-                                                                            1.0f, 0.2f);
+                                                            ValueAnimator va = ValueAnimator.ofFloat(
+                                                                    1.0f, 0.2f);
                                                             int mDuration = 250; // in millis
                                                             va.setDuration(mDuration);
                                                             va.addUpdateListener(
-                                                                    new ValueAnimator
-                                                                            .AnimatorUpdateListener() {
-                                                                        public void
-                                                                                onAnimationUpdate(
-                                                                                        ValueAnimator
-                                                                                                animation) {
-                                                                            Float value =
-                                                                                    (Float)
-                                                                                            animation
-                                                                                                    .getAnimatedValue();
+                                                                    new ValueAnimator.AnimatorUpdateListener() {
+                                                                        public void onAnimationUpdate(
+                                                                                ValueAnimator animation) {
+                                                                            Float value = (Float) animation
+                                                                                    .getAnimatedValue();
                                                                             base.setAlpha(value);
                                                                         }
                                                                     });
@@ -1288,25 +1311,18 @@ public class MediaView extends BaseSaveActivity {
                                                             // hide
                                                         } else if (newScale <= previous && hidden) {
                                                             hidden = false;
-                                                            final View base =
-                                                                    findViewById(R.id.gifheader);
+                                                            final View base = findViewById(R.id.gifheader);
 
-                                                            ValueAnimator va =
-                                                                    ValueAnimator.ofFloat(
-                                                                            0.2f, 1.0f);
+                                                            ValueAnimator va = ValueAnimator.ofFloat(
+                                                                    0.2f, 1.0f);
                                                             int mDuration = 250; // in millis
                                                             va.setDuration(mDuration);
                                                             va.addUpdateListener(
-                                                                    new ValueAnimator
-                                                                            .AnimatorUpdateListener() {
-                                                                        public void
-                                                                                onAnimationUpdate(
-                                                                                        ValueAnimator
-                                                                                                animation) {
-                                                                            Float value =
-                                                                                    (Float)
-                                                                                            animation
-                                                                                                    .getAnimatedValue();
+                                                                    new ValueAnimator.AnimatorUpdateListener() {
+                                                                        public void onAnimationUpdate(
+                                                                                ValueAnimator animation) {
+                                                                            Float value = (Float) animation
+                                                                                    .getAnimatedValue();
                                                                             base.setAlpha(value);
                                                                         }
                                                                     });
@@ -1351,12 +1367,15 @@ public class MediaView extends BaseSaveActivity {
         // Retry the save operation with the new permissions
         if (lastContentUrl != null) {
             Intent i = new Intent(this, ImageDownloadNotificationService.class);
-            // always download the original file, or use the cached original if that is currently
+            // always download the original file, or use the cached original if that is
+            // currently
             // displayed
             i.putExtra("actuallyLoaded", lastContentUrl);
             i.putExtra("downloadUri", StorageUtil.getStorageUri(this).toString());
-            if (subreddit != null && !subreddit.isEmpty()) i.putExtra("subreddit", subreddit);
-            if (submissionTitle != null) i.putExtra(EXTRA_SUBMISSION_TITLE, submissionTitle);
+            if (subreddit != null && !subreddit.isEmpty())
+                i.putExtra("subreddit", subreddit);
+            if (submissionTitle != null)
+                i.putExtra(EXTRA_SUBMISSION_TITLE, submissionTitle);
             i.putExtra("index", index);
 
             Log.d(TAG, "Starting download service with URI: " + StorageUtil.getStorageUri(this));
@@ -1369,6 +1388,116 @@ public class MediaView extends BaseSaveActivity {
                         .show();
             }
             lastContentUrl = null;
+        }
+    }
+
+    /**
+     * Handles the upvote gesture triggered by swiping up
+     */
+    private void handleUpvoteGesture() {
+        // Check if user is logged in
+        if (!Authentication.isLoggedIn || !Authentication.didOnline) {
+            Toast.makeText(this, R.string.vote_err_login, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Check if we have access to the submission
+        Submission submission = DataShare.sharedSubmission;
+        if (submission == null) {
+            Toast.makeText(this, "Upvoting not available", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Get current vote direction
+        VoteDirection currentVote = ActionStates.getVoteDirection(submission);
+
+        // Toggle vote: if already upvoted, remove upvote; otherwise, upvote
+        boolean isUpvoting = (currentVote != VoteDirection.UPVOTE);
+
+        if (isUpvoting) {
+            // Upvote the submission
+            new Vote(true, null, this).execute(submission);
+            ActionStates.setVoteDirection(submission, VoteDirection.UPVOTE);
+            showVoteFeedback(true);
+        } else {
+            // Remove upvote (set to no vote)
+            new Vote(null, this).execute(submission);
+            ActionStates.setVoteDirection(submission, VoteDirection.NO_VOTE);
+            showVoteFeedback(false);
+        }
+    }
+
+    /**
+     * Shows visual feedback for the vote action
+     * 
+     * @param isUpvote true if upvoting, false if removing upvote
+     */
+    private void showVoteFeedback(boolean isUpvote) {
+        // Create an ImageView for the feedback icon
+        final ImageView feedbackIcon = new ImageView(this);
+
+        // Set the appropriate icon and color
+        if (isUpvote) {
+            feedbackIcon.setImageResource(R.drawable.ic_check_circle);
+            BlendModeUtil.tintImageViewAsSrcAtop(feedbackIcon,
+                    ContextCompat.getColor(this, R.color.md_green_500));
+        } else {
+            feedbackIcon.setImageResource(R.drawable.ic_close);
+            BlendModeUtil.tintImageViewAsSrcAtop(feedbackIcon,
+                    ContextCompat.getColor(this, R.color.md_grey_600));
+        }
+
+        // Set size and position
+        int iconSize = (int) (72 * getResources().getDisplayMetrics().density); // 72dp
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(iconSize, iconSize);
+        feedbackIcon.setLayoutParams(params);
+        feedbackIcon.setAlpha(0f);
+
+        // Add to the root view
+        View rootView = findViewById(android.R.id.content);
+        if (rootView instanceof android.view.ViewGroup) {
+            android.view.ViewGroup viewGroup = (android.view.ViewGroup) rootView;
+
+            // Create a container to center the icon
+            LinearLayout container = new LinearLayout(this);
+            container.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT));
+            container.setGravity(android.view.Gravity.CENTER);
+            container.addView(feedbackIcon);
+            container.setClickable(false);
+            container.setFocusable(false);
+
+            viewGroup.addView(container);
+
+            // Animate: fade in, stay, fade out
+            feedbackIcon.animate()
+                    .alpha(1f)
+                    .setDuration(150)
+                    .setListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            // Stay visible for a moment
+                            new Handler().postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    // Fade out
+                                    feedbackIcon.animate()
+                                            .alpha(0f)
+                                            .setDuration(200)
+                                            .setListener(new AnimatorListenerAdapter() {
+                                                @Override
+                                                public void onAnimationEnd(Animator animation) {
+                                                    // Remove from view hierarchy
+                                                    viewGroup.removeView(container);
+                                                }
+                                            })
+                                            .start();
+                                }
+                            }, 500); // Stay visible for 500ms
+                        }
+                    })
+                    .start();
         }
     }
 }
