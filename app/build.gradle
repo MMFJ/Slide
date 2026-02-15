@@ -49,9 +49,14 @@ android {
         multiDexEnabled true
         targetSdk 35
         vectorDrawables.useSupportLibrary true
+<<<<<<< HEAD
         versionCode 1
         // MMFJ versioning: cygnusx-1-org/Slide version (7.4.0) + build number
         versionName "7.4.0.${versionCode}"
+=======
+        versionCode 741
+        versionName androidGitVersion.name()
+>>>>>>> ef855dd56... Fix image upvote gesture and improve download gesture (v7.4.1)
     }
 
     flavorDimensions "variant"
