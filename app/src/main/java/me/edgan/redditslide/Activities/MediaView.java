@@ -626,7 +626,9 @@ public class MediaView extends BaseSaveActivity {
                 float diffX = e2.getX() - e1.getX();
 
                 // Check if this is a downward swipe (download)
-                if (Math.abs(diffY) > Math.abs(diffX) && // More vertical than horizontal
+                // Require significantly more vertical than horizontal to avoid back gesture
+                // conflict
+                if (Math.abs(diffY) > Math.abs(diffX) * 2 && // Much more vertical than horizontal
                         diffY > minSwipeDistance && // Downward direction
                         Math.abs(velocityY) > SWIPE_THRESHOLD_VELOCITY) { // Fast enough
 
@@ -659,33 +661,27 @@ public class MediaView extends BaseSaveActivity {
                 }
 
                 // Check if this is an upward swipe (upvote)
-                if (Math.abs(diffY) > Math.abs(diffX) && // More vertical than horizontal
+                // Require significantly more vertical than horizontal to avoid conflicts
+                if (Math.abs(diffY) > Math.abs(diffX) * 2 && // Much more vertical than horizontal
                         diffY < -minSwipeDistance && // Upward direction
                         Math.abs(velocityY) > SWIPE_THRESHOLD_VELOCITY) { // Fast enough
 
-                    // Check if the image view is at the bottom (cannot pan further down)
-                    // This prevents conflicts with normal panning gestures
+                    // For images, only check if we can pan down (i.e., we're not already at top)
+                    // This allows upvoting from anywhere except the very top of a pannable image
                     SubsamplingScaleImageView imageView = (SubsamplingScaleImageView) findViewById(
                             R.id.submission_image);
                     boolean canTriggerUpvote = true;
 
                     if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
-                        // If image is visible and can be panned, check if we're at the bottom
+                        // If image is visible and can be panned, check if we're at the top
                         PointF vTranslate = imageView.vTranslate;
-                        if (vTranslate != null) {
-                            // Calculate the maximum Y translation (bottom position)
-                            float maxY = Math.max(0,
-                                    (imageView.getScale() * imageView.getSHeight()) - imageView.getHeight());
-                            // Check if we're not at the bottom (with a small threshold)
-                            // Check if we're not at the bottom (with a small threshold)
-                            // vTranslate.y is negative when scrolled down.
-                            // Bottom is when vTranslate.y <= -maxY.
-                            // So if vTranslate.y > -maxY + 10, we are NOT at the bottom.
-                            if (vTranslate.y > -maxY + 10) {
-                                // Image is not at the bottom, don't trigger upvote
-                                canTriggerUpvote = false;
-                            }
+                        if (vTranslate != null && vTranslate.y > 10) {
+                            // Image is not at the top (we're panned down), don't trigger upvote
+                            // This prevents conflict with panning gesture
+                            canTriggerUpvote = false;
                         }
+                        // If vTranslate is null or near 0, image fits on screen or is at top - allow
+                        // upvote
                     }
 
                     if (canTriggerUpvote) {
