@@ -25,8 +25,7 @@ public class StorageUtil {
         }
 
         try {
-            final int takeFlags =
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+            final int takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
             context.getContentResolver().takePersistableUriPermission(uri, takeFlags);
             DocumentFile dir = DocumentFile.fromTreeUri(context, uri);
             boolean hasAccess = dir != null && dir.exists() && dir.canWrite();
@@ -45,9 +44,8 @@ public class StorageUtil {
     }
 
     public static Uri getStorageUri(Context context) {
-        String uriStr =
-                context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-                        .getString(PREF_STORAGE_URI, null);
+        String uriStr = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                .getString(PREF_STORAGE_URI, null);
 
         if (uriStr != null) {
             Uri uri = Uri.parse(uriStr);
@@ -68,7 +66,11 @@ public class StorageUtil {
         try {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
             intent.addFlags(
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                            | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+            intent.putExtra("android.content.extra.SHOW_ADVANCED", true);
             activity.startActivityForResult(intent, REQUEST_STORAGE_ACCESS);
         } catch (Exception e) {
             LogUtil.e(e, TAG + "Error showing directory chooser: " + e.getMessage());
