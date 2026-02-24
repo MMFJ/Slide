@@ -6,6 +6,12 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.4.0.1 / 2026-02-23
+===================
+* Merged upstream 7.4.0: switched to stock image picker on Android 11+
+* Changed app icon to hot pink to visually distinguish MMFJ build from upstream
+* Updated versioning base from 7.3.9 to 7.4.0, reset MMFJ build number to 1
+
 7.3.9.6 / 2026-02-15
 ===================
 * Fixed image upvoting by adding DataShare.sharedSubmission in SubmissionThumbnailHelper
