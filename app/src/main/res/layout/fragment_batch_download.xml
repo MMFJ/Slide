@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/activity_background">
+
+    <!-- State 1: IDLE — tappable prompt -->
+    <LinearLayout
+        android:id="@+id/batch_dl_prompt"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="32dp">
+
+        <TextView
+            android:id="@+id/batch_dl_prompt_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/batch_dl_tap_prompt"
+            android:textAppearance="?android:attr/textAppearanceLarge"
+            android:textColor="?attr/fontColor"
+            android:gravity="center"
+            android:padding="16dp" />
+
+    </LinearLayout>
+
+    <!-- State 2: LOADING — spinner + counter (hidden initially) -->
+    <LinearLayout
+        android:id="@+id/batch_dl_loading"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:indeterminate="true" />
+
+        <TextView
+            android:id="@+id/batch_dl_loading_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/batch_dl_fetching"
+            android:textColor="?attr/fontColor" />
+
+    </LinearLayout>
+
+    <!-- State 3: READY — media list (hidden initially) -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/batch_dl_list"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingBottom="64dp"
+        android:clipToPadding="false"
+        android:scrollbars="vertical"
+        android:visibility="gone" />
+
+    <!-- Action bar — pinned to bottom (hidden initially) -->
+    <LinearLayout
+        android:id="@+id/batch_dl_action_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="?attr/card_background"
+        android:elevation="4dp"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <!-- Type filter button — wired in Phase 3 -->
+        <Button
+            android:id="@+id/batch_dl_type_btn"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/batch_dl_type_filter"
+            android:textColor="?attr/fontColor" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1" />
+
+        <!-- Select All icon button — wired in Phase 3 -->
+        <ImageButton
+            android:id="@+id/batch_dl_select_all"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/batch_dl_select_all"
+            android:src="@drawable/ic_done_all"
+            android:tint="?attr/fontColor" />
+
+        <!-- Download button — wired in Phase 4 -->
+        <Button
+            android:id="@+id/batch_dl_download"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/batch_dl_download"
+            android:textColor="?attr/fontColor" />
+
+    </LinearLayout>
+
+</FrameLayout>

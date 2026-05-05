@@ -48,6 +48,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import me.edgan.redditslide.Adapters.ContributionAdapter;
 import me.edgan.redditslide.Authentication;
+import me.edgan.redditslide.Fragments.BatchDownloadFragment;
 import me.edgan.redditslide.Fragments.ContributionsView;
 import me.edgan.redditslide.Fragments.HistoryView;
 import me.edgan.redditslide.R;
@@ -162,7 +163,8 @@ public class Profile extends BaseActivityAnim {
                         getString(R.string.profile_downvoted),
                         getString(R.string.profile_saved),
                         getString(R.string.profile_hidden),
-                        getString(R.string.profile_history)
+                        getString(R.string.profile_history),
+                        getString(R.string.profile_batch_dl)
                     });
         else
             setDataSet(
@@ -170,7 +172,8 @@ public class Profile extends BaseActivityAnim {
                         getString(R.string.profile_overview),
                         getString(R.string.profile_comments),
                         getString(R.string.profile_submitted),
-                        getString(R.string.profile_gilded)
+                        getString(R.string.profile_gilded),
+                        getString(R.string.profile_batch_dl)
                     });
 
         new getProfile().execute(name);
@@ -318,6 +321,17 @@ public class Profile extends BaseActivityAnim {
         @NonNull
         @Override
         public Fragment getItem(int i) {
+            // Batch DL tab is always the last entry in usedArray
+            if (usedArray != null
+                    && i == usedArray.length - 1
+                    && usedArray[i].equals(getString(R.string.profile_batch_dl))) {
+                BatchDownloadFragment f = new BatchDownloadFragment();
+                Bundle args = new Bundle();
+                args.putString("username", name);
+                f.setArguments(args);
+                return f;
+            }
+
             if (i < 8) {
                 Fragment f = new ContributionsView();
                 Bundle args = new Bundle();

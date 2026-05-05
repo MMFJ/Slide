@@ -6,6 +6,24 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.4.8.6 / 2026-05-05
+===================
+* Added "Batch DL" tab to Reddit user profile screens (own profile and other users)
+* Batch DL tab fetches submitted posts and finds all media (images, videos, and galleries)
+* Deduplicates media across multiple subreddit cross-posts using URL/ID canonical keys
+* Displays deduplicated media in a scrollable thumbnail list with checkboxes
+* Type filter (Images / Videos) dialog for narrowing the media list
+* Select All / deselect all toggle for bulk selection
+* Paginated "Load more" support to conserve API calls — fetches one page at a time
+* Fetch order follows the same sort/time preferences as the Overview and Submitted tabs
+* Bottom action bar auto-hides when scrolling down and reappears when scrolling up
+* Download button launches a foreground background service (BatchDownloadService)
+* Downloads run sequentially to avoid rate-limit abuse
+* Progress is tracked in a persistent notification with a Cancel action
+* Per-item success/failure feedback: checkmark on success, error icon on failure
+* Gallery posts expand to individual images/videos, each saved with sequential index
+* Saves media to the configured storage location respecting the subfolder-by-subreddit setting
+
 7.4.8.5 / 2026-05-05
 ===================
 * Fixed a crash when interacting with the info bar in certain view modes (e.g. Fullscreen)

@@ -90,7 +90,7 @@ public class GifUtils {
      */
     private static final Object DIRECTORY_LOCK = new Object();
 
-    public static void doNotifGif(DocumentFile docFile, Activity c) {
+    public static void doNotifGif(DocumentFile docFile, Context c) {
         try {
             final Intent shareIntent = new Intent(Intent.ACTION_VIEW);
             shareIntent.setDataAndType(docFile.getUri(), "video/mp4");
@@ -120,12 +120,12 @@ public class GifUtils {
         }
     }
 
-    private static void showErrorDialog(final Activity a) {
-        DialogUtil.showErrorDialog((MediaView) a);
+    private static void showErrorDialog(final Context a) {
+        if (a instanceof MediaView) DialogUtil.showErrorDialog((MediaView) a);
     }
 
-    private static void showFirstDialog(final Activity a) {
-        DialogUtil.showFirstDialog((MediaView) a);
+    private static void showFirstDialog(final Context a) {
+        if (a instanceof MediaView) DialogUtil.showFirstDialog((MediaView) a);
     }
 
     public static void downloadGif(
@@ -248,7 +248,7 @@ public class GifUtils {
     }
 
     public static void cacheSaveGif(
-            Uri uri, Activity activity, String subreddit, String submissionTitle, boolean save, int index) {
+            Uri uri, Context activity, String subreddit, String submissionTitle, boolean save, int index) {
         // Add debug logging
         Log.d(TAG, "cacheSaveGif called with submissionTitle: " + (submissionTitle != null ? "'" + submissionTitle + "'" : "null") + ", index: " + index);
 
@@ -534,7 +534,7 @@ public class GifUtils {
     }
 
     public static void cacheSaveGif(
-            Uri uri, Activity activity, String subreddit, String submissionTitle, boolean save) {
+            Uri uri, Context activity, String subreddit, String submissionTitle, boolean save) {
         // Call the new overloaded method with default index of -1
         cacheSaveGif(uri, activity, subreddit, submissionTitle, save, -1);
     }

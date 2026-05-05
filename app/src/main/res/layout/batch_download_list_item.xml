@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="8dp"
+    android:background="?attr/selectableItemBackground">
+
+    <!-- Selection checkbox -->
+    <CheckBox
+        android:id="@+id/batch_dl_checkbox"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp"
+        android:checked="true"
+        android:focusable="false" />
+
+    <!-- Thumbnail -->
+    <ImageView
+        android:id="@+id/batch_dl_thumbnail"
+        android:layout_width="72dp"
+        android:layout_height="72dp"
+        android:layout_marginEnd="12dp"
+        android:scaleType="centerCrop"
+        android:background="?attr/card_background"
+        android:contentDescription="@null" />
+
+    <!-- Title + subreddit -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/batch_dl_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:textColor="?attr/fontColor"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/batch_dl_subreddit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="?attr/fontColor"
+            android:textSize="12sp"
+            android:alpha="0.6" />
+
+    </LinearLayout>
+
+    <!-- Error icon — shown only when download failed (Phase 4) -->
+    <ImageView
+        android:id="@+id/batch_dl_error_icon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginStart="8dp"
+        android:src="@drawable/ic_report"
+        android:contentDescription="@string/batch_dl_item_failed"
+        android:visibility="gone" />
+
+</LinearLayout>

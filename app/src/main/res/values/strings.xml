@@ -155,6 +155,23 @@
     <string name="profile_search_results">%1$d results for \'%2$s\'</string>
     <string name="profile_search_clear">Clear search</string>
     <string name="profile_search_cleared">Search cleared</string>
+    <string name="profile_batch_dl">Batch DL</string>
+
+    <!-- Batch Download Tab -->
+    <string name="batch_dl_tap_prompt">Fetch submitted post links</string>
+    <string name="batch_dl_fetching">Fetching posts…</string>
+    <string name="batch_dl_scanned">Scanned %1$d posts…</string>
+    <string name="batch_dl_no_media">No media posts found</string>
+    <string name="batch_dl_type_filter">Type</string>
+    <string name="batch_dl_images">Images</string>
+    <string name="batch_dl_videos">Videos</string>
+    <string name="batch_dl_select_all">Select all</string>
+    <string name="batch_dl_download">Download</string>
+    <string name="batch_dl_downloading">Downloading %1$d of %2$d…</string>
+    <string name="batch_dl_complete">Batch download complete (%1$d done, %2$d failed)</string>
+    <string name="batch_dl_cancel">Cancel</string>
+    <string name="batch_dl_cancelled">Downloads cancelled</string>
+    <string name="batch_dl_item_failed">Download failed</string>
 
     <!-- Comment text options -->
     <string name="comment_gild">Award comment</string>
