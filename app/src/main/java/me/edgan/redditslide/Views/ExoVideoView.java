@@ -356,7 +356,7 @@ public class ExoVideoView extends RelativeLayout {
                     int shortSide = Math.min(width, height);
                     int targetSize = shortSide / 2;
 
-                    LayoutParams lp = playPause.getLayoutParams();
+                    android.view.ViewGroup.LayoutParams lp = playPause.getLayoutParams();
                     if (lp != null && (lp.width != targetSize || lp.height != targetSize)) {
                         lp.width = targetSize;
                         lp.height = targetSize;
