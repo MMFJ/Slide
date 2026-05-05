@@ -6,6 +6,12 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.4.8.4 / 2026-05-05
+===================
+* Improved post interaction in Card and List views:
+    * The upvote icon and score in the info bar are now clickable to toggle upvotes
+    * The upvote icon in the info bar now correctly tints orange when a post is upvoted
+
 7.4.8.3 / 2026-05-05
 ===================
 * Improved video player accessibility for tablets:

@@ -208,6 +208,11 @@ public class PopulateSubmissionViewHolder {
                             upvotebutton, ContextCompat.getColor(mContext, R.color.md_orange_500));
                     upvotebutton.setContentDescription(mContext.getString(R.string.btn_upvoted));
                     holder.score.setTypeface(null, Typeface.BOLD);
+                    if (holder.scoreimg != null) {
+                        BlendModeUtil.tintImageViewAsSrcAtop(
+                                (ImageView) holder.scoreimg,
+                                ContextCompat.getColor(mContext, R.color.md_orange_500));
+                    }
                     final int getTintColor =
                             holder.itemView.getTag(holder.itemView.getId()) != null
                                                     && holder.itemView
@@ -242,6 +247,10 @@ public class PopulateSubmissionViewHolder {
                                     ? Palette.getCurrentTintColor(mContext)
                                     : Palette.getWhiteTintColor();
                     BlendModeUtil.tintImageViewAsSrcAtop(upvotebutton, getTintColor);
+                    if (holder.scoreimg != null) {
+                        BlendModeUtil.tintImageViewAsSrcAtop(
+                                (ImageView) holder.scoreimg, getTintColor);
+                    }
                     upvotebutton.setContentDescription(mContext.getString(R.string.btn_upvote));
                     if (submission.getVote() != VoteDirection.DOWNVOTE) {
                         if (submission.getVote() == VoteDirection.UPVOTE) --submissionScore;
@@ -261,6 +270,12 @@ public class PopulateSubmissionViewHolder {
                                             || full
                                     ? Palette.getCurrentTintColor(mContext)
                                     : Palette.getWhiteTintColor();
+
+                    if (holder.scoreimg != null) {
+                        BlendModeUtil.tintImageViewAsSrcAtop(
+                                (ImageView) holder.scoreimg, getTintColor);
+                    }
+
                     final List<ImageView> imageViewSet =
                             Arrays.asList(downvotebutton, upvotebutton);
                     BlendModeUtil.tintImageViewsAsSrcAtop(imageViewSet, getTintColor);
@@ -642,6 +657,17 @@ public class PopulateSubmissionViewHolder {
                                     }
                                 }
                             });
+
+                    View.OnClickListener upvoteListener = new View.OnClickListener() {
+                        @Override
+                        public void onClick(View view) {
+                            upvotebutton.performClick();
+                        }
+                    };
+                    holder.score.setOnClickListener(upvoteListener);
+                    if (holder.scoreimg != null) {
+                        holder.scoreimg.setOnClickListener(upvoteListener);
+                    }
                 }
             } else {
                 upvotebutton.setVisibility(View.GONE);
