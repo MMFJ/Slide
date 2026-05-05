@@ -506,41 +506,22 @@ public class MediaFragment extends Fragment {
         rootView.findViewById(R.id.gifarea).setVisibility(View.VISIBLE);
         rootView.findViewById(R.id.submission_image).setVisibility(View.GONE);
         final ProgressBar loader = rootView.findViewById(R.id.gifprogress);
-        gif = new GifUtils.AsyncLoadGif(
-                getActivity(),
-                videoView,
-                loader,
-                rootView.findViewById(R.id.placeholder),
-                false,
-                !(getActivity() instanceof Shadowbox)
-                        || ((Shadowbox) (getActivity())).pager.getCurrentItem() == i,
-                sub);
-        GifUtils.AsyncLoadGif.VideoType t = GifUtils.AsyncLoadGif.getVideoType(s.getUrl());
+        gif =
+                new GifUtils.AsyncLoadGif(
+                        getActivity(),
+                        videoView,
+                        loader,
+                        rootView.findViewById(R.id.placeholder),
+                        false,
+                        !(getActivity() instanceof Shadowbox)
+                                || ((Shadowbox) (getActivity())).pager.getCurrentItem() == i,
+                        sub);
+        String videoUrl = GifUtils.AsyncLoadGif.getVideoUrlFromSubmission(s);
+        GifUtils.AsyncLoadGif.VideoType t = GifUtils.AsyncLoadGif.getVideoType(videoUrl);
 
         String toLoadURL;
         if (t == GifUtils.AsyncLoadGif.VideoType.VREDDIT) {
-            if (s.getDataNode().has("media") && s.getDataNode().get("media").has("reddit_video")) {
-                toLoadURL = StringEscapeUtils.unescapeJson(
-                        s.getDataNode()
-                                .get("media")
-                                .get("reddit_video")
-                                .get("dash_url")
-                                .asText())
-                        .replace("&amp;", "&");
-            } else if (s.getDataNode().has("crosspost_parent_list")) {
-                toLoadURL = StringEscapeUtils.unescapeJson(
-                        s.getDataNode()
-                                .get("crosspost_parent_list")
-                                .get(0)
-                                .get("media")
-                                .get("reddit_video")
-                                .get("dash_url")
-                                .asText())
-                        .replace("&amp;", "&");
-            } else {
-                // We shouldn't get here, will be caught in initializer
-                return;
-            }
+            toLoadURL = videoUrl;
 
         } else if ((t.shouldLoadPreview()
                 && s.getDataNode().has("preview")

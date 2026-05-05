@@ -6,6 +6,11 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.4.8.1 / 2026-05-05
+===================
+* Merged upstream 7.4.8
+* Updated versioning base from 7.4.0 to 7.4.8
+
 7.4.0.1 / 2026-02-23
 ===================
 * Merged upstream 7.4.0: switched to stock image picker on Android 11+
@@ -32,6 +37,52 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 ---
 
 ## Upstream (cygnusx-1-org/Slide) Changes
+
+7.4.8 / 2026-4-20
+============
+* Fixed issues with missing/phathom "Load X more" comments
+* Changed "Load X more" to "Load more comments"
+* Added whitespace trimming for the client ID and redirect URI
+* Added leading and trailing only whitespace trimming to the user agent
+* Retitled "Settings | General | Overrides" to "Settings | General | App details"
+* Removed HLS suppport for better DASH support for the edge case of a user posting videos in self posts
+
+7.4.7 / 2026-4-15
+============
+* Added support for overriding the redirect URI and user agent
+* Changed the font used to display the the client ID to avoid typoes
+* Added HLS video support, including in self posts
+
+7.4.6 / 2026-4-9
+===========
+* Fixed the Reddit account's interface language being anything but English at login issue in the WebView case
+
+7.4.5 / 2026-4-2
+===========
+* Fixed /r/all not loading by fixing it in JRAW and updating it
+
+7.4.4 / 2026-3-31
+============
+* Fixed WebView login
+* Fixed App crashes when opening a thread in the last subreddit in the sub list #281
+
+7.4.3 / 2026-2-28
+============
+* Added button to the Login screen to open a Chrome custom tab via the default browser as a login alternative
+* Fixed Some gifs in comments fail to embed
+
+7.4.2 / 2026-2-25
+============
+* Removed READ_EXTERNAL_STORAGE, READ_MEDIA_IMAGES, and READ_MEDIA_VIDEO permissions
+
+7.4.1 / 2026-2-25
+============
+* Completely removed TedImagePicker for the stock image picker
+
+7.4.0 / 2026-2-21
+============
+* Switched to the stock image picker on Android 11+
+* Added two retries on 500 errors while trying to load posts from a subreddit
 
 7.3.8 / 2025-12-31
 =============
