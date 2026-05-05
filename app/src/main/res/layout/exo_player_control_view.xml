@@ -37,7 +37,11 @@
                 android:id="@+id/exo_progress"
                 android:layout_width="0dp"
                 android:layout_weight="1"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
+                app:bar_height="6dp"
+                app:touch_target_height="48dp"
+                app:scrubber_enabled_size="14dp"
+                app:scrubber_dragged_size="18dp"
                 app:played_color="?attr/colorAccent"/>
 
         <TextView

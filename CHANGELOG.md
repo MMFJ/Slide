@@ -6,6 +6,13 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.4.8.2 / 2026-05-05
+===================
+* Improved video player progress bar usability:
+    * Increased bar thickness for better visibility
+    * Increased touch target height for easier seeking
+    * Larger scrubber ("dot") for better grab-ability
+
 7.4.8.1 / 2026-05-05
 ===================
 * Merged upstream 7.4.8
