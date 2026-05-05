@@ -6,6 +6,11 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.4.8.5 / 2026-05-05
+===================
+* Fixed a crash when interacting with the info bar in certain view modes (e.g. Fullscreen)
+* Added safety checks for upvote toggle logic
+
 7.4.8.4 / 2026-05-05
 ===================
 * Improved post interaction in Card and List views:

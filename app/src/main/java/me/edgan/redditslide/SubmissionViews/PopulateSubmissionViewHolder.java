@@ -208,7 +208,7 @@ public class PopulateSubmissionViewHolder {
                             upvotebutton, ContextCompat.getColor(mContext, R.color.md_orange_500));
                     upvotebutton.setContentDescription(mContext.getString(R.string.btn_upvoted));
                     holder.score.setTypeface(null, Typeface.BOLD);
-                    if (holder.scoreimg != null) {
+                    if (holder.scoreimg instanceof ImageView) {
                         BlendModeUtil.tintImageViewAsSrcAtop(
                                 (ImageView) holder.scoreimg,
                                 ContextCompat.getColor(mContext, R.color.md_orange_500));
@@ -247,7 +247,7 @@ public class PopulateSubmissionViewHolder {
                                     ? Palette.getCurrentTintColor(mContext)
                                     : Palette.getWhiteTintColor();
                     BlendModeUtil.tintImageViewAsSrcAtop(upvotebutton, getTintColor);
-                    if (holder.scoreimg != null) {
+                    if (holder.scoreimg instanceof ImageView) {
                         BlendModeUtil.tintImageViewAsSrcAtop(
                                 (ImageView) holder.scoreimg, getTintColor);
                     }
@@ -271,7 +271,7 @@ public class PopulateSubmissionViewHolder {
                                     ? Palette.getCurrentTintColor(mContext)
                                     : Palette.getWhiteTintColor();
 
-                    if (holder.scoreimg != null) {
+                    if (holder.scoreimg instanceof ImageView) {
                         BlendModeUtil.tintImageViewAsSrcAtop(
                                 (ImageView) holder.scoreimg, getTintColor);
                     }
@@ -661,7 +661,9 @@ public class PopulateSubmissionViewHolder {
                     View.OnClickListener upvoteListener = new View.OnClickListener() {
                         @Override
                         public void onClick(View view) {
-                            upvotebutton.performClick();
+                            if (upvotebutton != null) {
+                                upvotebutton.performClick();
+                            }
                         }
                     };
                     holder.score.setOnClickListener(upvoteListener);
