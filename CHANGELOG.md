@@ -6,6 +6,13 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.4.8.3 / 2026-05-05
+===================
+* Improved video player accessibility for tablets:
+    * Added a large, semi-transparent (10% black) circular background behind the play/pause button
+    * Dynamically resizes the play/pause touch target to 50% of the screen's short side
+    * Makes play/pause much easier to reach one-handed on large devices
+
 7.4.8.2 / 2026-05-05
 ===================
 * Improved video player progress bar usability:

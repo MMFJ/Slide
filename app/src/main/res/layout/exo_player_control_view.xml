@@ -10,9 +10,10 @@
 
     <ImageButton
             android:id="@+id/exo_play_pause"
-            android:layout_width="70dp"
-            android:layout_height="70dp"
-            android:background="@android:color/transparent"
+            android:layout_width="100dp"
+            android:layout_height="100dp"
+            android:background="@drawable/play_pause_background"
+            android:scaleType="center"
             android:layout_centerInParent="true"
             android:contentDescription="@string/exo_controls_play_description"/>
 

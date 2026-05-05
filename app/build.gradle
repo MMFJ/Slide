@@ -51,7 +51,7 @@ android {
         vectorDrawables.useSupportLibrary true
         versionCode 748
         // MMFJ versioning: cygnusx-1-org/Slide version (7.4.8) + build number
-        versionName "7.4.8.2"
+        versionName "7.4.8.3"
     }
 
     flavorDimensions "variant"

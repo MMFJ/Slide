@@ -345,6 +345,26 @@ public class ExoVideoView extends RelativeLayout {
         playerUIParams.addRule(ALIGN_PARENT_BOTTOM, TRUE);
         playerUIParams.bottomMargin = (int) (64 * context.getResources().getDisplayMetrics().density);
         addView(playerUI);
+        
+        // Dynamically resize the play/pause button to 50% of the short side dimension
+        playerUI.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            View playPause = playerUI.findViewById(R.id.exo_play_pause);
+            if (playPause != null) {
+                int width = right - left;
+                int height = bottom - top;
+                if (width > 0 && height > 0) {
+                    int shortSide = Math.min(width, height);
+                    int targetSize = shortSide / 2;
+
+                    LayoutParams lp = playPause.getLayoutParams();
+                    if (lp != null && (lp.width != targetSize || lp.height != targetSize)) {
+                        lp.width = targetSize;
+                        lp.height = targetSize;
+                        playPause.setLayoutParams(lp);
+                    }
+                }
+            }
+        });
 
         // Define the hide action - it just hides if run.
         hideControlsRunnable = () -> {
