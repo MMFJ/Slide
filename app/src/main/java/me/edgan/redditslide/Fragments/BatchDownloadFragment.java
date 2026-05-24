@@ -328,9 +328,26 @@ public class BatchDownloadFragment extends Fragment {
                             BatchDownloadItem item = new BatchDownloadItem(sub, type, key);
 
                             // --- Thumbnail perceptual-hash deduplication ---
-                            String thumbUrl = sub.getThumbnail();
+                            // Prefer the full preview source — the same image displayed
+                            // in the list — over the small getThumbnail() fallback.
+                            // Reddit CDN preview URLs may use HTML-encoded ampersands; decode them.
+                            String thumbUrl = null;
+                            if (sub.getThumbnails() != null
+                                    && sub.getThumbnails().getSource() != null) {
+                                thumbUrl = sub.getThumbnails().getSource().getUrl();
+                                if (thumbUrl != null) thumbUrl = thumbUrl.replace("&amp;", "&");
+                            }
+                            if (thumbUrl == null || thumbUrl.isEmpty()) {
+                                // Falls through to placeholder detection inside fetchAndHash
+                                thumbUrl = sub.getThumbnail();
+                            }
                             String hash = ThumbnailDHash.fetchAndHash(thumbUrl);
                             item.thumbnailHash = hash;
+
+                            // Hard-skip items whose thumbnail is Imgur's "image not found" page
+                            if (ThumbnailDHash.isImgurRemovedImage(hash)) {
+                                continue;
+                            }
 
                             // Check against all hashes seen so far (this batch + prior pages)
                             boolean visualDuplicate = false;
@@ -389,15 +406,8 @@ public class BatchDownloadFragment extends Fragment {
             } else {
                 // Load More append
                 if (adapter != null && !results.isEmpty()) {
-                    int oldSize = adapter.getItemCount();
                     adapter.appendItems(results);
-                    int newSize = adapter.getItemCount();
-                    if (newSize > oldSize && recyclerView != null) {
-                        recyclerView.post(() -> {
-                            recyclerView.smoothScrollToPosition(newSize - 1);
-                            showActionBar();
-                        });
-                    }
+                    showActionBar();
                 }
             }
 

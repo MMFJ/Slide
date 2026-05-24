@@ -38,6 +38,18 @@ public class ThumbnailDHash {
         "self", "default", "nsfw", "spoiler", "image", ""
     };
 
+    /** URL of Imgur's canonical "image removed" placeholder. */
+    private static final String IMGUR_REMOVED_URL = "https://i.imgur.com/removed.png";
+
+    /**
+     * Sentinel stored in {@link #imgurRemovedHash} when the fetch of the removed placeholder
+     * failed, so we only attempt it once rather than on every item.
+     */
+    private static final String IMGUR_REMOVED_UNAVAILABLE = "__unavailable__";
+
+    /** Cached dHash of Imgur's removed placeholder; null until first computed. */
+    private static volatile String imgurRemovedHash = null;
+
     // Bitmap decode options: sub-sample aggressively; we only need a tiny image.
     private static final BitmapFactory.Options DECODE_OPTS;
     static {
@@ -120,6 +132,31 @@ public class ThumbnailDHash {
      */
     public static boolean isDuplicate(String hash1, String hash2, int threshold) {
         return hammingDistance(hash1, hash2) <= threshold;
+    }
+
+    /**
+     * Returns {@code true} if {@code hash} matches the perceptual hash of Imgur's
+     * "image not found / removed" placeholder image.
+     *
+     * <p>The placeholder hash is fetched from {@value #IMGUR_REMOVED_URL} once on first call
+     * and cached for the lifetime of the process.  If the fetch fails the method always
+     * returns {@code false} so legitimate items are never accidentally filtered.
+     *
+     * @param hash The dHash string to test, or {@code null}.
+     * @return true if the hash represents a dead Imgur image.
+     */
+    public static boolean isImgurRemovedImage(String hash) {
+        if (hash == null) return false;
+        if (imgurRemovedHash == null) {
+            synchronized (ThumbnailDHash.class) {
+                if (imgurRemovedHash == null) {
+                    String fetched = fetchAndHash(IMGUR_REMOVED_URL);
+                    imgurRemovedHash = (fetched != null) ? fetched : IMGUR_REMOVED_UNAVAILABLE;
+                }
+            }
+        }
+        if (IMGUR_REMOVED_UNAVAILABLE.equals(imgurRemovedHash)) return false;
+        return isDuplicate(hash, imgurRemovedHash, DEFAULT_THRESHOLD);
     }
 
     // -------------------------------------------------------------------------

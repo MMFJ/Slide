@@ -13,6 +13,9 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 * Batch DL: Infinite scroll — list automatically loads the next page when the user scrolls within 5 items of the bottom (matches Submissions tab behaviour)
 * Batch DL: Sort button now appears on the Batch DL tab (same as Submissions/Overview tabs); changing sort resets and re-fetches the list
 * Batch DL: Perceptual duplicate detection using the Difference Hash (dHash) algorithm — visually identical thumbnails are filtered out across pages even when URLs differ
+* Batch DL: UX Scroll Fix — removed automatic smooth-scrolling after loading new pages to prevent an unwanted chain of auto-loads
+* Batch DL: Improved dHash matching by using high-resolution preview source URLs (matching actual list display) and decoding HTML CDN ampersands
+* Batch DL: Dynamic filtering of Imgur "image not found" placeholder images via dHash comparison
 
 7.4.8.10 / 2026-05-05
 ===================
