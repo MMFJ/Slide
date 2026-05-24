@@ -14,6 +14,8 @@ import android.os.IBinder;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.app.ServiceCompat;
+import android.content.pm.ServiceInfo;
 import androidx.documentfile.provider.DocumentFile;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
@@ -138,7 +140,11 @@ public class BatchDownloadService extends Service {
                 .addAction(R.drawable.ic_close, getString(R.string.btn_cancel), pCancelIntent)
                 .setOngoing(true);
 
-        startForeground(NOTIFICATION_ID, notificationBuilder.build());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notificationBuilder.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        } else {
+            startForeground(NOTIFICATION_ID, notificationBuilder.build());
+        }
     }
 
     private void updateNotification(int progress, int total) {

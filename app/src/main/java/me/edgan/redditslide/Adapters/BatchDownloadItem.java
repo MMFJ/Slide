@@ -1,8 +1,11 @@
 package me.edgan.redditslide.Adapters;
 
+import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.HasSeen;
 
 import net.dean.jraw.models.Submission;
+import net.dean.jraw.models.VoteDirection;
 
 /**
  * Represents a single deduplicated media post in the Batch DL list.
@@ -21,6 +24,12 @@ public class BatchDownloadItem {
      */
     public final boolean isImage;
 
+    /** True if the user has upvoted or downvoted this submission. */
+    public boolean isVoted;
+
+    /** True if the user has viewed this submission. */
+    public boolean isViewed;
+
     /**
      * Canonical key used to deduplicate across multiple subreddit cross-posts.
      * <ul>
@@ -29,6 +38,13 @@ public class BatchDownloadItem {
      * </ul>
      */
     public final String dedupeKey;
+
+    /**
+     * Perceptual hash of the submission's thumbnail, computed during the fetch task.
+     * Used for visual duplicate detection across different upload URLs.
+     * May be null if the thumbnail was unavailable or hashing failed.
+     */
+    public String thumbnailHash;
 
     public enum State {
         CHECKED,     // visible, selected for download (default)
@@ -45,12 +61,13 @@ public class BatchDownloadItem {
         this.type = type;
         this.dedupeKey = dedupeKey;
         this.isImage = isImageFamily(type);
+        this.isVoted = ActionStates.getVoteDirection(submission) != VoteDirection.NO_VOTE;
+        this.isViewed = HasSeen.getSeen(submission);
     }
 
     private static boolean isImageFamily(ContentType.Type t) {
         switch (t) {
             case IMAGE:
-            case GIF:
             case IMGUR:
             case ALBUM:
             case REDDIT_GALLERY:

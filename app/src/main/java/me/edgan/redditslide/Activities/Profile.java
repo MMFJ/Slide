@@ -189,7 +189,7 @@ public class Profile extends BaseActivityAnim {
                                 .setInterpolator(new LinearInterpolator())
                                 .setDuration(180);
                         if (sortItem != null) {
-                            sortItem.setVisible(position < 3);
+                            sortItem.setVisible(position < 3 || isBatchDownloadTab(position));
                         }
                         if (categoryItem != null
                                 && Authentication.me != null
@@ -537,6 +537,13 @@ public class Profile extends BaseActivityAnim {
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
+    /** Returns true when the given pager position is the Batch Download tab. */
+    private boolean isBatchDownloadTab(int position) {
+        return usedArray != null
+                && position == usedArray.length - 1
+                && usedArray[position].equals(getString(R.string.profile_batch_dl));
+    }
+
     public void openPopup() {
         PopupMenu popup = new PopupMenu(Profile.this, findViewById(R.id.anchor), Gravity.RIGHT);
         final Spannable[] base = SortingUtil.getProfileSortingSpannables(profSort);
@@ -656,7 +663,7 @@ public class Profile extends BaseActivityAnim {
 
         int position = pager == null ? 0 : pager.getCurrentItem();
         if (sortItem != null) {
-            sortItem.setVisible(position < 3);
+            sortItem.setVisible(position < 3 || isBatchDownloadTab(position));
         }
         if (categoryItem != null && Authentication.me != null) {
             Boolean hasGold = Authentication.me.hasGold();

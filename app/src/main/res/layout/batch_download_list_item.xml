@@ -26,12 +26,16 @@
         android:background="?attr/card_background"
         android:contentDescription="@null" />
 
-    <!-- Title + subreddit -->
+    <!-- Info Area (Title + Score + Type + Subreddit) -->
     <LinearLayout
+        android:id="@+id/batch_dl_info_area"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:background="?attr/selectableItemBackground"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
 
         <TextView
             android:id="@+id/batch_dl_title"
@@ -42,14 +46,62 @@
             android:textColor="?attr/fontColor"
             android:textSize="14sp" />
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp"
+            android:gravity="center_vertical">
+
+            <ImageView
+                android:id="@+id/batch_dl_score_icon"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:src="@drawable/ic_arrow_upward"
+                android:alpha="0.6"
+                android:tint="?attr/fontColor"
+                android:contentDescription="@null" />
+
+            <TextView
+                android:id="@+id/batch_dl_score"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:textColor="?attr/fontColor"
+                android:textSize="12sp"
+                android:alpha="0.6" />
+
+            <TextView
+                android:id="@+id/batch_dl_type"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textColor="?attr/fontColor"
+                android:textSize="12sp"
+                android:alpha="0.6" />
+
+            <TextView
+                android:id="@+id/batch_dl_subreddit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textColor="?attr/fontColor"
+                android:textSize="12sp"
+                android:alpha="0.6"
+                android:ellipsize="end"
+                android:maxLines="1" />
+        </LinearLayout>
+
         <TextView
-            android:id="@+id/batch_dl_subreddit"
+            android:id="@+id/batch_dl_url"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:ellipsize="middle"
             android:textColor="?attr/fontColor"
-            android:textSize="12sp"
-            android:alpha="0.6" />
+            android:textSize="11sp"
+            android:alpha="0.4" />
 
     </LinearLayout>
 

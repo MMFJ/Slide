@@ -27,9 +27,13 @@ import me.edgan.redditslide.Activities.Profile;
 import me.edgan.redditslide.Adapters.BatchDownloadAdapter;
 import me.edgan.redditslide.Adapters.BatchDownloadItem;
 import me.edgan.redditslide.Authentication;
+import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.HasSeen;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Services.BatchDownloadService;
+import me.edgan.redditslide.util.ThumbnailDHash;
+import net.dean.jraw.models.VoteDirection;
 
 import net.dean.jraw.models.Contribution;
 import net.dean.jraw.models.Submission;
@@ -38,9 +42,11 @@ import net.dean.jraw.paginators.TimePeriod;
 import net.dean.jraw.paginators.UserProfilePaginator;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Batch Download tab on the user Profile screen.
@@ -68,6 +74,8 @@ public class BatchDownloadFragment extends Fragment {
     // ---- action-bar filter state ----
     private boolean showImages = true;
     private boolean showVideos = true;
+    private boolean showVoted = true;
+    private boolean showViewed = true;
 
     // ---- fetch state ----
     private String username;
@@ -141,7 +149,7 @@ public class BatchDownloadFragment extends Fragment {
                 }
                 
                 downloadBtn.setEnabled(false);
-                downloadBtn.setText(getString(R.string.mediaview_downloading));
+                downloadBtn.setText("0/" + queue.size());
             }
         });
 
@@ -162,7 +170,7 @@ public class BatchDownloadFragment extends Fragment {
                 int progress = intent.getIntExtra(BatchDownloadService.EXTRA_PROGRESS, 0);
                 int total = intent.getIntExtra(BatchDownloadService.EXTRA_TOTAL, 0);
                 if (downloadBtn != null) {
-                    downloadBtn.setText(getString(R.string.mediaview_downloading) + " (" + progress + "/" + total + ")");
+                    downloadBtn.setText(progress + "/" + total);
                 }
             } else if (BatchDownloadService.BROADCAST_ITEM_DONE.equals(action)) {
                 String id = intent.getStringExtra(BatchDownloadService.EXTRA_SUBMISSION_ID);
@@ -228,8 +236,13 @@ public class BatchDownloadFragment extends Fragment {
     }
 
     private void loadMorePage() {
+        loadMorePages(1);
+    }
+
+    private void loadMorePages(int count) {
+        if (currentTask != null) return; // already fetching
         if (paginator == null || !paginator.hasNext()) return;
-        currentTask = new FetchMediaPostsTask(true);
+        currentTask = new FetchMediaPostsTask(true, count);
         currentTask.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
@@ -256,10 +269,16 @@ public class BatchDownloadFragment extends Fragment {
     private class FetchMediaPostsTask extends AsyncTask<Void, String, List<BatchDownloadItem>> {
 
         private final boolean appendMode; // true = Load More, false = first fetch
+        private final int pagesToFetch;   // how many pages to pull in one task
         private boolean hasMore = false;
 
         FetchMediaPostsTask(boolean appendMode) {
+            this(appendMode, 1);
+        }
+
+        FetchMediaPostsTask(boolean appendMode, int pagesToFetch) {
             this.appendMode = appendMode;
+            this.pagesToFetch = pagesToFetch;
         }
 
         @Override
@@ -277,24 +296,67 @@ public class BatchDownloadFragment extends Fragment {
 
                 if (!paginator.hasNext()) return new ArrayList<>();
 
-                // Fetch one page (one API call)
-                List<Contribution> page = paginator.next();
-                hasMore = paginator.hasNext();
+                // Seed the hash set from items already loaded by previous pages
+                // so we catch visual duplicates across multiple Load More calls.
+                Set<String> seenHashes = new HashSet<>();
+                if (appendMode && adapter != null) {
+                    for (BatchDownloadItem existing : adapter.getAllItems()) {
+                        if (existing.thumbnailHash != null) {
+                            seenHashes.add(existing.thumbnailHash);
+                        }
+                    }
+                }
 
-                // Build a set of existing dedup keys so we can skip duplicates
-                // across Load More appends
+                // Fetch up to pagesToFetch pages in a single background task
                 LinkedHashMap<String, BatchDownloadItem> deduped = new LinkedHashMap<>();
-                for (Contribution c : page) {
-                    if (isCancelled()) break;
-                    if (!(c instanceof Submission)) continue;
+                for (int p = 0; p < pagesToFetch && paginator.hasNext() && !isCancelled(); p++) {
+                    List<Contribution> page = paginator.next();
+                    hasMore = paginator.hasNext();
 
-                    Submission sub = (Submission) c;
-                    ContentType.Type type = ContentType.getContentType(sub);
-                    if (!isDownloadableType(type)) continue;
+                    for (Contribution c : page) {
+                        if (isCancelled()) break;
+                        if (!(c instanceof Submission)) continue;
 
-                    String key = deriveDedupeKey(sub, type);
-                    if (!deduped.containsKey(key)) {
-                        deduped.put(key, new BatchDownloadItem(sub, type, key));
+                        Submission sub = (Submission) c;
+                        ContentType.Type type = ContentType.getContentType(sub);
+                        if (!isDownloadableType(type)) continue;
+
+                        // --- URL-based deduplication (fast, no network) ---
+                        String key = deriveDedupeKey(sub, type);
+                        BatchDownloadItem existing = deduped.get(key);
+                        if (existing == null) {
+                            BatchDownloadItem item = new BatchDownloadItem(sub, type, key);
+
+                            // --- Thumbnail perceptual-hash deduplication ---
+                            String thumbUrl = sub.getThumbnail();
+                            String hash = ThumbnailDHash.fetchAndHash(thumbUrl);
+                            item.thumbnailHash = hash;
+
+                            // Check against all hashes seen so far (this batch + prior pages)
+                            boolean visualDuplicate = false;
+                            if (hash != null) {
+                                for (String seen : seenHashes) {
+                                    if (ThumbnailDHash.isDuplicate(hash, seen,
+                                            ThumbnailDHash.DEFAULT_THRESHOLD)) {
+                                        visualDuplicate = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!visualDuplicate) {
+                                deduped.put(key, item);
+                                if (hash != null) seenHashes.add(hash);
+                            }
+                        } else {
+                            // Promotion logic: if this repost is voted/viewed, mark the group as such
+                            if (!existing.isVoted && ActionStates.getVoteDirection(sub) != VoteDirection.NO_VOTE) {
+                                existing.isVoted = true;
+                            }
+                            if (!existing.isViewed && HasSeen.getSeen(sub)) {
+                                existing.isViewed = true;
+                            }
+                        }
                     }
                 }
                 return new ArrayList<>(deduped.values());
@@ -327,7 +389,15 @@ public class BatchDownloadFragment extends Fragment {
             } else {
                 // Load More append
                 if (adapter != null && !results.isEmpty()) {
+                    int oldSize = adapter.getItemCount();
                     adapter.appendItems(results);
+                    int newSize = adapter.getItemCount();
+                    if (newSize > oldSize && recyclerView != null) {
+                        recyclerView.post(() -> {
+                            recyclerView.smoothScrollToPosition(newSize - 1);
+                            showActionBar();
+                        });
+                    }
                 }
             }
 
@@ -347,14 +417,19 @@ public class BatchDownloadFragment extends Fragment {
                 .setMultiChoiceItems(
                         new CharSequence[]{
                                 getString(R.string.batch_dl_images),
-                                getString(R.string.batch_dl_videos)
+                                getString(R.string.batch_dl_videos),
+                                getString(R.string.batch_dl_voted),
+                                getString(R.string.batch_dl_viewed)
                         },
-                        new boolean[]{ showImages, showVideos },
+                        new boolean[]{ showImages, showVideos, showVoted, showViewed },
                         (dialog, which, checked) -> {
                             if (which == 0) showImages = checked;
-                            else           showVideos = checked;
+                            else if (which == 1) showVideos = checked;
+                            else if (which == 2) showVoted = checked;
+                            else if (which == 3) showViewed = checked;
+
                             if (adapter != null) {
-                                adapter.setTypeFilter(showImages, showVideos);
+                                adapter.setFilter(showImages, showVideos, showVoted, showViewed);
                             }
                         })
                 .setPositiveButton(R.string.btn_ok, (d, w) -> updateTypeBtnLabel())
@@ -365,16 +440,20 @@ public class BatchDownloadFragment extends Fragment {
     /** Updates the Type button label to reflect the active filter. */
     private void updateTypeBtnLabel() {
         if (typBtn == null) return;
-        if (showImages && showVideos) {
+        if (showImages && showVideos && showVoted && showViewed) {
             typBtn.setText(R.string.batch_dl_type_filter);
-        } else if (showImages) {
-            typBtn.setText(getString(R.string.batch_dl_type_filter)
-                    + ": " + getString(R.string.batch_dl_images));
-        } else if (showVideos) {
-            typBtn.setText(getString(R.string.batch_dl_type_filter)
-                    + ": " + getString(R.string.batch_dl_videos));
         } else {
-            typBtn.setText(getString(R.string.batch_dl_type_filter) + ": None");
+            List<String> active = new ArrayList<>();
+            if (!showImages) active.add("No Img");
+            if (!showVideos) active.add("No Vid");
+            if (!showVoted)  active.add("No Voted");
+            if (!showViewed) active.add("No Viewed");
+            
+            if (active.isEmpty()) {
+                typBtn.setText(R.string.batch_dl_type_filter);
+            } else {
+                typBtn.setText(getString(R.string.batch_dl_type_filter) + ": " + active.size() + " hidden");
+            }
         }
     }
 
@@ -386,16 +465,44 @@ public class BatchDownloadFragment extends Fragment {
      * Slides the action bar down (off-screen) when scrolling down,
      * and back up when scrolling up — the inverse of toolbar hide behaviour.
      */
+    /**
+     * Force-shows the action bar (resets translation to 0).
+     */
+    private void showActionBar() {
+        if (actionBar != null) {
+            actionBar.animate()
+                    .translationY(0)
+                    .setInterpolator(new android.view.animation.LinearInterpolator())
+                    .setDuration(180)
+                    .start();
+        }
+    }
+
     private RecyclerView.OnScrollListener buildScrollHideListener() {
         return new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                if (actionBar.getVisibility() != View.VISIBLE) return;
-                int barH = actionBar.getHeight();
-                if (barH == 0) return;
-                float current = actionBar.getTranslationY();
-                float next = Math.max(0f, Math.min(barH, current + dy));
-                actionBar.setTranslationY(next);
+                // Action-bar slide hide/show
+                if (actionBar.getVisibility() == View.VISIBLE) {
+                    int barH = actionBar.getHeight();
+                    if (barH > 0) {
+                        float current = actionBar.getTranslationY();
+                        float next = Math.max(0f, Math.min(barH, current + dy));
+                        actionBar.setTranslationY(next);
+                    }
+                }
+
+                // Infinite scroll: auto-load next page when within 5 items of the bottom
+                if (dy > 0 && currentTask == null) {
+                    LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+                    if (lm != null) {
+                        int totalItems   = lm.getItemCount();
+                        int lastVisible  = lm.findLastVisibleItemPosition();
+                        if (totalItems > 0 && lastVisible >= totalItems - 5) {
+                            loadMorePage();
+                        }
+                    }
+                }
             }
 
             @Override
@@ -430,7 +537,7 @@ public class BatchDownloadFragment extends Fragment {
         if (loadMoreBtn == null) {
             loadMoreBtn = new Button(getContext(), null,
                     android.R.attr.borderlessButtonStyle);
-            loadMoreBtn.setText("Load more ↓");
+            loadMoreBtn.setText("Load 4 pages ↓");
             // Insert before the spacer (index 1) so it sits after the Type button
             if (actionBar instanceof android.widget.LinearLayout) {
                 ((android.widget.LinearLayout) actionBar).addView(loadMoreBtn, 1);
@@ -442,7 +549,7 @@ public class BatchDownloadFragment extends Fragment {
             loadMoreBtn.setEnabled(true);
             loadMoreBtn.setOnClickListener(v -> {
                 loadMoreBtn.setEnabled(false);
-                loadMorePage();
+                loadMorePages(4);
             });
         } else {
             loadMoreBtn.setVisibility(View.GONE);
@@ -488,6 +595,10 @@ public class BatchDownloadFragment extends Fragment {
         // Strip query string and force lower case
         int q = url.indexOf('?');
         if (q > 0) url = url.substring(0, q);
-        return url.toLowerCase(Locale.ENGLISH);
+        url = url.toLowerCase(Locale.ENGLISH);
+        // Strip common prefixes to ensure different permutations of the same host match
+        url = url.replaceFirst("^https?://", "");
+        url = url.replaceFirst("^(www\\.|m\\.|i\\.)", "");
+        return url;
     }
 }

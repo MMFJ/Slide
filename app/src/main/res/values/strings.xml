@@ -172,6 +172,8 @@
     <string name="batch_dl_cancel">Cancel</string>
     <string name="batch_dl_cancelled">Downloads cancelled</string>
     <string name="batch_dl_item_failed">Download failed</string>
+    <string name="batch_dl_voted">Voted posts</string>
+    <string name="batch_dl_viewed">Viewed posts</string>
 
     <!-- Comment text options -->
     <string name="comment_gild">Award comment</string>

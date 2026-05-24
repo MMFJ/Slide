@@ -6,6 +6,40 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.4.8.11 / 2026-05-23
+===================
+* Batch DL: Compact download progress indicator — button now shows only "X/Y" (e.g. "3/47") during download, keeping it visible on small screens
+* Batch DL: "Load more" button now loads 4 pages at a time instead of 1
+* Batch DL: Infinite scroll — list automatically loads the next page when the user scrolls within 5 items of the bottom (matches Submissions tab behaviour)
+* Batch DL: Sort button now appears on the Batch DL tab (same as Submissions/Overview tabs); changing sort resets and re-fetches the list
+* Batch DL: Perceptual duplicate detection using the Difference Hash (dHash) algorithm — visually identical thumbnails are filtered out across pages even when URLs differ
+
+7.4.8.10 / 2026-05-05
+===================
+* Added "Voted posts" and "Viewed posts" filters to the Batch DL tab
+* Smart media deduplication: if any instance of a media item has been voted on or viewed, the deduplicated item is marked as such and respects active filters
+* Both new filters are checked by default, ensuring all content remains visible until manually hidden
+* Updated filter button label to show a summary of hidden items for better visibility
+
+7.4.8.9 / 2026-05-05
+===================
+* Improved UX when loading more items: the action bar now automatically reappears after the list scrolls to newly added content
+* GIFs are now correctly categorized as "Videos" in the Type Filter for easier bulk selection
+
+7.4.8.8 / 2026-05-05
+===================
+* Improved media deduplication filtering in the Batch DL tab by canonicalizing subdomain prefixes (`m.`, `i.`, `www.`)
+* Added abbreviated source URLs to the Batch DL item info bar for better transparency
+
+7.4.8.7 / 2026-05-05
+===================
+* Added upvote count and media type indicators to Batch DL list items
+* Implemented interactive "info bar" to view the associated Reddit post directly from the Batch DL tab
+* Integrated app-standard media viewers when clicking Batch DL thumbnails (supports Images, GIFs, Videos, Albums, and Galleries)
+* Added smooth scrolling to newly loaded items when clicking "Load more"
+* Fixed build and compatibility issues with image viewers inside the list adapter
+* Fixed immediate crash on Android 14+ when clicking Download due to missing Foreground Service permissions
+
 7.4.8.6 / 2026-05-05
 ===================
 * Added "Batch DL" tab to Reddit user profile screens (own profile and other users)
