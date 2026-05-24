@@ -34,6 +34,7 @@ public class SubmissionViewHolder extends RecyclerView.ViewHolder {
     public final TextView flairText;
     public final SpoilerRobotoTextView body;
     public final View scoreimg;
+    public final View scoreContainer;
     public final RelativeLayout innerRelative;
 
     public SubmissionViewHolder(View v) {
@@ -56,6 +57,7 @@ public class SubmissionViewHolder extends RecyclerView.ViewHolder {
         body = v.findViewById(R.id.body);
         score = v.findViewById(R.id.score);
         scoreimg = v.findViewById(R.id.scoreimg);
+        scoreContainer = v.findViewById(R.id.score_container);
         comments = v.findViewById(R.id.comments);
         firstTextView = v.findViewById(R.id.firstTextView);
         commentOverflow = v.findViewById(R.id.commentOverflow);

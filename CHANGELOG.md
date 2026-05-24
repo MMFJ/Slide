@@ -6,6 +6,10 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.4.8.12 / 2026-05-24
+===================
+* Card Views: Unified upvote touch target container — wrapped upvote arrow (`scoreimg`) and score text (`score`) inside a horizontal, clickable container (`score_container`) across 8 core card layouts. This significantly expands the touch target area for the upvoting shortcut on submission cards, provides unified borderless ripple feedback, and disables conflicting child clicks.
+
 7.4.8.11 / 2026-05-23
 ===================
 * Batch DL: Compact download progress indicator — button now shows only "X/Y" (e.g. "3/47") during download, keeping it visible on small screens

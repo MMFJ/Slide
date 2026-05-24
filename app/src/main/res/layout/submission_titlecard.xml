@@ -55,31 +55,44 @@
                 android:layout_alignParentTop="true"
                 android:orientation="horizontal" />
 
-            <ImageView
-                android:id="@+id/scoreimg"
-                android:labelFor="@+id/score"
-                android:layout_width="15dp"
-                android:layout_height="36dp"
-                android:layout_gravity="center_vertical"
-                android:layout_marginEnd="4dp"
-                android:layout_marginStart="16dp"
-                android:tag="tintactionbar"
-                android:tint="?attr/tintColor"
-                android:contentDescription="@string/img_score"
-                app:srcCompat="@drawable/ic_arrow_upward" />
-
-            <TextView
-                android:id="@+id/score"
+            <LinearLayout
+                android:id="@+id/score_container"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
-                android:layout_below="@+id/innerrelative"
-                android:layout_gravity="center_vertical"
-                android:layout_toRightOf="@+id/scoreimg"
+                android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:tag="tintactionbar"
-                android:text="400"
-                android:textColor="?attr/tintColor"
-                android:textSize="?attr/font_cardinfo" />
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/scoreimg"
+                    android:labelFor="@+id/score"
+                    android:layout_width="15dp"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="4dp"
+                    android:tag="tintactionbar"
+                    android:tint="?attr/tintColor"
+                    android:contentDescription="@string/img_score"
+                    android:duplicateParentState="true"
+                    android:clickable="false"
+                    android:focusable="false"
+                    app:srcCompat="@drawable/ic_arrow_upward" />
+
+                <TextView
+                    android:id="@+id/score"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:textColor="?attr/tintColor"
+                    android:gravity="center_vertical"
+                    android:tag="tintactionbar"
+                    android:text="400"
+                    android:textSize="?attr/font_cardinfo"
+                    android:duplicateParentState="true"
+                    android:clickable="false"
+                    android:focusable="false" />
+            </LinearLayout>
 
             <ImageView
                 android:id="@+id/pointsimg"
@@ -88,9 +101,9 @@
                 android:layout_height="36dp"
                 android:layout_below="@+id/innerrelative"
                 android:layout_gravity="center_vertical"
-                android:layout_marginEnd="4dp"
                 android:layout_marginStart="8dp"
-                android:layout_toRightOf="@+id/score"
+                android:layout_marginEnd="4dp"
+                android:layout_toRightOf="@+id/score_container"
                 android:tag="tintactionbar"
                 android:tint="?attr/tintColor"
                 android:contentDescription="@string/img_comments"

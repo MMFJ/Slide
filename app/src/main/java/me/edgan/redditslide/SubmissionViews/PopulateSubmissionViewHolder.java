@@ -666,9 +666,13 @@ public class PopulateSubmissionViewHolder {
                             }
                         }
                     };
-                    holder.score.setOnClickListener(upvoteListener);
-                    if (holder.scoreimg != null) {
-                        holder.scoreimg.setOnClickListener(upvoteListener);
+                    if (holder.scoreContainer != null) {
+                        holder.scoreContainer.setOnClickListener(upvoteListener);
+                    } else {
+                        holder.score.setOnClickListener(upvoteListener);
+                        if (holder.scoreimg != null) {
+                            holder.scoreimg.setOnClickListener(upvoteListener);
+                        }
                     }
                 }
             } else {

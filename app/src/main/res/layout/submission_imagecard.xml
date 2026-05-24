@@ -76,27 +76,40 @@
                     android:textSize="?attr/font_cardtitle" />
 
 
-                <ImageView
-                    android:id="@+id/scoreimg"
-                    android:layout_below="@+id/title"
-                    android:layout_width="15dp"
-                    android:layout_height="36dp"
-                    android:layout_gravity="center_vertical"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="4dp"
-                    app:srcCompat="@drawable/ic_arrow_upward"
-                    android:tag="tint" />
-
-                <TextView
-                    android:id="@+id/score"
+                <LinearLayout
+                    android:id="@+id/score_container"
                     android:layout_width="wrap_content"
                     android:layout_height="36dp"
                     android:layout_below="@+id/title"
-                    android:layout_gravity="center_vertical"
-                    android:layout_toRightOf="@+id/scoreimg"
+                    android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:textColor="#bcffffff"
-                    android:textSize="?attr/font_cardinfo" />
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:id="@+id/scoreimg"
+                        android:layout_width="15dp"
+                        android:layout_height="36dp"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="4dp"
+                        android:duplicateParentState="true"
+                        android:clickable="false"
+                        android:focusable="false"
+                        app:srcCompat="@drawable/ic_arrow_upward"
+                        android:tag="tint" />
+
+                    <TextView
+                        android:id="@+id/score"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:textColor="#bcffffff"
+                        android:textSize="?attr/font_cardinfo"
+                        android:gravity="center_vertical"
+                        android:duplicateParentState="true"
+                        android:clickable="false"
+                        android:focusable="false" />
+                </LinearLayout>
 
                 <ImageView
                     android:id="@+id/pointsimg"
@@ -106,7 +119,7 @@
                     android:layout_marginStart="8dp"
                     android:layout_below="@+id/title"
                     android:layout_marginEnd="4dp"
-                    android:layout_toRightOf="@+id/score"
+                    android:layout_toRightOf="@+id/score_container"
                     app:srcCompat="@drawable/ic_forum" />
 
                 <TextView

@@ -49,9 +49,9 @@ android {
         multiDexEnabled true
         targetSdk 35
         vectorDrawables.useSupportLibrary true
-        versionCode 754
+        versionCode 755
         // MMFJ versioning: cygnusx-1-org/Slide version (7.4.8) + build number
-        versionName "7.4.8.11"
+        versionName "7.4.8.12"
     }
 
     flavorDimensions "variant"
