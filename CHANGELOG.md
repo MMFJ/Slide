@@ -6,6 +6,10 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.5.8.0 / 2026-06-12
+===================
+* Merged upstream updates from 7.5.8 into mmfj-mod (cygnusx-1-org/Slide version 7.5.8), including Android compile target and SDK 36 bumps, dependency library upgrades, media rotation controls, custom filtering lists, bugfixes, and code styling/spotless updates. All MMFJ fork enhancements (Batch Download, gesture controls, score container ripple feedback, and perceptual duplicate detection) are preserved.
+
 7.4.8.13 / 2026-05-24
 ===================
 * Batch DL: Visual loading/busy indicator — wrapped the media list in a SwipeRefreshLayout to display a colorful themed circular progress spinner during page fetching (for both infinite scrolling and the "Load 4 pages" button) and pull-to-refresh
