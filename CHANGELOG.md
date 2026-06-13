@@ -6,6 +6,10 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+7.4.8.13 / 2026-05-24
+===================
+* Batch DL: Visual loading/busy indicator — wrapped the media list in a SwipeRefreshLayout to display a colorful themed circular progress spinner during page fetching (for both infinite scrolling and the "Load 4 pages" button) and pull-to-refresh
+
 7.4.8.12 / 2026-05-24
 ===================
 * Card Views: Unified upvote touch target container — wrapped upvote arrow (`scoreimg`) and score text (`score`) inside a horizontal, clickable container (`score_container`) across 8 core card layouts. This significantly expands the touch target area for the upvoting shortcut on submission cards, provides unified borderless ripple feedback, and disables conflicting child clicks.

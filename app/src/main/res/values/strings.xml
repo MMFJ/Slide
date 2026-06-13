@@ -158,7 +158,10 @@
     <string name="profile_batch_dl">Batch DL</string>
 
     <!-- Batch Download Tab -->
-    <string name="batch_dl_tap_prompt">Fetch submitted post links</string>
+    <string name="batch_dl_tap_prompt">Fetch unique submitted posts</string>
+    <string name="batch_dl_mark_downloads">Mark Downloads</string>
+    <string name="batch_dl_read">Read</string>
+    <string name="batch_dl_upvote">Upvote</string>
     <string name="batch_dl_fetching">Fetching posts…</string>
     <string name="batch_dl_scanned">Scanned %1$d posts…</string>
     <string name="batch_dl_no_media">No media posts found</string>

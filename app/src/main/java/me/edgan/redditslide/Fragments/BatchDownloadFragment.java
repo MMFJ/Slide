@@ -22,6 +22,7 @@ import androidx.fragment.app.Fragment;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import me.edgan.redditslide.Activities.Profile;
 import me.edgan.redditslide.Adapters.BatchDownloadAdapter;
@@ -31,8 +32,11 @@ import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.HasSeen;
 import me.edgan.redditslide.R;
+import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.Services.BatchDownloadService;
+import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.ThumbnailDHash;
+import me.edgan.redditslide.Vote;
 import net.dean.jraw.models.VoteDirection;
 
 import net.dean.jraw.models.Contribution;
@@ -64,6 +68,7 @@ public class BatchDownloadFragment extends Fragment {
     private View promptView;
     private View loadingView;
     private TextView loadingText;
+    private SwipeRefreshLayout swipeRefreshLayout;
     private RecyclerView recyclerView;
     private View actionBar;
     private Button typBtn;        // opens Type filter dialog
@@ -76,6 +81,10 @@ public class BatchDownloadFragment extends Fragment {
     private boolean showVideos = true;
     private boolean showVoted = true;
     private boolean showViewed = true;
+
+    // ---- mark downloads state ----
+    private boolean markRead = true;
+    private boolean markUpvote = false;
 
     // ---- fetch state ----
     private String username;
@@ -105,11 +114,50 @@ public class BatchDownloadFragment extends Fragment {
         promptView   = v.findViewById(R.id.batch_dl_prompt);
         loadingView  = v.findViewById(R.id.batch_dl_loading);
         loadingText  = v.findViewById(R.id.batch_dl_loading_text);
+        swipeRefreshLayout = v.findViewById(R.id.batch_dl_swipe_refresh);
         recyclerView = v.findViewById(R.id.batch_dl_list);
         actionBar    = v.findViewById(R.id.batch_dl_action_bar);
+
+        swipeRefreshLayout.setColorSchemeColors(Palette.getColors(username, getContext()));
+        swipeRefreshLayout.setProgressViewOffset(
+                false,
+                Constants.TAB_HEADER_VIEW_OFFSET - Constants.PTR_OFFSET_TOP,
+                Constants.TAB_HEADER_VIEW_OFFSET + Constants.PTR_OFFSET_BOTTOM);
+        swipeRefreshLayout.setOnRefreshListener(this::startFetch);
         typBtn       = v.findViewById(R.id.batch_dl_type_btn);
         selectAllBtn = v.findViewById(R.id.batch_dl_select_all);
         downloadBtn  = v.findViewById(R.id.batch_dl_download);
+
+        ImageButton markBtn = v.findViewById(R.id.batch_dl_mark_btn);
+        markBtn.setOnClickListener(view -> {
+            if (getContext() == null) return;
+            androidx.appcompat.widget.PopupMenu popup = new androidx.appcompat.widget.PopupMenu(getContext(), view);
+            android.view.Menu menu = popup.getMenu();
+
+            android.view.MenuItem titleItem = menu.add(android.view.Menu.NONE, 0, 0, R.string.batch_dl_mark_downloads);
+            titleItem.setEnabled(false);
+
+            android.view.MenuItem readItem = menu.add(android.view.Menu.NONE, 1, 1, R.string.batch_dl_read);
+            readItem.setCheckable(true);
+            readItem.setChecked(markRead);
+
+            android.view.MenuItem upvoteItem = menu.add(android.view.Menu.NONE, 2, 2, R.string.batch_dl_upvote);
+            upvoteItem.setCheckable(true);
+            upvoteItem.setChecked(markUpvote);
+
+            popup.setOnMenuItemClickListener(item -> {
+                int id = item.getItemId();
+                if (id == 1) {
+                    markRead = !markRead;
+                    item.setChecked(markRead);
+                } else if (id == 2) {
+                    markUpvote = !markUpvote;
+                    item.setChecked(markUpvote);
+                }
+                return true;
+            });
+            popup.show();
+        });
 
         recyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
 
@@ -176,6 +224,18 @@ public class BatchDownloadFragment extends Fragment {
                 String id = intent.getStringExtra(BatchDownloadService.EXTRA_SUBMISSION_ID);
                 if (id != null && adapter != null) {
                     adapter.markDone(id);
+                    for (BatchDownloadItem item : adapter.getAllItems()) {
+                        if (item.submission.getId().equals(id)) {
+                            if (markRead) {
+                                HasSeen.addSeen(item.submission.getFullName());
+                            }
+                            if (markUpvote && getActivity() != null) {
+                                ActionStates.setVoteDirection(item.submission, VoteDirection.UPVOTE);
+                                new Vote(true, null, getActivity()).execute(item.submission);
+                            }
+                            break;
+                        }
+                    }
                 }
             } else if (BatchDownloadService.BROADCAST_ITEM_FAILED.equals(action)) {
                 String id = intent.getStringExtra(BatchDownloadService.EXTRA_SUBMISSION_ID);
@@ -255,7 +315,7 @@ public class BatchDownloadFragment extends Fragment {
     private void showState(State state) {
         promptView.setVisibility(state == State.IDLE ? View.VISIBLE : View.GONE);
         loadingView.setVisibility(state == State.LOADING ? View.VISIBLE : View.GONE);
-        recyclerView.setVisibility(state == State.READY ? View.VISIBLE : View.GONE);
+        swipeRefreshLayout.setVisibility(state == State.READY ? View.VISIBLE : View.GONE);
         // Action bar shown only when there is content
         if (state == State.READY && adapter != null && adapter.getItemCount() > 0) {
             actionBar.setVisibility(View.VISIBLE);
@@ -282,6 +342,13 @@ public class BatchDownloadFragment extends Fragment {
         }
 
         @Override
+        protected void onPreExecute() {
+            if (appendMode && swipeRefreshLayout != null) {
+                swipeRefreshLayout.setRefreshing(true);
+            }
+        }
+
+        @Override
         protected List<BatchDownloadItem> doInBackground(Void... params) {
             try {
                 if (!appendMode || paginator == null) {
@@ -296,15 +363,11 @@ public class BatchDownloadFragment extends Fragment {
 
                 if (!paginator.hasNext()) return new ArrayList<>();
 
-                // Seed the hash set from items already loaded by previous pages
-                // so we catch visual duplicates across multiple Load More calls.
-                Set<String> seenHashes = new HashSet<>();
+                // Seed list of already loaded items (from prior pages) to support
+                // cross-page URL/visual duplicate checks with read/voted state promotion
+                List<BatchDownloadItem> existingItems = new ArrayList<>();
                 if (appendMode && adapter != null) {
-                    for (BatchDownloadItem existing : adapter.getAllItems()) {
-                        if (existing.thumbnailHash != null) {
-                            seenHashes.add(existing.thumbnailHash);
-                        }
-                    }
+                    existingItems.addAll(adapter.getAllItems());
                 }
 
                 // Fetch up to pagesToFetch pages in a single background task
@@ -323,57 +386,98 @@ public class BatchDownloadFragment extends Fragment {
 
                         // --- URL-based deduplication (fast, no network) ---
                         String key = deriveDedupeKey(sub, type);
-                        BatchDownloadItem existing = deduped.get(key);
-                        if (existing == null) {
-                            BatchDownloadItem item = new BatchDownloadItem(sub, type, key);
 
-                            // --- Thumbnail perceptual-hash deduplication ---
-                            // Prefer the full preview source — the same image displayed
-                            // in the list — over the small getThumbnail() fallback.
-                            // Reddit CDN preview URLs may use HTML-encoded ampersands; decode them.
-                            String thumbUrl = null;
-                            if (sub.getThumbnails() != null
-                                    && sub.getThumbnails().getSource() != null) {
-                                thumbUrl = sub.getThumbnails().getSource().getUrl();
-                                if (thumbUrl != null) thumbUrl = thumbUrl.replace("&amp;", "&");
+                        // 1. URL duplicate within the same batch (current page's fetch results)
+                        BatchDownloadItem existingInBatch = deduped.get(key);
+                        if (existingInBatch != null) {
+                            if (!existingInBatch.isVoted && ActionStates.getVoteDirection(sub) != VoteDirection.NO_VOTE) {
+                                existingInBatch.isVoted = true;
                             }
-                            if (thumbUrl == null || thumbUrl.isEmpty()) {
-                                // Falls through to placeholder detection inside fetchAndHash
-                                thumbUrl = sub.getThumbnail();
+                            if (!existingInBatch.isViewed && HasSeen.getSeen(sub)) {
+                                existingInBatch.isViewed = true;
                             }
-                            String hash = ThumbnailDHash.fetchAndHash(thumbUrl);
-                            item.thumbnailHash = hash;
+                            continue;
+                        }
 
-                            // Hard-skip items whose thumbnail is Imgur's "image not found" page
-                            if (ThumbnailDHash.isImgurRemovedImage(hash)) {
-                                continue;
-                            }
-
-                            // Check against all hashes seen so far (this batch + prior pages)
-                            boolean visualDuplicate = false;
-                            if (hash != null) {
-                                for (String seen : seenHashes) {
-                                    if (ThumbnailDHash.isDuplicate(hash, seen,
-                                            ThumbnailDHash.DEFAULT_THRESHOLD)) {
-                                        visualDuplicate = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!visualDuplicate) {
-                                deduped.put(key, item);
-                                if (hash != null) seenHashes.add(hash);
-                            }
-                        } else {
-                            // Promotion logic: if this repost is voted/viewed, mark the group as such
-                            if (!existing.isVoted && ActionStates.getVoteDirection(sub) != VoteDirection.NO_VOTE) {
-                                existing.isVoted = true;
-                            }
-                            if (!existing.isViewed && HasSeen.getSeen(sub)) {
-                                existing.isViewed = true;
+                        // 2. URL duplicate across different batches (already in the adapter)
+                        BatchDownloadItem existingInAdapter = null;
+                        for (BatchDownloadItem item : existingItems) {
+                            if (item.dedupeKey.equals(key)) {
+                                existingInAdapter = item;
+                                break;
                             }
                         }
+                        if (existingInAdapter != null) {
+                            if (!existingInAdapter.isVoted && ActionStates.getVoteDirection(sub) != VoteDirection.NO_VOTE) {
+                                existingInAdapter.isVoted = true;
+                            }
+                            if (!existingInAdapter.isViewed && HasSeen.getSeen(sub)) {
+                                existingInAdapter.isViewed = true;
+                            }
+                            continue;
+                        }
+
+                        // --- Thumbnail perceptual-hash deduplication ---
+                        // Prefer the full preview source — the same image displayed
+                        // in the list — over the small getThumbnail() fallback.
+                        // Reddit CDN preview URLs may use HTML-encoded ampersands; decode them.
+                        String thumbUrl = null;
+                        if (sub.getThumbnails() != null
+                                && sub.getThumbnails().getSource() != null) {
+                            thumbUrl = sub.getThumbnails().getSource().getUrl();
+                            if (thumbUrl != null) thumbUrl = thumbUrl.replace("&amp;", "&");
+                        }
+                        if (thumbUrl == null || thumbUrl.isEmpty()) {
+                            // Falls through to placeholder detection inside fetchAndHash
+                            thumbUrl = sub.getThumbnail();
+                        }
+                        String hash = ThumbnailDHash.fetchAndHash(thumbUrl);
+
+                        // Hard-skip items whose thumbnail is Imgur's "image not found" page
+                        if (ThumbnailDHash.isImgurRemovedImage(hash)) {
+                            continue;
+                        }
+
+                        // 3. Visual duplicate within the same batch
+                        boolean visualDupInBatch = false;
+                        if (hash != null) {
+                            for (BatchDownloadItem item : deduped.values()) {
+                                if (item.thumbnailHash != null && ThumbnailDHash.isDuplicate(hash, item.thumbnailHash, ThumbnailDHash.DEFAULT_THRESHOLD)) {
+                                    if (!item.isVoted && ActionStates.getVoteDirection(sub) != VoteDirection.NO_VOTE) {
+                                        item.isVoted = true;
+                                    }
+                                    if (!item.isViewed && HasSeen.getSeen(sub)) {
+                                        item.isViewed = true;
+                                    }
+                                    visualDupInBatch = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (visualDupInBatch) continue;
+
+                        // 4. Visual duplicate across different batches (already in the adapter)
+                        boolean visualDupInAdapter = false;
+                        if (hash != null) {
+                            for (BatchDownloadItem item : existingItems) {
+                                if (item.thumbnailHash != null && ThumbnailDHash.isDuplicate(hash, item.thumbnailHash, ThumbnailDHash.DEFAULT_THRESHOLD)) {
+                                    if (!item.isVoted && ActionStates.getVoteDirection(sub) != VoteDirection.NO_VOTE) {
+                                        item.isVoted = true;
+                                    }
+                                    if (!item.isViewed && HasSeen.getSeen(sub)) {
+                                        item.isViewed = true;
+                                    }
+                                    visualDupInAdapter = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (visualDupInAdapter) continue;
+
+                        // If not a duplicate at all, add to current batch
+                        BatchDownloadItem item = new BatchDownloadItem(sub, type, key);
+                        item.thumbnailHash = hash;
+                        deduped.put(key, item);
                     }
                 }
                 return new ArrayList<>(deduped.values());
@@ -389,6 +493,10 @@ public class BatchDownloadFragment extends Fragment {
             if (getActivity() == null || getActivity().isFinishing()) return;
 
             currentTask = null;
+
+            if (swipeRefreshLayout != null) {
+                swipeRefreshLayout.setRefreshing(false);
+            }
 
             if (!appendMode) {
                 // First fetch
@@ -548,9 +656,9 @@ public class BatchDownloadFragment extends Fragment {
             loadMoreBtn = new Button(getContext(), null,
                     android.R.attr.borderlessButtonStyle);
             loadMoreBtn.setText("Load 4 pages ↓");
-            // Insert before the spacer (index 1) so it sits after the Type button
+            // Insert before the spacer (index 2) so it sits after the Type and Mark buttons
             if (actionBar instanceof android.widget.LinearLayout) {
-                ((android.widget.LinearLayout) actionBar).addView(loadMoreBtn, 1);
+                ((android.widget.LinearLayout) actionBar).addView(loadMoreBtn, 2);
             }
         }
 
