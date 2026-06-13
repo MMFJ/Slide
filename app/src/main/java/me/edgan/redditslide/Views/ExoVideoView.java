@@ -20,6 +20,7 @@ import android.widget.RelativeLayout;
 import android.view.View;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.OptIn;
 import androidx.core.content.ContextCompat;
 import androidx.media.AudioAttributesCompat;
 import androidx.media.AudioFocusRequestCompat;
@@ -27,6 +28,7 @@ import androidx.media.AudioManagerCompat;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
+import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.SimpleExoPlayer;
 import androidx.media3.common.Tracks;
 import androidx.media3.datasource.okhttp.OkHttpDataSource;
@@ -40,6 +42,7 @@ import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.VideoSize;
+import androidx.media3.common.util.UnstableApi;
 
 
 import me.edgan.redditslide.R;
@@ -54,6 +57,7 @@ import me.edgan.redditslide.util.NetworkUtil;
  * (e.g., when scrolling in the gallery) the video decoder's surface is reused and the video does
  * not go blank.
  */
+@OptIn(markerClass = UnstableApi.class)
 public class ExoVideoView extends RelativeLayout {
     private static final String TAG = "ExoVideoView";
 
@@ -83,6 +87,21 @@ public class ExoVideoView extends RelativeLayout {
     private boolean isDragging = false;
     private boolean wasScaling = false; // Flag to track if scaling happened in the gesture
     private boolean wasDragging = false; // Flag to track if dragging happened in the gesture
+
+    // Variables for horizontal scrub-to-seek gesture
+    private boolean isScrubbing = false; // Currently scrubbing in this gesture
+    private boolean wasScrubbing = false; // Flag to track if scrubbing happened in the gesture
+    private float scrubStartX; // Touch X when the current gesture started
+    private float scrubStartY; // Touch Y when the current gesture started
+    private long scrubStartPosition = 0; // Playback position when scrubbing started
+    private long scrubTargetPosition = 0; // Position the user is currently seeking to
+
+    // Variables for rotation
+    private int currentRotation = 0; // Track current rotation in degrees
+    private int originalVideoWidth = 0; // Store the original video width
+    private int originalVideoHeight = 0; // Store the original video height
+    private float rotationScaleFactor = 1.0f; // Scale factor applied for rotation auto-zoom
+    private boolean userZoomed = false; // True once the user has pinch-zoomed
 
     // Static variable to hold the saved SurfaceTexture.
     private static SurfaceTexture sSavedSurfaceTexture;
@@ -191,18 +210,28 @@ public class ExoVideoView extends RelativeLayout {
                 public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
                     Log.d(TAG, "onVideoSizeChanged: width=" + videoSize.width + ", height=" + videoSize.height + ", unappliedRotationDegrees=" + videoSize.unappliedRotationDegrees);
                     if (videoSize.width > 0 && videoSize.height > 0) {
+                        // Store the original video dimensions (accounting for embedded rotation)
+                        originalVideoWidth = videoSize.width;
+                        originalVideoHeight = videoSize.height;
+
                         // Calculate the correct aspect ratio
                         float aspectRatio = (float) videoSize.width / videoSize.height;
 
-                        // Apply any needed rotation
+                        // Apply any needed rotation from video metadata
                         if (videoSize.unappliedRotationDegrees == 90 ||
                             videoSize.unappliedRotationDegrees == 270) {
                             aspectRatio = 1.0f / aspectRatio;
+                            // Also swap the stored dimensions for embedded rotation
+                            originalVideoWidth = videoSize.height;
+                            originalVideoHeight = videoSize.width;
                         }
 
-                        // Set the aspect ratio
+                        // Set the aspect ratio ONCE and never change it for user rotations
                         Log.d(TAG, "Setting aspect ratio to: " + aspectRatio);
                         frame.setAspectRatio(aspectRatio);
+
+                        // Apply current rotation with proper scaling
+                        applyRotation();
                     }
                 }
 
@@ -404,6 +433,14 @@ public class ExoVideoView extends RelativeLayout {
      */
     public void setVideoURI(Uri uri, VideoType type, Player.Listener listener) {
         Log.d(TAG, "setVideoURI() called with uri: " + (uri != null ? uri.toString() : "null"));
+        // Reset rotation and video dimensions when loading new video
+        currentRotation = 0;
+        originalVideoWidth = 0;
+        originalVideoHeight = 0;
+        rotationScaleFactor = 1.0f;
+        scaleFactor = 1.0f;
+        userZoomed = false;
+
         // Ensure player and uri are not null before proceeding
         if (player != null && uri != null) {
             DataSource.Factory downloader =
@@ -562,7 +599,7 @@ public class ExoVideoView extends RelativeLayout {
                             } else {
                                 player.setVolume(0f);
                                 mute.setImageResource(R.drawable.ic_volume_off);
-                                BlendModeUtil.tintImageViewAsSrcAtop(mute, getResources().getColor(R.color.md_red_500));
+                                BlendModeUtil.tintImageViewAsSrcAtop(mute, ContextCompat.getColor(getContext(), R.color.md_red_500));
                                 // Lose focus only if helper exists and video has audio
                                 if (audioFocusHelper != null && hasAudio) {
                                      audioFocusHelper.loseFocus();
@@ -589,7 +626,7 @@ public class ExoVideoView extends RelativeLayout {
                                     SettingValues.isMuted = true;
                                     SettingValues.prefs.edit().putBoolean(SettingValues.PREF_MUTE, true).apply();
                                     mute.setImageResource(R.drawable.ic_volume_off);
-                                    BlendModeUtil.tintImageViewAsSrcAtop(mute, getResources().getColor(R.color.md_red_500));
+                                    BlendModeUtil.tintImageViewAsSrcAtop(mute, ContextCompat.getColor(getContext(), R.color.md_red_500));
                                     // Lose focus only if helper exists and video has audio
                                     if (audioFocusHelper != null && hasAudio) {
                                         audioFocusHelper.loseFocus();
@@ -845,6 +882,111 @@ public class ExoVideoView extends RelativeLayout {
         }
     }
 
+    /**
+     * Handles the horizontal swipe-to-seek (scrub) gesture. Dragging left/right moves the
+     * playback position back/forward, mapping a full-width drag to the full video duration.
+     *
+     * <p>Only active in the full-screen viewer (when {@code playerUI} exists), when the video is
+     * not pinch-zoomed, and when the horizontal movement clearly dominates the vertical movement
+     * (so vertical swipe-to-dismiss is preserved).
+     *
+     * @return true if this event was consumed by the scrub gesture (so it should not be treated as
+     *     a tap).
+     */
+    private boolean handleScrub(MotionEvent event, int action, boolean scalingInProgress) {
+        // Only scrub in the full-screen viewer, never in any gallery (where horizontal swipes
+        // page between items), and only when not zoomed and not pinching.
+        if (isGalleryContext()
+                || playerUI == null
+                || scaleFactor > 1.0f
+                || scalingInProgress
+                || player == null) {
+            return false;
+        }
+
+        boolean scrubHandled = false;
+        switch (action) {
+            case MotionEvent.ACTION_MOVE: {
+                if (event.getPointerCount() != 1) break;
+
+                final long duration = player.getDuration();
+                if (duration <= 0) break; // Unknown/zero duration (e.g. live) — nothing to scrub.
+
+                final float dx = event.getX() - scrubStartX;
+                final float dy = event.getY() - scrubStartY;
+                final float touchSlop =
+                        android.view.ViewConfiguration.get(context).getScaledTouchSlop();
+
+                // Begin scrubbing once horizontal movement passes the slop and dominates vertical.
+                if (!isScrubbing
+                        && Math.abs(dx) > touchSlop
+                        && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                    isScrubbing = true;
+                    wasScrubbing = true;
+                    scrubStartPosition = player.getCurrentPosition();
+                    // Snap to keyframes while dragging so live preview stays responsive.
+                    player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
+                    // Keep the seekbar controls on screen for the whole scrub.
+                    showControls();
+                    if (getParent() != null) {
+                        getParent().requestDisallowInterceptTouchEvent(true);
+                    }
+                }
+
+                if (isScrubbing) {
+                    int width = getWidth() > 0
+                            ? getWidth()
+                            : getResources().getDisplayMetrics().widthPixels;
+                    long delta = (long) ((dx / width) * duration);
+                    scrubTargetPosition =
+                            Math.max(0, Math.min(duration, scrubStartPosition + delta));
+                    player.seekTo(scrubTargetPosition);
+                    // The seekbar (PlayerControlView) follows the player position automatically,
+                    // so seeking is all the visual feedback we need.
+                    showControls();
+                    scrubHandled = true;
+                }
+                break;
+            }
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL: {
+                if (isScrubbing) {
+                    // Restore exact seeking and land precisely on the chosen position.
+                    player.setSeekParameters(SeekParameters.DEFAULT);
+                    player.seekTo(scrubTargetPosition);
+                    // Let the controls fall back to their normal auto-hide behavior.
+                    scheduleControlsHide();
+                    if (getParent() != null) {
+                        getParent().requestDisallowInterceptTouchEvent(false);
+                    }
+                    isScrubbing = false;
+                }
+                break;
+            }
+        }
+        return scrubHandled;
+    }
+
+    /** Shows the seekbar controls and keeps them on screen (cancels any pending auto-hide). */
+    private void showControls() {
+        if (playerUI == null) return;
+        if (handler != null && hideControlsRunnable != null) {
+            handler.removeCallbacks(hideControlsRunnable);
+        }
+        if (!playerUI.isVisible()) {
+            playerUI.show();
+        }
+    }
+
+    /** Restores the normal auto-hide behavior for the seekbar controls after scrubbing. */
+    private void scheduleControlsHide() {
+        if (playerUI == null || handler == null || hideControlsRunnable == null) return;
+        handler.removeCallbacks(hideControlsRunnable);
+        if (player != null && player.getPlayWhenReady()) {
+            handler.postDelayed(hideControlsRunnable, 2000);
+        }
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (event == null) return super.onTouchEvent(null);
@@ -863,9 +1005,15 @@ public class ExoVideoView extends RelativeLayout {
             isDragging = false;
             wasScaling = false; // Reset scaling history flag for the new gesture
             wasDragging = false; // Reset dragging history flag for the new gesture
+            // Reset scrub state and record the gesture's starting point
+            scrubStartX = event.getX();
+            scrubStartY = event.getY();
+            isScrubbing = false;
+            wasScrubbing = false; // Reset scrubbing history flag for the new gesture
         }
 
         boolean dragHandled = false;
+        boolean scrubHandled = handleScrub(event, action, scalingInProgress);
         // Panning logic (only when zoomed and not currently scaling)
         if (scaleFactor > 1.0f && !scalingInProgress) {
             switch (action) {
@@ -920,8 +1068,8 @@ public class ExoVideoView extends RelativeLayout {
         // 1. Scaling is currently in progress (mid-gesture)
         // 2. Dragging occurred during this MOVE event
         // 3. The action is UP or CANCEL *and* scaling or dragging happened at any point during this gesture sequence
-        boolean consumeEvent = scalingInProgress || dragHandled ||
-                ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) && (wasScaling || wasDragging));
+        boolean consumeEvent = scalingInProgress || dragHandled || scrubHandled ||
+                ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) && (wasScaling || wasDragging || wasScrubbing));
 
         // Reset dragging state on UP or CANCEL, regardless of consumption, ready for next gesture
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
@@ -947,11 +1095,12 @@ public class ExoVideoView extends RelativeLayout {
             // Ensure detector is not null
             if (detector != null) {
                 wasScaling = true; // Mark that scaling has occurred in this gesture sequence
+                userZoomed = true;
 
                 scaleFactor *= detector.getScaleFactor();
 
                 // Limit the scale factor to reasonable bounds
-                scaleFactor = Math.max(1.0f, Math.min(scaleFactor, 3.0f));
+                scaleFactor = Math.max(0.5f, Math.min(scaleFactor, 3.0f));
 
                 // Apply the scale to the video frame if it exists
                 if (videoFrame != null) {
@@ -967,15 +1116,19 @@ public class ExoVideoView extends RelativeLayout {
         public void onScaleEnd(ScaleGestureDetector detector) {
             // Ensure detector is not null
             if (detector != null) {
-                // If scale is back to normal (or very close), reset to FIT mode and reset position
-                if (scaleFactor <= 1.05f) {
-                    scaleFactor = 1.0f;
-                    resetPosition(); // resetPosition handles internal null check
+                // Snap back to the rotation-aware default scale when the user releases
+                // within a small tolerance of it. For unrotated videos rotationScaleFactor
+                // is 1.0f, matching the original snap-to-fit behavior.
+                if (Math.abs(scaleFactor - rotationScaleFactor) <= 0.05f) {
+                    scaleFactor = rotationScaleFactor;
+                    userZoomed = false;
                     if (videoFrame != null) {
-                        videoFrame.setScaleX(1.0f);
-                        videoFrame.setScaleY(1.0f);
-                        videoFrame.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+                        videoFrame.setScaleX(scaleFactor);
+                        videoFrame.setScaleY(scaleFactor);
                     }
+                    resetPosition(); // resetPosition handles internal null check
+                } else if (scaleFactor <= 0.6f) {
+                    resetPosition();
                 }
             }
         }
@@ -985,13 +1138,13 @@ public class ExoVideoView extends RelativeLayout {
      * Resets any applied zoom to default scale and position
      */
     public void resetZoom() {
-        scaleFactor = 1.0f;
+        scaleFactor = rotationScaleFactor;
+        userZoomed = false;
         resetPosition(); // resetPosition already has a null check for videoFrame
         // Ensure videoFrame exists before resetting scale/mode
         if (videoFrame != null) {
-            videoFrame.setScaleX(1.0f);
-            videoFrame.setScaleY(1.0f);
-            videoFrame.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+            videoFrame.setScaleX(rotationScaleFactor);
+            videoFrame.setScaleY(rotationScaleFactor);
         }
     }
 
@@ -1008,6 +1161,86 @@ public class ExoVideoView extends RelativeLayout {
         }
     }
 
+    /**
+     * Rotates the video 90 degrees clockwise
+     */
+    public void rotateRight() {
+        currentRotation = (currentRotation + 90) % 360;
+        resetPosition(); // Reset panning when rotating
+        applyRotation();
+    }
+
+    /**
+     * Rotates the video 90 degrees counter-clockwise
+     */
+    public void rotateLeft() {
+        currentRotation = (currentRotation - 90 + 360) % 360;
+        resetPosition(); // Reset panning when rotating
+        applyRotation();
+    }
+
+    /**
+     * Resets video rotation to 0 degrees
+     */
+    public void resetRotation() {
+        currentRotation = 0;
+        resetPosition(); // Reset panning when resetting rotation
+        applyRotation();
+    }
+
+    /**
+     * Applies the current rotation to the video frame
+     */
+    private void applyRotation() {
+        if (videoFrame != null && originalVideoWidth > 0 && originalVideoHeight > 0) {
+            videoFrame.setRotation(currentRotation);
+
+            // Always use FIT mode to show the full content
+            videoFrame.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+
+            boolean isVerticalVideo = originalVideoHeight > originalVideoWidth;
+
+            if (currentRotation == 90 || currentRotation == 270) {
+                if (isVerticalVideo) {
+                    // For vertical videos, we need to zoom out so the video's original top/bottom
+                    // edges fit the screen's width.
+                    // The scale factor is the ratio of the screen's width to its height.
+                    float screenWidth = getResources().getDisplayMetrics().widthPixels;
+                    float screenHeight = getResources().getDisplayMetrics().heightPixels;
+                    rotationScaleFactor = screenWidth / screenHeight;
+                    Log.d(TAG, "Applied rotation for vertical video: " + currentRotation + "° with zoom scale: " + rotationScaleFactor);
+                } else {
+                    // For horizontal videos, zoom in to fit the width of the screen
+                    float videoAspect = (float) originalVideoWidth / originalVideoHeight;
+                    rotationScaleFactor = videoAspect;
+                    Log.d(TAG, "Applied rotation for horizontal video: " + currentRotation + "° with zoom scale: " + rotationScaleFactor);
+                }
+            } else {
+                // For 0/180 degree rotations, reset to normal view
+                rotationScaleFactor = 1.0f;
+                scaleFactor = 1.0f; // Reset scale to normal for 0/180 degrees
+                userZoomed = false;
+                resetPosition(); // Reset position when going to normal rotation
+                Log.d(TAG, "Applied rotation: " + currentRotation + "° (normal view)");
+            }
+
+            // Apply the rotation auto-zoom unless the user has manually pinch-zoomed
+            if (!userZoomed) {
+                scaleFactor = rotationScaleFactor;
+            }
+
+            videoFrame.setScaleX(scaleFactor);
+            videoFrame.setScaleY(scaleFactor);
+        }
+    }
+
+    /**
+     * Gets the current rotation in degrees
+     */
+    public int getCurrentRotation() {
+        return currentRotation;
+    }
+
     private boolean isVerticalMode() {
         // Get the context's activity
         Context context = getContext();
@@ -1015,6 +1248,29 @@ public class ExoVideoView extends RelativeLayout {
             if (context instanceof Activity) {
                 String activityName = context.getClass().getSimpleName();
                 return activityName.equals("Album") || activityName.equals("RedditGallery");
+            }
+            context = ((ContextWrapper) context).getBaseContext();
+        }
+        return false;
+    }
+
+    /**
+     * Returns true when this view lives inside any gallery host activity. Galleries use horizontal
+     * swipes to page between items, so the horizontal scrub gesture must be disabled there. This
+     * covers both the vertical-list galleries (Album, RedditGallery) and the horizontal-swipe pager
+     * galleries (AlbumPager, RedditGalleryPager, Gallery), which would otherwise have a player UI
+     * and incorrectly enable scrubbing.
+     */
+    private boolean isGalleryContext() {
+        Context context = getContext();
+        while (context instanceof ContextWrapper) {
+            if (context instanceof Activity) {
+                String activityName = context.getClass().getSimpleName();
+                return activityName.equals("Album")
+                        || activityName.equals("AlbumPager")
+                        || activityName.equals("RedditGallery")
+                        || activityName.equals("RedditGalleryPager")
+                        || activityName.equals("Gallery");
             }
             context = ((ContextWrapper) context).getBaseContext();
         }

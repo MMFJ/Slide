@@ -28,6 +28,7 @@ import me.edgan.redditslide.Fragments.BlankFragment;
 import me.edgan.redditslide.Fragments.SubmissionsView;
 import me.edgan.redditslide.ImgurAlbum.AlbumUtils;
 import me.edgan.redditslide.ImgurAlbum.Image;
+import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Views.PreCachingLayoutManager;
@@ -36,6 +37,7 @@ import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.ImageSaveUtils;
 import me.edgan.redditslide.util.LinkUtil;
+import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
 
 import java.util.ArrayList;
@@ -60,7 +62,7 @@ public class Album extends BaseSaveActivity {
         int id = item.getItemId();
 
         if (id == android.R.id.home) {
-            onBackPressed();
+            getOnBackPressedDispatcher().onBackPressed();
         }
 
         if (id == R.id.slider) {
@@ -86,7 +88,14 @@ public class Album extends BaseSaveActivity {
             mToolbar.findViewById(R.id.grid).callOnClick();
         }
         if (id == R.id.comments) {
-            SubmissionsView.datachanged(adapterPosition);
+            String submissionPermalink = getIntent().getStringExtra(MediaView.SUBMISSION_URL);
+            boolean openCommentsDirect =
+                    getIntent().getBooleanExtra(MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
+            if (openCommentsDirect && submissionPermalink != null) {
+                OpenRedditLink.openUrl(this, "https://reddit.com" + submissionPermalink, false);
+            } else {
+                SubmissionsView.datachanged(adapterPosition);
+            }
             finish();
         }
         if (id == R.id.external) {
@@ -266,7 +275,9 @@ public class Album extends BaseSaveActivity {
                                                 getActivity().finish();
                                             })
                                         .show();
-                                } catch (Exception e) {}
+                                } catch (Exception e) {
+                                    LogUtil.e(e, "Failed to show album-not-found dialog");
+                                }
                             }
                         }
                     );

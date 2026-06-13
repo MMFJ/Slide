@@ -61,6 +61,7 @@ import net.dean.jraw.models.VoteDirection;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import me.edgan.redditslide.util.LogUtil;
 
 /** Created by carlo_000 on 2/27/2016. */
 public class PopulateShadowboxInfo {
@@ -217,8 +218,8 @@ public class PopulateShadowboxInfo {
                                                             .save(s);
                                                     ActionStates.setSaved(s, true);
                                                 }
-                                            } catch (ApiException e) {
-                                                e.printStackTrace();
+                                            } catch (ApiException | RuntimeException e) {
+                                                LogUtil.e(e, "PopulateShadowboxInfo.doInBackground failed");
                                             }
 
                                             return null;
@@ -403,7 +404,7 @@ public class PopulateShadowboxInfo {
                         downvotebutton.setVisibility(View.GONE);
                     }
                 } catch (Exception ignored) {
-                    ignored.printStackTrace();
+                    LogUtil.e(ignored, "PopulateShadowboxInfo.onClick failed");
                 }
                 rootView.findViewById(R.id.menu)
                         .setOnClickListener(
@@ -595,8 +596,8 @@ public class PopulateShadowboxInfo {
                                                             .save(s);
                                                     ActionStates.setSaved(s, true);
                                                 }
-                                            } catch (ApiException e) {
-                                                e.printStackTrace();
+                                            } catch (ApiException | RuntimeException e) {
+                                                LogUtil.e(e, "PopulateShadowboxInfo.doInBackground failed");
                                             }
 
                                             return null;
@@ -769,7 +770,7 @@ public class PopulateShadowboxInfo {
                         downvotebutton.setVisibility(View.GONE);
                     }
                 } catch (Exception ignored) {
-                    ignored.printStackTrace();
+                    LogUtil.e(ignored, "PopulateShadowboxInfo.onClick failed");
                 }
             }
         }
@@ -925,8 +926,13 @@ public class PopulateShadowboxInfo {
                                         new AsyncTask<Void, Void, Ruleset>() {
                                             @Override
                                             protected Ruleset doInBackground(Void... voids) {
-                                                return Authentication.reddit.getRules(
-                                                        submission.getSubredditName());
+                                                try {
+                                                    return Authentication.reddit.getRules(
+                                                            submission.getSubredditName());
+                                                } catch (RuntimeException e) {
+                                                    // Connection failures surface as a bare RuntimeException
+                                                    return null;
+                                                }
                                             }
 
                                             @Override
@@ -935,6 +941,10 @@ public class PopulateShadowboxInfo {
                                                         .getCustomView()
                                                         .findViewById(R.id.report_loading)
                                                         .setVisibility(View.GONE);
+                                                if (rules == null) {
+                                                    // Could not load rules (offline); leave the dialog as-is
+                                                    return;
+                                                }
                                                 if (rules.getSubredditRules().size() > 0) {
                                                     TextView subHeader = new TextView(mContext);
                                                     subHeader.setText(

@@ -50,6 +50,7 @@ import me.edgan.redditslide.Adapters.ImageGridAdapterTumblr;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.Fragments.BlankFragment;
 import me.edgan.redditslide.Fragments.SubmissionsView;
+import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
@@ -112,7 +113,7 @@ public class TumblrPager extends BaseSaveActivity {
         int id = item.getItemId();
 
         if (id == android.R.id.home) {
-            onBackPressed();
+            getOnBackPressedDispatcher().onBackPressed();
         }
         if (id == R.id.vertical) {
             SettingValues.albumSwipe = false;
@@ -139,8 +140,16 @@ public class TumblrPager extends BaseSaveActivity {
 
         if (id == R.id.comments) {
             int adapterPosition = getIntent().getIntExtra(MediaView.ADAPTER_POSITION, -1);
-            finish();
-            SubmissionsView.datachanged(adapterPosition);
+            String submissionPermalink = getIntent().getStringExtra(MediaView.SUBMISSION_URL);
+            boolean openCommentsDirect =
+                    getIntent().getBooleanExtra(MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
+            if (openCommentsDirect && submissionPermalink != null) {
+                OpenRedditLink.openUrl(this, "https://reddit.com" + submissionPermalink, false);
+                finish();
+            } else {
+                finish();
+                SubmissionsView.datachanged(adapterPosition);
+            }
         }
 
         if (id == R.id.download) {
@@ -494,11 +503,41 @@ public class TumblrPager extends BaseSaveActivity {
                     }
                 }, getContext(), null); // Pass null for submissionTitle if not available/needed here
 
+                ImageView rotateRight = rootView.findViewById(R.id.rotate_right);
+                ImageView rotateLeft = rootView.findViewById(R.id.rotate_left);
+                if (rotateRight != null && rotateLeft != null) {
+                    rotateRight.setVisibility(View.VISIBLE);
+                    rotateLeft.setVisibility(View.VISIBLE);
+                    rotateRight.setOnClickListener(view -> {
+                        float next = (imageView.getRotation() + 90f) % 360f;
+                        imageView.setRotation(next);
+                    });
+                    rotateLeft.setOnClickListener(view -> {
+                        float next = (imageView.getRotation() - 90f + 360f) % 360f;
+                        imageView.setRotation(next);
+                    });
+                }
+
+                // Direct .gif has no audio track and no quality toggle.
+                View muteButton = rootView.findViewById(R.id.mute);
+                if (muteButton != null) muteButton.setVisibility(View.GONE);
+                View hqButton = rootView.findViewById(R.id.hq);
+                if (hqButton != null) hqButton.setVisibility(View.GONE);
+
             } else { // Not a direct .gif URL, or URL is null, proceed with ExoVideoView
                 gif = rootView.findViewById(R.id.gif);
                 gif.setVisibility(View.VISIBLE);
                 final ExoVideoView v = (ExoVideoView) gif;
                 v.clearFocus();
+
+                ImageView muteButton = rootView.findViewById(R.id.mute);
+                if (muteButton != null) {
+                    v.attachMuteButton(muteButton);
+                }
+                ImageView hqButton = rootView.findViewById(R.id.hq);
+                if (hqButton != null) {
+                    v.attachHqButton(hqButton);
+                }
 
                 new GifUtils.AsyncLoadGif(
                         getActivity(),
@@ -511,6 +550,15 @@ public class TumblrPager extends BaseSaveActivity {
                         ((TumblrPager) getActivity()).subreddit,
                         null) // Pass null for submissionTitle
                         .execute(url);
+
+                ImageView rotateRight = rootView.findViewById(R.id.rotate_right);
+                ImageView rotateLeft = rootView.findViewById(R.id.rotate_left);
+                if (rotateRight != null && rotateLeft != null) {
+                    rotateRight.setVisibility(View.VISIBLE);
+                    rotateLeft.setVisibility(View.VISIBLE);
+                    rotateRight.setOnClickListener(view -> v.rotateRight());
+                    rotateLeft.setOnClickListener(view -> v.rotateLeft());
+                }
             }
 
             rootView.findViewById(R.id.more)
@@ -536,6 +584,40 @@ public class TumblrPager extends BaseSaveActivity {
                                     }
                                 }
                             });
+
+            View comments = rootView.findViewById(R.id.comments);
+            if (comments != null) {
+                if (getActivity().getIntent().hasExtra(MediaView.SUBMISSION_URL)) {
+                    final int adapterPosition =
+                            getActivity()
+                                    .getIntent()
+                                    .getIntExtra(MediaView.ADAPTER_POSITION, -1);
+                    final String submissionPermalink =
+                            getActivity()
+                                    .getIntent()
+                                    .getStringExtra(MediaView.SUBMISSION_URL);
+                    final boolean openCommentsDirect =
+                            getActivity()
+                                    .getIntent()
+                                    .getBooleanExtra(
+                                            MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
+                    comments.setOnClickListener(v -> {
+                        if (openCommentsDirect && submissionPermalink != null) {
+                            OpenRedditLink.openUrl(
+                                    getActivity(),
+                                    "https://reddit.com" + submissionPermalink,
+                                    false);
+                            getActivity().finish();
+                        } else {
+                            getActivity().finish();
+                            SubmissionsView.datachanged(adapterPosition);
+                        }
+                    });
+                } else {
+                    comments.setVisibility(View.GONE);
+                }
+            }
+
             return rootView;
         }
 
@@ -568,7 +650,11 @@ public class TumblrPager extends BaseSaveActivity {
         b.sheet(2, external, getString(R.string.open_externally));
         b.sheet(5, share, getString(R.string.submission_link_share));
         if (!isGif) b.sheet(3, image, getString(R.string.share_image));
-        b.sheet(4, save, getString(R.string.submission_save_image));
+        String lcUrl = contentUrl == null ? "" : contentUrl.toLowerCase();
+        int q = lcUrl.indexOf('?');
+        String path = q < 0 ? lcUrl : lcUrl.substring(0, q);
+        boolean isVideo = path.endsWith(".mp4") || lcUrl.contains("format=mp4");
+        b.sheet(4, save, getString(isVideo ? R.string.submission_save_video : R.string.submission_save_image));
         b.listener(
                 new DialogInterface.OnClickListener() {
                     @Override
@@ -626,6 +712,7 @@ public class TumblrPager extends BaseSaveActivity {
     public static class ImageFullNoSubmission extends Fragment {
 
         private int i = 0;
+        private int currentRotation = 0; // Track current rotation in degrees (0, 90, 180, 270)
 
         public ImageFullNoSubmission() {}
 
@@ -734,6 +821,29 @@ public class TumblrPager extends BaseSaveActivity {
                                     }
                                 });
             }
+
+            // Set up rotation buttons
+            View rotateLeft = rootView.findViewById(R.id.rotate_left);
+            View rotateRight = rootView.findViewById(R.id.rotate_right);
+
+            if (rotateLeft != null) {
+                rotateLeft.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        rotateImageLeft(rootView);
+                    }
+                });
+            }
+
+            if (rotateRight != null) {
+                rotateRight.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        rotateImageRight(rootView);
+                    }
+                });
+            }
+
             if (lq) {
                 rootView.findViewById(R.id.hq)
                         .setOnClickListener(
@@ -749,18 +859,40 @@ public class TumblrPager extends BaseSaveActivity {
             }
 
             if (getActivity().getIntent().hasExtra(MediaView.SUBMISSION_URL)) {
+                final String submissionPermalink =
+                        getActivity().getIntent().getStringExtra(MediaView.SUBMISSION_URL);
+                final boolean openCommentsDirect =
+                        getActivity()
+                                .getIntent()
+                                .getBooleanExtra(MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
                 rootView.findViewById(R.id.comments)
                         .setOnClickListener(
                                 new View.OnClickListener() {
                                     @Override
                                     public void onClick(View v) {
-                                        getActivity().finish();
-                                        SubmissionsView.datachanged(adapterPosition);
+                                        if (openCommentsDirect && submissionPermalink != null) {
+                                            OpenRedditLink.openUrl(
+                                                    getActivity(),
+                                                    "https://reddit.com" + submissionPermalink,
+                                                    false);
+                                            getActivity().finish();
+                                        } else {
+                                            getActivity().finish();
+                                            SubmissionsView.datachanged(adapterPosition);
+                                        }
                                     }
                                 });
             } else {
                 rootView.findViewById(R.id.comments).setVisibility(View.GONE);
             }
+
+            if (currentRotation != 0) {
+                SubsamplingScaleImageView imageView = rootView.findViewById(R.id.image);
+                if (imageView != null) {
+                    imageView.setOrientation(currentRotation);
+                }
+            }
+
             return rootView;
         }
 
@@ -769,6 +901,64 @@ public class TumblrPager extends BaseSaveActivity {
             super.onCreate(savedInstanceState);
             Bundle bundle = this.getArguments();
             i = bundle.getInt("page", 0);
+            if (savedInstanceState != null) {
+                currentRotation = savedInstanceState.getInt("currentRotation", 0);
+            }
+        }
+
+        @Override
+        public void onSaveInstanceState(@NonNull Bundle outState) {
+            super.onSaveInstanceState(outState);
+            outState.putInt("currentRotation", currentRotation);
+        }
+
+        private void rotateImageLeft(View rootView) {
+            currentRotation = (currentRotation - 90 + 360) % 360;
+            refreshImageWithRotation(rootView);
+        }
+
+        private void rotateImageRight(View rootView) {
+            currentRotation = (currentRotation + 90) % 360;
+            refreshImageWithRotation(rootView);
+        }
+
+        private void refreshImageWithRotation(View rootView) {
+            final SubsamplingScaleImageView imageView = rootView.findViewById(R.id.image);
+            if (imageView != null) {
+                // Set background to black to prevent ghosting
+                imageView.setBackgroundColor(android.graphics.Color.BLACK);
+
+                // Recycle the current image to clear any cached state
+                imageView.recycle();
+
+                // Apply the rotation and reload the image
+                imageView.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isAdded()) return;
+                        TumblrPager activity = (TumblrPager) getActivity();
+                        if (activity == null || activity.images == null) return;
+
+                        imageView.setOrientation(currentRotation);
+
+                        // Reload the image
+                        final Photo current = activity.images.get(i);
+                        final String url = current.getOriginalSize().getUrl();
+
+                        if (SettingValues.loadImageLq
+                                && (SettingValues.lowResAlways
+                                        || (!NetworkUtil.isConnectedWifi(activity)
+                                                && SettingValues.lowResMobile))
+                                && current.getAltSizes() != null
+                                && !current.getAltSizes().isEmpty()) {
+                            String lqurl = current.getAltSizes().get(current.getAltSizes().size() / 2).getUrl();
+                            loadImage(rootView, ImageFullNoSubmission.this, lqurl);
+                        } else {
+                            loadImage(rootView, ImageFullNoSubmission.this, url);
+                        }
+                    }
+                });
+            }
         }
     }
 

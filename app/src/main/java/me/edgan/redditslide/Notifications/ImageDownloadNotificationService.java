@@ -156,20 +156,24 @@ public class ImageDownloadNotificationService extends Service {
                                                 return;
                                             }
 
-                                            // Create subreddit subfolder if needed
-                                            if (SettingValues.imageSubfolders && !subreddit.isEmpty()) {
-                                                String cleanSubredditName = subreddit.replaceAll("[^a-zA-Z0-9.-]", "_");
-                                                // Synchronize folder lookup/creation to avoid race conditions
-                                                synchronized (DIRECTORY_LOCK) {
-                                                    DocumentFile subFolder = parentDir.findFile(cleanSubredditName);
-                                                    if (subFolder == null) {
-                                                        subFolder = parentDir.createDirectory(cleanSubredditName);
-                                                    }
-                                                    if (subFolder == null) {
+                                            // Create subreddit and/or media-type subfolders if needed.
+                                            // Synchronize folder lookup/creation to avoid race conditions.
+                                            synchronized (DIRECTORY_LOCK) {
+                                                if (SettingValues.imageSubfolders && !subreddit.isEmpty()) {
+                                                    String cleanSubredditName = subreddit.replaceAll("[^a-zA-Z0-9.-]", "_");
+                                                    parentDir = FileUtil.getOrCreateDirectory(parentDir, cleanSubredditName);
+                                                    if (parentDir == null) {
                                                         onError(new IOException("Failed to create subfolder."));
                                                         return;
                                                     }
-                                                    parentDir = subFolder;
+                                                }
+
+                                                if (SettingValues.imageTypeSubfolders) {
+                                                    parentDir = FileUtil.getOrCreateDirectory(parentDir, "images");
+                                                    if (parentDir == null) {
+                                                        onError(new IOException("Failed to create type subfolder."));
+                                                        return;
+                                                    }
                                                 }
                                             }
 
@@ -340,7 +344,7 @@ public class ImageDownloadNotificationService extends Service {
         }
 
         private void onError(Exception e) {
-            e.printStackTrace();
+            LogUtil.e(e, "ImageDownloadNotificationService.onError failed");
             mNotifyManager.cancel(id);
             stopSelf();
             try {

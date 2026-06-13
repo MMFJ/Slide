@@ -40,6 +40,8 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.browser.customtabs.CustomTabColorSchemeParams;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.browser.customtabs.CustomTabsService;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 
 import com.afollestad.materialdialogs.MaterialDialog;
 
@@ -63,10 +65,12 @@ import net.dean.jraw.models.LoggedInAccount;
 import net.dean.jraw.models.Subreddit;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import androidx.core.content.ContextCompat;
 
 /** Created by ccrama on 5/27/2015. */
 public class Login extends BaseActivityAnim {
@@ -434,6 +438,34 @@ public class Login extends BaseActivityAnim {
                     }
                 });
 
+        // Hide Reddit's cookie consent wrapper before any page script runs. It can appear
+        // behind the login form and steal focus from inputs. Inject at document-start so the
+        // CSS rule + MutationObserver land before Reddit's own scripts mount the element.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(
+                    webView,
+                    "(function(){"
+                            + "var ID='data-protection-consent-wrapper';"
+                            + "var addStyle=function(){"
+                            + "if(document.getElementById('_dpcStyle'))return;"
+                            + "var s=document.createElement('style');"
+                            + "s.id='_dpcStyle';"
+                            + "s.textContent='#'+ID+'{display:none!important}';"
+                            + "(document.head||document.documentElement||document)"
+                            + ".appendChild(s);"
+                            + "};"
+                            + "var kill=function(){"
+                            + "var el=document.getElementById(ID);"
+                            + "if(el)el.remove();"
+                            + "};"
+                            + "addStyle();kill();"
+                            + "new MutationObserver(function(){addStyle();kill();})"
+                            + ".observe(document.documentElement||document,"
+                            + "{childList:true,subtree:true});"
+                            + "})()",
+                    Collections.singleton("https://*.reddit.com"));
+        }
+
         webView.loadUrl(authorizationUrl);
     }
 
@@ -475,7 +507,7 @@ public class Login extends BaseActivityAnim {
             builder.setShareState(CustomTabsIntent.SHARE_STATE_ON);
             builder.setDefaultColorSchemeParams(
                     new CustomTabColorSchemeParams.Builder()
-                            .setToolbarColor(getResources().getColor(R.color.md_blue_500))
+                            .setToolbarColor(ContextCompat.getColor(Login.this, R.color.md_blue_500))
                             .build());
             CustomTabsIntent customTabsIntent = builder.build();
             customTabsIntent.intent.setPackage(
@@ -594,7 +626,7 @@ public class Login extends BaseActivityAnim {
             Log.e(
                     LOGIN_TAG,
                     "Proxy login request failed: " + e.getMessage());
-            e.printStackTrace();
+            LogUtil.e(e, "Login.proxyLoginRequest failed");
         }
 
         // Return null to let the WebView handle the original request normally
@@ -732,7 +764,7 @@ public class Login extends BaseActivityAnim {
             } catch (IllegalStateException | NetworkException | OAuthException e) {
                 Log.e(LOGIN_TAG, "OAuth failed: " + e.getClass().getSimpleName());
                 Log.e(LOGIN_TAG, "OAuth error message: " + e.getMessage());
-                e.printStackTrace();
+                LogUtil.e(e, "Login.doInBackground failed");
             } catch (RuntimeException e) {
                 // Catch runtime exceptions, which include Protocol exceptions from OkHttp
                 if (e.getCause() instanceof java.net.ProtocolException &&
@@ -743,11 +775,11 @@ public class Login extends BaseActivityAnim {
                     if (e.getCause() != null) {
                         Log.e(LOGIN_TAG, "Caused by: " + e.getCause().getClass().getSimpleName() + ": " + e.getCause().getMessage());
                     }
-                    e.printStackTrace();
+                    LogUtil.e(e, "Login.doInBackground failed");
                 }
             } catch (Exception e) {
                 Log.e(LOGIN_TAG, "Unexpected error during OAuth: " + e.getClass().getSimpleName() + ": " + e.getMessage());
-                e.printStackTrace();
+                LogUtil.e(e, "Login.doInBackground failed");
             }
             return null;
         }

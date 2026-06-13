@@ -49,6 +49,7 @@ import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.DataShare;
+import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.Fragments.SubmissionsView;
 import me.edgan.redditslide.Notifications.ImageDownloadNotificationService;
 import me.edgan.redditslide.R;
@@ -108,6 +109,7 @@ public class MediaView extends BaseSaveActivity {
     public static final String EXTRA_DISPLAY_URL = "displayUrl";
     public static final String EXTRA_LQ = "lq";
     public static final String EXTRA_SHARE_URL = "urlShare";
+    public static final String EXTRA_OPEN_COMMENTS_DIRECT = "open_comments_direct";
 
     public static String fileLoc;
     public String subreddit;
@@ -120,6 +122,8 @@ public class MediaView extends BaseSaveActivity {
     public boolean imageShown;
     public String actuallyLoaded;
     public boolean isGif;
+    private int currentRotation = 0; // Track current rotation in degrees
+    private int currentGifRotation = 0; // Track current rotation for direct GIFs
 
     private NotificationManager mNotifyManager;
     private NotificationCompat.Builder mBuilder;
@@ -216,7 +220,7 @@ public class MediaView extends BaseSaveActivity {
                     contentUrl = contentUrl.replace(".gifv", ".gif");
                 }
             } catch (MalformedURLException e) {
-                e.printStackTrace();
+                LogUtil.e(e, "MediaView.URL failed");
             }
             b.sheet(6, file, getString(R.string.mediaview_save, type));
         }
@@ -387,7 +391,7 @@ public class MediaView extends BaseSaveActivity {
                                     }
                                 });
                     } catch (Exception e) {
-                        e.printStackTrace();
+                        LogUtil.e(e, "MediaView.onScanCompleted failed");
                     }
                 }
                 return null;
@@ -436,24 +440,9 @@ public class MediaView extends BaseSaveActivity {
     }
 
     public void hideOnLongClick() {
-        (findViewById(R.id.gifheader))
-                .setOnClickListener(
-                        new View.OnClickListener() {
-                            @Override
-                            public void onClick(View v) {
-                                if (findViewById(R.id.gifheader).getVisibility() == View.GONE) {
-                                    AnimatorUtil.animateIn(findViewById(R.id.gifheader), 56);
-                                    AnimatorUtil.fadeOut(findViewById(R.id.black));
-                                    getWindow().getDecorView().setSystemUiVisibility(0);
-                                } else {
-                                    AnimatorUtil.animateOut(findViewById(R.id.gifheader));
-                                    AnimatorUtil.fadeIn(findViewById(R.id.black));
-                                    getWindow()
-                                            .getDecorView()
-                                            .setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE);
-                                }
-                            }
-                        });
+        // Keep the bottom button row static — consume clicks in gaps between buttons
+        // so they don't fall through to submission_image (which would close the activity).
+        findViewById(R.id.gifheader).setClickable(true);
         findViewById(R.id.submission_image)
                 .setOnClickListener(
                         new View.OnClickListener() {
@@ -518,13 +507,24 @@ public class MediaView extends BaseSaveActivity {
         actuallyLoaded = contentUrl;
         if (getIntent().hasExtra(SUBMISSION_URL)) {
             final int commentUrl = getIntent().getExtras().getInt(ADAPTER_POSITION);
+            final String submissionPermalink = getIntent().getStringExtra(SUBMISSION_URL);
+            final boolean openCommentsDirect =
+                    getIntent().getBooleanExtra(EXTRA_OPEN_COMMENTS_DIRECT, false);
             findViewById(R.id.comments)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
                                 public void onClick(View v) {
-                                    finish();
-                                    SubmissionsView.datachanged(commentUrl);
+                                    if (openCommentsDirect && submissionPermalink != null) {
+                                        OpenRedditLink.openUrl(
+                                                MediaView.this,
+                                                "https://reddit.com" + submissionPermalink,
+                                                false);
+                                        finish();
+                                    } else {
+                                        finish();
+                                        SubmissionsView.datachanged(commentUrl);
+                                    }
                                 }
                             });
         } else {
@@ -701,7 +701,40 @@ public class MediaView extends BaseSaveActivity {
             }
         });
 
+        findViewById(R.id.rotate_right)
+                .setOnClickListener(
+                        new View.OnClickListener() {
+                            @Override
+                            public void onClick(View v) {
+                                if (videoView != null && videoView.getVisibility() == View.VISIBLE) {
+                                    videoView.rotateRight();
+                                } else if (directGifViewer != null && directGifViewer.getVisibility() == View.VISIBLE) {
+                                    rotateDirectGifRight();
+                                } else {
+                                    rotateImage();
+                                }
+                            }
+                        });
+
+        findViewById(R.id.rotate_left)
+                .setOnClickListener(
+                        new View.OnClickListener() {
+                            @Override
+                            public void onClick(View v) {
+                                if (videoView != null && videoView.getVisibility() == View.VISIBLE) {
+                                    videoView.rotateLeft();
+                                } else if (directGifViewer != null && directGifViewer.getVisibility() == View.VISIBLE) {
+                                    rotateDirectGifLeft();
+                                } else {
+                                    rotateImageLeft();
+                                }
+                            }
+                        });
+
         hideOnLongClick();
+
+        // Adjust button sizes for small screens
+        MiscUtil.adjustButtonSizesForSmallScreens(null, this);
     }
 
     public void doLoad(final String contentUrl) {
@@ -736,6 +769,9 @@ public class MediaView extends BaseSaveActivity {
 
     public void doLoadGif(final String dat) {
         isGif = true;
+        // Show rotate buttons for videos/GIFs
+        findViewById(R.id.rotate_right).setVisibility(View.VISIBLE);
+        findViewById(R.id.rotate_left).setVisibility(View.VISIBLE);
         final ProgressBar loader = (ProgressBar) findViewById(R.id.gifprogress);
         final String gifUrl = GifUtils.AsyncLoadGif.formatUrl(dat); // Corrected static call
 
@@ -756,6 +792,10 @@ public class MediaView extends BaseSaveActivity {
                 activeGifDrawable.stop();
             }
             directGifViewer.setImageDrawable(null);
+
+            // Reset rotation for new GIF
+            currentGifRotation = 0;
+            directGifViewer.setRotation(0f);
 
             GifUtils.downloadGif(gifUrl, new GifUtils.GifDownloadCallback() {
                 @Override
@@ -944,7 +984,7 @@ public class MediaView extends BaseSaveActivity {
                                     doLoadImage(finalUrl);
                             }
                         } catch (Exception e2) {
-                            e2.printStackTrace();
+                            LogUtil.e(e2, "MediaView.onPostExecute failed");
                             Intent i = new Intent(MediaView.this, Website.class);
                             i.putExtra(LinkUtil.EXTRA_URL, finalUrl);
                             MediaView.this.startActivity(i);
@@ -1008,7 +1048,7 @@ public class MediaView extends BaseSaveActivity {
                                 finish();
                             }
                         } catch (Exception e2) {
-                            e2.printStackTrace();
+                            LogUtil.e(e2, "MediaView.onLongClick failed");
                             Intent i = new Intent(MediaView.this, Website.class);
                             i.putExtra(LinkUtil.EXTRA_URL, finalUrl);
                             MediaView.this.startActivity(i);
@@ -1060,6 +1100,10 @@ public class MediaView extends BaseSaveActivity {
             contentUrl = contentUrl + ".png";
         }
         findViewById(R.id.gifprogress).setVisibility(View.GONE);
+
+        // Show rotate buttons for images
+        findViewById(R.id.rotate_right).setVisibility(View.VISIBLE);
+        findViewById(R.id.rotate_left).setVisibility(View.VISIBLE);
 
         if (contentUrl != null && contentUrl.contains("m.imgur.com")) {
             contentUrl = contentUrl.replace("m.imgur.com", "i.imgur.com");
@@ -1113,7 +1157,7 @@ public class MediaView extends BaseSaveActivity {
                                 });
 
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        LogUtil.e(e, "MediaView.run failed");
                     }
                     return null;
                 }
@@ -1136,6 +1180,8 @@ public class MediaView extends BaseSaveActivity {
         final String url = StringEscapeUtils.unescapeHtml4(urlB);
 
         if (!imageShown) {
+            // Reset rotation when loading a new image
+            currentRotation = 0;
             actuallyLoaded = url;
             final SubsamplingScaleImageView i = (SubsamplingScaleImageView) findViewById(R.id.submission_image);
 
@@ -1184,51 +1230,19 @@ public class MediaView extends BaseSaveActivity {
                             @Override
                             public void run() {
                                 i.setOnStateChangedListener(
-                                        new SubsamplingScaleImageView.DefaultOnStateChangedListener() {
-                                            @Override
-                                            public void onScaleChanged(float newScale, int origin) {
-                                                if (newScale > previous
-                                                        && !hidden
-                                                        && newScale > base) {
-                                                    hidden = true;
-                                                    final View base = findViewById(R.id.gifheader);
-
-                                                    ValueAnimator va = ValueAnimator.ofFloat(1.0f, 0.2f);
-                                                    int mDuration = 250; // in millis
-                                                    va.setDuration(mDuration);
-                                                    va.addUpdateListener(
-                                                            new ValueAnimator.AnimatorUpdateListener() {
-                                                                public void onAnimationUpdate(
-                                                                        ValueAnimator animation) {
-                                                                    Float value = (Float) animation
-                                                                            .getAnimatedValue();
-                                                                    base.setAlpha(value);
-                                                                }
-                                                            });
-                                                    va.start();
-                                                    // hide
-                                                } else if (newScale <= previous && hidden) {
-                                                    hidden = false;
-                                                    final View base = findViewById(R.id.gifheader);
-
-                                                    ValueAnimator va = ValueAnimator.ofFloat(0.2f, 1.0f);
-                                                    int mDuration = 250; // in millis
-                                                    va.setDuration(mDuration);
-                                                    va.addUpdateListener(
-                                                            new ValueAnimator.AnimatorUpdateListener() {
-                                                                public void onAnimationUpdate(
-                                                                        ValueAnimator animation) {
-                                                                    Float value = (Float) animation
-                                                                            .getAnimatedValue();
-                                                                    base.setAlpha(value);
-                                                                }
-                                                            });
-                                                    va.start();
-                                                    // unhide
-                                                }
-                                                previous = newScale;
+                                    new SubsamplingScaleImageView.DefaultOnStateChangedListener() {
+                                        @Override
+                                        public void onScaleChanged(float newScale, int origin) {
+                                            if (newScale > previous && !hidden && newScale > base) {
+                                                hidden = true;
+                                                animateGifHeaderAlpha(false);
+                                            } else if (newScale <= previous && hidden) {
+                                                hidden = false;
+                                                animateGifHeaderAlpha(true);
                                             }
-                                        });
+                                            previous = newScale;
+                                        }
+                                    });
                             }
                         },
                         2000);
@@ -1293,42 +1307,10 @@ public class MediaView extends BaseSaveActivity {
                                                                 && !hidden
                                                                 && newScale > base) {
                                                             hidden = true;
-                                                            final View base = findViewById(R.id.gifheader);
-
-                                                            ValueAnimator va = ValueAnimator.ofFloat(
-                                                                    1.0f, 0.2f);
-                                                            int mDuration = 250; // in millis
-                                                            va.setDuration(mDuration);
-                                                            va.addUpdateListener(
-                                                                    new ValueAnimator.AnimatorUpdateListener() {
-                                                                        public void onAnimationUpdate(
-                                                                                ValueAnimator animation) {
-                                                                            Float value = (Float) animation
-                                                                                    .getAnimatedValue();
-                                                                            base.setAlpha(value);
-                                                                        }
-                                                                    });
-                                                            va.start();
-                                                            // hide
+                                                            animateGifHeaderAlpha(false);
                                                         } else if (newScale <= previous && hidden) {
                                                             hidden = false;
-                                                            final View base = findViewById(R.id.gifheader);
-
-                                                            ValueAnimator va = ValueAnimator.ofFloat(
-                                                                    0.2f, 1.0f);
-                                                            int mDuration = 250; // in millis
-                                                            va.setDuration(mDuration);
-                                                            va.addUpdateListener(
-                                                                    new ValueAnimator.AnimatorUpdateListener() {
-                                                                        public void onAnimationUpdate(
-                                                                                ValueAnimator animation) {
-                                                                            Float value = (Float) animation
-                                                                                    .getAnimatedValue();
-                                                                            base.setAlpha(value);
-                                                                        }
-                                                                    });
-                                                            va.start();
-                                                            // unhide
+                                                            animateGifHeaderAlpha(true);
                                                         }
                                                         previous = newScale;
                                                     }
@@ -1360,6 +1342,96 @@ public class MediaView extends BaseSaveActivity {
 
     private void showErrorDialog() {
         runOnUiThread(() -> DialogUtil.showErrorDialog(MediaView.this));
+    }
+
+    private void rotateImage() {
+        SubsamplingScaleImageView imageView = (SubsamplingScaleImageView) findViewById(R.id.submission_image);
+        if (imageView != null) {
+            currentRotation = (currentRotation + 90) % 360;
+            refreshImageWithRotation(imageView, currentRotation);
+        }
+    }
+
+    private void rotateImageLeft() {
+        SubsamplingScaleImageView imageView = (SubsamplingScaleImageView) findViewById(R.id.submission_image);
+        if (imageView != null) {
+            currentRotation = (currentRotation - 90 + 360) % 360;
+            refreshImageWithRotation(imageView, currentRotation);
+        }
+    }
+
+    private void refreshImageWithRotation(SubsamplingScaleImageView imageView, int rotation) {
+        // Store the current source
+        if (imageView.loader != null && imageView.loader.savedImageSource != null) {
+            ImageSource currentSource = imageView.loader.savedImageSource;
+
+            // Set a proper black background to avoid ghosting
+            imageView.setBackgroundColor(Color.BLACK);
+
+            // Force a complete refresh by resetting and reloading with new orientation
+            imageView.recycle();
+            imageView.setOrientation(rotation);
+
+            // Delay the image reload slightly to ensure the view is properly cleared
+            imageView.post(new Runnable() {
+                @Override
+                public void run() {
+                    imageView.loader.setImage(currentSource);
+                }
+            });
+        } else {
+            // Fallback to direct orientation setting if no saved source
+            imageView.setBackgroundColor(Color.BLACK);
+            imageView.setOrientation(rotation);
+            imageView.invalidate();
+        }
+    }
+
+    private void rotateDirectGifRight() {
+        if (directGifViewer != null) {
+            currentGifRotation = (currentGifRotation + 90) % 360;
+            refreshDirectGifWithRotation();
+        }
+    }
+
+    private void rotateDirectGifLeft() {
+        if (directGifViewer != null) {
+            currentGifRotation = (currentGifRotation - 90 + 360) % 360;
+            refreshDirectGifWithRotation();
+        }
+    }
+
+    private void refreshDirectGifWithRotation() {
+        if (directGifViewer != null) {
+            // Set background to black to prevent ghosting, similar to image rotation
+            directGifViewer.setBackgroundColor(Color.BLACK);
+
+            // Apply rotation using ImageView's built-in rotation
+            directGifViewer.setRotation(currentGifRotation);
+
+            // Invalidate to ensure the view redraws
+            directGifViewer.invalidate();
+        }
+    }
+
+    /**
+     * Animates the alpha of the gifheader view
+     * @param show true to show (animate alpha to 1.0f), false to hide (animate alpha to 0.2f)
+     */
+    private void animateGifHeaderAlpha(boolean show) {
+        final View headerView = findViewById(R.id.gifheader);
+        if (headerView == null) return;
+
+        ValueAnimator va = ValueAnimator.ofFloat(show ? 0.2f : 1.0f, show ? 1.0f : 0.2f);
+        int mDuration = 250; // in millis
+        va.setDuration(mDuration);
+        va.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            public void onAnimationUpdate(ValueAnimator animation) {
+                Float value = (Float) animation.getAnimatedValue();
+                headerView.setAlpha(value);
+            }
+        });
+        va.start();
     }
 
     @Override

@@ -57,6 +57,7 @@ import me.edgan.redditslide.Views.ExoVideoView;
 import me.edgan.redditslide.Views.ImageSource;
 import me.edgan.redditslide.Views.SubsamplingScaleImageView;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.util.FileUtil;
 import me.edgan.redditslide.util.GifUtils;
 import me.edgan.redditslide.util.HttpUtil;
 import me.edgan.redditslide.util.JsonUtil;
@@ -407,7 +408,9 @@ public class MediaFragment extends Fragment {
                                             i.putExtra(
                                                     Album.SUBREDDIT, submission.getSubredditName());
                                         }
-                                        i.putExtra(EXTRA_SUBMISSION_TITLE, submission.getTitle());
+                                        i.putExtra(
+                                                EXTRA_SUBMISSION_TITLE,
+                                                FileUtil.buildDownloadName(submission));
                                         contextActivity.startActivity(i);
                                     } else {
                                         LinkUtil.openExternally(submission.getUrl());
@@ -428,7 +431,9 @@ public class MediaFragment extends Fragment {
                                             i.putExtra(
                                                     Album.SUBREDDIT, submission.getSubredditName());
                                         }
-                                        i.putExtra(EXTRA_SUBMISSION_TITLE, submission.getTitle());
+                                        i.putExtra(
+                                                EXTRA_SUBMISSION_TITLE,
+                                                FileUtil.buildDownloadName(submission));
 
                                         i.putExtra(
                                                 RedditGallery.SUBREDDIT,
@@ -532,26 +537,38 @@ public class MediaFragment extends Fragment {
                         .get(0)
                         .get("variants")
                         .has("mp4"))) {
-            toLoadURL = StringEscapeUtils.unescapeJson(
-                    s.getDataNode()
-                            .get("preview")
-                            .get("images")
-                            .get(0)
-                            .get("variants")
-                            .get("mp4")
-                            .get("source")
-                            .get("url")
-                            .asText())
-                    .replace("&amp;", "&");
-        } else if ((t.shouldLoadPreview()
+            toLoadURL =
+                    StringEscapeUtils.unescapeJson(
+                                    s.getDataNode()
+                                            .get("preview")
+                                            .get("images")
+                                            .get(0)
+                                            .get("variants")
+                                            .get("mp4")
+                                            .get("source")
+                                            .get("url")
+                                            .asText())
+                            .replace("&amp;", "&");
+        } else if (t.shouldLoadPreview()
                 && s.getDataNode().has("preview")
-                && s.getDataNode().get("preview").has("reddit_video_preview"))) {
-            toLoadURL = StringEscapeUtils.unescapeJson(
-                    s.getDataNode()
-                            .get("preview")
-                            .get("reddit_video_preview")
-                            .get("dash_url")
-                            .asText());
+                && s.getDataNode().get("preview").has("reddit_video_preview")
+                && (t != GifUtils.AsyncLoadGif.VideoType.REDGIFS
+                        || (s.getDataNode()
+                                        .get("preview")
+                                        .get("reddit_video_preview")
+                                        .has("has_audio")
+                                && s.getDataNode()
+                                        .get("preview")
+                                        .get("reddit_video_preview")
+                                        .get("has_audio")
+                                        .asBoolean()))) {
+            toLoadURL =
+                    StringEscapeUtils.unescapeJson(
+                            s.getDataNode()
+                                    .get("preview")
+                                    .get("reddit_video_preview")
+                                    .get("dash_url")
+                                    .asText());
         } else if (t == GifUtils.AsyncLoadGif.VideoType.DIRECT
                 && s.getDataNode().has("media")
                 && s.getDataNode().get("media").has("reddit_video")
@@ -769,7 +786,7 @@ public class MediaFragment extends Fragment {
                                 getContext().startActivity(i);
                             }
                         } catch (Exception e2) {
-                            e2.printStackTrace();
+                            LogUtil.e(e2, "MediaFragment.onLongClick failed");
                             Intent i = new Intent(getContext(), Website.class);
                             i.putExtra(LinkUtil.EXTRA_URL, finalUrl);
                             getContext().startActivity(i);

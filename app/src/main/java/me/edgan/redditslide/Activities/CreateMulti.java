@@ -30,6 +30,7 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -80,6 +81,7 @@ public class CreateMulti extends BaseActivityAnim {
         overrideSwipeFromAnywhere();
 
         super.onCreate(savedInstanceState);
+        getOnBackPressedDispatcher().addCallback(this, mBackCallback);
         applyColorTheme();
         setContentView(R.layout.activity_createmulti);
 
@@ -125,20 +127,24 @@ public class CreateMulti extends BaseActivityAnim {
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
     }
 
-    @Override
-    public void onBackPressed() {
-        new AlertDialog.Builder(CreateMulti.this)
-                .setTitle(R.string.general_confirm_exit)
-                .setMessage(R.string.multi_save_option)
-                .setPositiveButton(
-                        R.string.btn_yes,
-                        (dialog, i) -> {
-                            MultiredditOverview.multiActivity.finish();
-                            new SaveMulti().execute();
-                        })
-                .setNegativeButton(R.string.btn_no, (dialog, i) -> finish())
-                .show();
-    }
+    // Intentionally intercepts Back to show a save/discard prompt instead of finishing
+    private final OnBackPressedCallback mBackCallback =
+            new OnBackPressedCallback(true) {
+                @Override
+                public void handleOnBackPressed() {
+                    new AlertDialog.Builder(CreateMulti.this)
+                            .setTitle(R.string.general_confirm_exit)
+                            .setMessage(R.string.multi_save_option)
+                            .setPositiveButton(
+                                    R.string.btn_yes,
+                                    (dialog, i) -> {
+                                        MultiredditOverview.multiActivity.finish();
+                                        new SaveMulti().execute();
+                                    })
+                            .setNegativeButton(R.string.btn_no, (dialog, i) -> finish())
+                            .show();
+                }
+            };
 
     public void showSelectDialog() {
         // List of all subreddits of the multi
@@ -353,10 +359,19 @@ public class CreateMulti extends BaseActivityAnim {
 
     /** Saves a Multireddit with applicable data in an async task */
     public class SaveMulti extends AsyncTask<Void, Void, Void> {
+        // Snapshot of the title field, read on the UI thread; doInBackground()
+        // runs on a worker thread and must not touch Views directly.
+        private String titleText;
+
+        @Override
+        protected void onPreExecute() {
+            titleText = title.getText().toString();
+        }
+
         @Override
         protected Void doInBackground(Void... params) {
             try {
-                String multiName = title.getText().toString().replace(" ", "").replace("-", "_");
+                String multiName = titleText.replace(" ", "").replace("-", "_");
                 Pattern validName = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_]{2,20}$");
                 Matcher m = validName.matcher(multiName);
 
@@ -427,7 +442,7 @@ public class CreateMulti extends BaseActivityAnim {
                                         .show();
                             }
                         });
-                e.printStackTrace();
+                LogUtil.e(e, "CreateMulti.run failed");
             } catch (IllegalArgumentException e) {
                 runOnUiThread(
                         new Runnable() {
@@ -442,6 +457,23 @@ public class CreateMulti extends BaseActivityAnim {
                                         .show();
                             }
                         });
+            } catch (RuntimeException e) {
+                // Connection failures surface as a bare RuntimeException, not
+                // NetworkException/ApiException, so handle them here to avoid crashing.
+                runOnUiThread(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                new AlertDialog.Builder(CreateMulti.this)
+                                        .setTitle(R.string.err_title)
+                                        .setMessage(R.string.misc_err)
+                                        .setNeutralButton(
+                                                R.string.btn_ok, (dialogInterface, i) -> finish())
+                                        .create()
+                                        .show();
+                            }
+                        });
+                LogUtil.e(e, "CreateMulti.run failed");
             }
             return null;
         }
@@ -513,7 +545,7 @@ public class CreateMulti extends BaseActivityAnim {
                                                                         .show();
                                                             }
                                                         });
-                                                e.printStackTrace();
+                                                LogUtil.e(e, "CreateMulti.run failed");
                                             }
                                             return null;
                                         }
@@ -545,7 +577,7 @@ public class CreateMulti extends BaseActivityAnim {
                 }
                 return true;
             case android.R.id.home:
-                onBackPressed();
+                getOnBackPressedDispatcher().onBackPressed();
                 return true;
             default:
                 return false;

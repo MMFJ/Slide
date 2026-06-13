@@ -134,6 +134,7 @@ public class ImageSaveUtils {
                         return null;
                     case DIRECT:
                     case IMGUR:
+                    case TUMBLR:
                         return Uri.parse(url);
                     case STREAMABLE:
                         String hash = url.substring(url.lastIndexOf("/") + 1);
@@ -179,7 +180,6 @@ public class ImageSaveUtils {
             }
 
             if (resolvedUri != null) {
-                // Show toast before starting the potentially long save operation
                 // Show toast before starting the potentially long save operation
                 // Toast removed as it is handled in GifUtils.cacheSaveGif
                 // try {

@@ -126,6 +126,64 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## Upstream (cygnusx-1-org/Slide) Changes
 
+7.5.8 / 2026-6-10
+============
+* The new default is the RedReader client ID.
+* New Enable Overrides toggle, off by default, to still allow overriding the client ID, user agent, and redirect URI
+* Tons of enhanced exception handling
+
+7.5.7 / 2026-6-7
+===========
+* Implemented Have separate folders for image/video downloads #268
+* Fixed Frontpage sort->time would save as default sort->time #278
+* Rewrite the filters in Settings | Filters into individual searchable views
+
+7.5.6 / 2026-6-2
+===========
+* Added a video scrub feature by horizontally swiping back and forth(Disabled
+in Albums and Galleries
+
+7.5.5 / 2026-5-30
+============
+* Fixed cross-posts to show thumbnails as thumbnails when there is no preview image
+
+7.5.4 / 2026-5-29
+============
+* Fixed feed position when switching to landscape mode with more than one column and back to portrait
+
+7.5.3 / 2026-5-27
+============
+* Fixed Bug: Comment icon in MediaView broken universally #218
+* Fixed Bug: Incorrect "Save Image" Label for Videos/GIFs in Pager #253
+* Fixed Bug: Non-functional mute and HQ icons in TumblrPager bottom controls #256
+* Upgraded many libraries
+* Fixed audio via fallback to RedGifs for Reddit cached RedGifs videos that don't have audio
+
+7.5.2 / 2026-5-24
+============
+* Fixed to use Reddit cache of Redgifs GIFs/videos when available
+* Massive update of libraries
+* Added detection and display of subreddit flair requirements for submitting a post
+
+7.5.1 / 2026-5-17
+============
+* Fixed Crosspost function doesn't show the destination sub's flair (which is required in some subs) #283
+* Apply vote colors to comments in the search results
+* Comment search now searches usernames in addition to comment text
+* Added support for rotation of gifs in Reddit Galleries and Tumblr albums
+
+7.5.0 / 2026-5-12
+============
+* Fixed issue with cookie dialog on the login page when using WebView
+
+7.4.9 / 2026-5-12
+============
+* Added image and video rotate support
+* Made bottom buttons static in media views
+* Fixed issue with the 30 day filter and subreddits that start with multi
+* Fixed crash
+* Fixed issue with transparent pngs as preview or thumbnails
+
 7.4.8 / 2026-4-20
 ============
 * Fixed issues with missing/phathom "Load X more" comments

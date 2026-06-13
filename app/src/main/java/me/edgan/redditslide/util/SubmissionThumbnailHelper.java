@@ -34,7 +34,9 @@ public class SubmissionThumbnailHelper {
         if (SettingValues.image) {
             Intent myIntent = new Intent(contextActivity, MediaView.class);
             myIntent.putExtra(MediaView.SUBREDDIT, submission.getSubredditName());
-            myIntent.putExtra(EXTRA_SUBMISSION_TITLE, submission.getTitle());
+            myIntent.putExtra(
+                    EXTRA_SUBMISSION_TITLE,
+                    FileUtil.buildDownloadName(submission));
             String previewUrl;
             String url = submission.getUrl();
             DataShare.sharedSubmission = submission;
@@ -56,7 +58,7 @@ public class SubmissionThumbnailHelper {
                 }
             }
             myIntent.putExtra(MediaView.EXTRA_URL, url);
-            PopulateBase.addAdaptorPosition(myIntent, submission, adapterPosition);
+            PopulateBase.addAdaptorPosition(myIntent, submission, adapterPosition, contextActivity);
             myIntent.putExtra(MediaView.EXTRA_SHARE_URL, submission.getUrl());
 
             contextActivity.startActivity(myIntent);
@@ -73,7 +75,9 @@ public class SubmissionThumbnailHelper {
 
             Intent myIntent = new Intent(contextActivity, MediaView.class);
             myIntent.putExtra(MediaView.SUBREDDIT, submission.getSubredditName());
-            myIntent.putExtra(EXTRA_SUBMISSION_TITLE, submission.getTitle());
+            myIntent.putExtra(
+                    EXTRA_SUBMISSION_TITLE,
+                    FileUtil.buildDownloadName(submission));
 
             String videoUrl = GifUtils.AsyncLoadGif.getVideoUrlFromSubmission(submission);
             GifUtils.AsyncLoadGif.VideoType t =
@@ -101,11 +105,11 @@ public class SubmissionThumbnailHelper {
                                         .asText())
                                 .replace("&amp;", "&"));
             } else if (t.shouldLoadPreview()
-                    && submission.getDataNode().has("preview")
-                    && submission.getDataNode().get("preview").has("reddit_video_preview") // Check if
-                                                                                           // reddit_video_preview
-                                                                                           // exists
-                    && submission.getDataNode().get("preview").get("reddit_video_preview").has("fallback_url")) {
+                    && submission.getDataNode().get("preview").has("reddit_video_preview") // Check if reddit_video_preview exists
+                    && submission.getDataNode().get("preview").get("reddit_video_preview").has("fallback_url")
+                    && (t != GifUtils.AsyncLoadGif.VideoType.REDGIFS
+                            || (submission.getDataNode().get("preview").get("reddit_video_preview").has("has_audio")
+                                    && submission.getDataNode().get("preview").get("reddit_video_preview").get("has_audio").asBoolean()))) {
                 myIntent.putExtra(
                         MediaView.EXTRA_URL,
                         StringEscapeUtils.unescapeJson(
@@ -141,7 +145,7 @@ public class SubmissionThumbnailHelper {
                         .get("url").asText();
                 myIntent.putExtra(MediaView.EXTRA_DISPLAY_URL, previewUrl);
             }
-            PopulateBase.addAdaptorPosition(myIntent, submission, adapterPosition);
+            PopulateBase.addAdaptorPosition(myIntent, submission, adapterPosition, contextActivity);
             contextActivity.startActivity(myIntent);
         } else {
             LinkUtil.openExternally(submission.getUrl());

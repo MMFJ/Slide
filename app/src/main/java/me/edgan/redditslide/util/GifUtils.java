@@ -18,6 +18,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.OptIn;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
@@ -37,6 +38,7 @@ import androidx.media3.exoplayer.dash.manifest.AdaptationSet;
 import androidx.media3.exoplayer.dash.manifest.DashManifest;
 import androidx.media3.exoplayer.dash.manifest.DashManifestParser;
 import androidx.media3.exoplayer.dash.manifest.Representation;
+import androidx.media3.common.util.UnstableApi;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -79,6 +81,7 @@ import org.apache.commons.io.IOUtils;
 import org.apache.commons.text.StringEscapeUtils;
 
 /** GIF handling utilities */
+@OptIn(markerClass = UnstableApi.class)
 public class GifUtils {
     private static final String TAG = "GifUtils";
 
@@ -247,6 +250,20 @@ public class GifUtils {
         void onGifDownloadFailed(Exception e);
     }
 
+    /**
+     * Returns true if the given URL will be saved as an mp4 (the GIF/video save path's default).
+     * Returns false only when the URL points to a real .gif file we'll save with a .gif extension.
+     */
+    public static boolean willSaveAsMp4(Uri uri) {
+        if (uri == null) return true;
+        String lc = uri.toString().toLowerCase(Locale.ENGLISH);
+        int q = lc.indexOf('?');
+        String path = q < 0 ? lc : lc.substring(0, q);
+        boolean isDash = lc.contains("v.redd.it") && lc.contains("dashplaylist.mpd");
+        if (isDash || path.endsWith(".mp4") || lc.contains("format=mp4")) return true;
+        return !path.endsWith(".gif");
+    }
+
     public static void cacheSaveGif(
             Uri uri, Context activity, String subreddit, String submissionTitle, boolean save, int index) {
         // Add debug logging
@@ -265,11 +282,10 @@ public class GifUtils {
 
         if (save) {
             try {
-                Toast.makeText(
-                                activity,
-                                activity.getString(R.string.mediaview_notif_video),
-                                Toast.LENGTH_SHORT)
-                        .show();
+                int toastMsg = willSaveAsMp4(uri)
+                        ? R.string.mediaview_notif_video
+                        : R.string.mediaview_notif_title;
+                Toast.makeText(activity, activity.getString(toastMsg), Toast.LENGTH_SHORT).show();
             } catch (Exception ignored) {
             }
         }
@@ -342,19 +358,36 @@ public class GifUtils {
                                 parentDir = subFolder;
                             }
 
-                            // Create output file with .mp4 extension
+                            // Create media-type subfolder if needed. Videos and GIFs share the
+                            // "videos" folder.
+                            if (SettingValues.imageTypeSubfolders) {
+                                DocumentFile typeFolder =
+                                        FileUtil.getOrCreateDirectory(parentDir, "videos");
+                                if (typeFolder == null) {
+                                    saveError = new Exception("Could not create type folder");
+                                    return null;
+                                }
+                                parentDir = typeFolder;
+                            }
+
+                            // Pick extension/mime from the source URL. DASH and reddit
+                            // preview URLs always yield mp4; tumblr .gif URLs yield gif bytes.
+                            boolean savesAsMp4 = willSaveAsMp4(uri);
+                            String outExt = savesAsMp4 ? ".mp4" : ".gif";
+                            String outMime = savesAsMp4 ? "video/mp4" : "image/gif";
+
                             String fileName;
                             Log.d("GifUtils", "Creating file with submissionTitle: " + (finalSubmissionTitle != null ? "'" + finalSubmissionTitle + "'" : "null"));
                             if (finalSubmissionTitle != null && !finalSubmissionTitle.trim().isEmpty()) {
                                 String fileIndex = finalIndex > -1 ? String.format(Locale.ENGLISH, "_%03d", finalIndex) : "";
-                                fileName = FileUtil.getValidFileName(finalSubmissionTitle + fileIndex, "", ".mp4");
+                                fileName = FileUtil.getValidFileName(finalSubmissionTitle + fileIndex, "", outExt);
                             } else {
                                 // If no title available, use a timestamp
                                 String fileIndex = finalIndex > -1 ? String.format(Locale.ENGLISH, "_%03d", finalIndex) : "";
-                                fileName = System.currentTimeMillis() + fileIndex + ".mp4";
+                                fileName = System.currentTimeMillis() + fileIndex + outExt;
                             }
                             Log.d("GifUtils", "Creating output file: " + fileName);
-                            DocumentFile outDocFile = parentDir.createFile("video/mp4", fileName);
+                            DocumentFile outDocFile = parentDir.createFile(outMime, fileName);
                             if (outDocFile == null) {
                                 saveError = new Exception("Could not create output file");
                                 return null;
@@ -617,7 +650,7 @@ public class GifUtils {
             REDDIT_GALLERY;
 
             public boolean shouldLoadPreview() {
-                return this == OTHER;
+                return this == OTHER || this == REDGIFS;
             }
         }
 
@@ -652,11 +685,15 @@ public class GifUtils {
             }
 
             if (s.contains("v.redd.it") && !s.contains("DASHPlaylist")) {
-                if (s.contains("DASH")) {
-                    s = s.substring(0, s.indexOf("DASH"));
+                // Strip any segment/playlist file (DASH_*.mp4, CMAF_*.mp4,
+                // HLSPlaylist.m3u8, etc.) back to https://v.redd.it/<id>
+                int idStart = s.indexOf("v.redd.it/") + "v.redd.it/".length();
+                int idEnd = s.indexOf('/', idStart);
+                if (idEnd == -1) {
+                    idEnd = s.indexOf('?', idStart);
                 }
-                if (s.endsWith("/")) {
-                    s = s.substring(0, s.length() - 1);
+                if (idEnd != -1) {
+                    s = s.substring(0, idEnd);
                 }
 
                 s += "/DASHPlaylist.mpd";
@@ -916,7 +953,7 @@ public class GifUtils {
                         }
 
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        LogUtil.e(e, "GifUtils.loadGfycat failed");
                     }
                 }
 
@@ -1048,7 +1085,9 @@ public class GifUtils {
                                                             .setPositiveButton(R.string.btn_ok, (dialog, which) -> c.finish())
                                                             .create()
                                                             .show();
-                                                } catch (Exception ignored) {}
+                                                } catch (Exception e) {
+                                                    LogUtil.e(e, "Failed to show video-not-found dialog");
+                                                }
                                             }
                                         });
                             }
@@ -1169,7 +1208,7 @@ public class GifUtils {
                                 }
                             });
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    LogUtil.e(e, "GifUtils.run failed");
                 }
             } else {
                 DataSource.Factory downloader =
@@ -1291,6 +1330,23 @@ public class GifUtils {
      * @param outputFile Output file path
      * @return Whether the muxing completed successfully
      */
+    /**
+     * Translates {@link MediaExtractor#getSampleFlags()} values (the
+     * {@code SAMPLE_FLAG_*} typedef) into {@link MediaCodec.BufferInfo#flags}
+     * values (the {@code BUFFER_FLAG_*} typedef) for muxing. The two APIs use
+     * distinct {@code @IntDef} typedefs even though the sync-frame bit coincides.
+     */
+    private static int sampleFlagsToBufferFlags(int sampleFlags) {
+        int bufferFlags = 0;
+        if ((sampleFlags & MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
+            bufferFlags |= MediaCodec.BUFFER_FLAG_KEY_FRAME;
+        }
+        if ((sampleFlags & MediaExtractor.SAMPLE_FLAG_PARTIAL_FRAME) != 0) {
+            bufferFlags |= MediaCodec.BUFFER_FLAG_PARTIAL_FRAME;
+        }
+        return bufferFlags;
+    }
+
     private static boolean mux(String videoFile, String audioFile, String outputFile) {
         MediaMuxer muxer = null;
         MediaExtractor videoExtractor = null;
@@ -1349,7 +1405,7 @@ public class GifUtils {
                 bufferInfo.offset = 0;
                 bufferInfo.size = sampleSize;
                 bufferInfo.presentationTimeUs = videoExtractor.getSampleTime();
-                bufferInfo.flags = videoExtractor.getSampleFlags();
+                bufferInfo.flags = sampleFlagsToBufferFlags(videoExtractor.getSampleFlags());
 
                 muxer.writeSampleData(videoTrackIndex, buffer, bufferInfo);
                 videoExtractor.advance();
@@ -1363,7 +1419,7 @@ public class GifUtils {
                 bufferInfo.offset = 0;
                 bufferInfo.size = sampleSize;
                 bufferInfo.presentationTimeUs = audioExtractor.getSampleTime();
-                bufferInfo.flags = audioExtractor.getSampleFlags();
+                bufferInfo.flags = sampleFlagsToBufferFlags(audioExtractor.getSampleFlags());
 
                 muxer.writeSampleData(audioTrackIndex, buffer, bufferInfo);
                 audioExtractor.advance();

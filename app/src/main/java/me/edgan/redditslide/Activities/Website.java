@@ -20,6 +20,7 @@ import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.widget.Toolbar;
 import androidx.webkit.WebViewClientCompat;
 
@@ -61,7 +62,7 @@ public class Website extends BaseActivityAnim {
             if (domain == null) return "";
             return domain.startsWith("www.") ? domain.substring(4) : domain;
         } catch (URISyntaxException e) {
-            e.printStackTrace();
+            LogUtil.e(e, "Website.getDomainName failed");
         }
         return url;
     }
@@ -82,14 +83,20 @@ public class Website extends BaseActivityAnim {
         return true;
     }
 
-    @Override
-    public void onBackPressed() {
-        if (v.canGoBack()) {
-            v.goBack();
-        } else if (!isFinishing()) {
-            super.onBackPressed();
-        }
-    }
+    private final OnBackPressedCallback mBackCallback =
+            new OnBackPressedCallback(true) {
+                @Override
+                public void handleOnBackPressed() {
+                    if (v.canGoBack()) {
+                        v.goBack();
+                    } else if (!isFinishing()) {
+                        // Run the system default back behavior
+                        setEnabled(false);
+                        getOnBackPressedDispatcher().onBackPressed();
+                        setEnabled(true);
+                    }
+                }
+            };
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
@@ -105,8 +112,19 @@ public class Website extends BaseActivityAnim {
                 return true;
             case R.id.comments:
                 final int commentUrl = getIntent().getExtras().getInt(LinkUtil.ADAPTER_POSITION);
-                finish();
-                SubmissionsView.datachanged(commentUrl);
+                String submissionPermalink =
+                        getIntent().getStringExtra(MediaView.SUBMISSION_URL);
+                boolean openCommentsDirect =
+                        getIntent()
+                                .getBooleanExtra(MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
+                if (openCommentsDirect && submissionPermalink != null) {
+                    OpenRedditLink.openUrl(
+                            this, "https://reddit.com" + submissionPermalink, false);
+                    finish();
+                } else {
+                    finish();
+                    SubmissionsView.datachanged(commentUrl);
+                }
                 break;
             case R.id.external:
                 Intent inte = new Intent(this, MakeExternal.class);
@@ -166,6 +184,7 @@ public class Website extends BaseActivityAnim {
     public void onCreate(Bundle savedInstanceState) {
         overrideSwipeFromAnywhere();
         super.onCreate(savedInstanceState);
+        getOnBackPressedDispatcher().addCallback(this, mBackCallback);
         applyColorTheme("");
         setContentView(R.layout.activity_web);
         MiscUtil.setupOldSwipeModeBackground(this, getWindow().getDecorView());

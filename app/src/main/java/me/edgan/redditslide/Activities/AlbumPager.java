@@ -49,6 +49,7 @@ import me.edgan.redditslide.Fragments.BlankFragment;
 import me.edgan.redditslide.Fragments.SubmissionsView;
 import me.edgan.redditslide.ImgurAlbum.AlbumUtils;
 import me.edgan.redditslide.ImgurAlbum.Image;
+import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
@@ -99,7 +100,7 @@ public class AlbumPager extends BaseSaveActivity {
         int id = item.getItemId();
 
         if (id == android.R.id.home) {
-            onBackPressed();
+            getOnBackPressedDispatcher().onBackPressed();
         }
         if (id == R.id.vertical) {
             SettingValues.albumSwipe = false;
@@ -132,8 +133,16 @@ public class AlbumPager extends BaseSaveActivity {
 
         if (id == R.id.comments) {
             int adapterPosition = getIntent().getIntExtra(MediaView.ADAPTER_POSITION, -1);
-            finish();
-            SubmissionsView.datachanged(adapterPosition);
+            String submissionPermalink = getIntent().getStringExtra(MediaView.SUBMISSION_URL);
+            boolean openCommentsDirect =
+                    getIntent().getBooleanExtra(MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
+            if (openCommentsDirect && submissionPermalink != null) {
+                OpenRedditLink.openUrl(this, "https://reddit.com" + submissionPermalink, false);
+                finish();
+            } else {
+                finish();
+                SubmissionsView.datachanged(adapterPosition);
+            }
         }
 
         if (id == R.id.download && images != null) {
@@ -497,6 +506,34 @@ public class AlbumPager extends BaseSaveActivity {
                 }
             }
 
+            // Set up rotation buttons for videos
+            ImageView rotateButton = rootView.findViewById(R.id.rotate_right);
+            ImageView rotateLeftButton = rootView.findViewById(R.id.rotate_left);
+
+            if (rotateButton != null && rotateLeftButton != null) {
+                // Show rotation buttons for videos
+                rotateButton.setVisibility(View.VISIBLE);
+                rotateLeftButton.setVisibility(View.VISIBLE);
+
+                rotateButton.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View view) {
+                        if (v != null) {
+                            v.rotateRight();
+                        }
+                    }
+                });
+
+                rotateLeftButton.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View view) {
+                        if (v != null) {
+                            v.rotateLeft();
+                        }
+                    }
+                });
+            }
+
             final String url = ((AlbumPager) getActivity()).images.get(i).getImageUrl();
 
             // Important: Always start with autostart=false
@@ -543,17 +580,37 @@ public class AlbumPager extends BaseSaveActivity {
             View comments = rootView.findViewById(R.id.comments);
             if (comments != null) {
                 if (getActivity().getIntent().hasExtra(MediaView.SUBMISSION_URL)) {
+                    final String submissionPermalink =
+                            getActivity()
+                                    .getIntent()
+                                    .getStringExtra(MediaView.SUBMISSION_URL);
+                    final boolean openCommentsDirect =
+                            getActivity()
+                                    .getIntent()
+                                    .getBooleanExtra(
+                                            MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
                     comments.setOnClickListener(new View.OnClickListener() {
                         @Override
                         public void onClick(View v) {
-                            getActivity().finish();
-                            SubmissionsView.datachanged(adapterPosition);
+                            if (openCommentsDirect && submissionPermalink != null) {
+                                OpenRedditLink.openUrl(
+                                        getActivity(),
+                                        "https://reddit.com" + submissionPermalink,
+                                        false);
+                                getActivity().finish();
+                            } else {
+                                getActivity().finish();
+                                SubmissionsView.datachanged(adapterPosition);
+                            }
                         }
                     });
                 } else {
                     comments.setVisibility(View.GONE);
                 }
             }
+
+            // Adjust button sizes for small screens
+            MiscUtil.adjustButtonSizesForSmallScreens(rootView, getActivity());
 
             return rootView;
         }
@@ -613,7 +670,11 @@ public class AlbumPager extends BaseSaveActivity {
         b.sheet(2, external, getString(R.string.open_externally));
         b.sheet(5, share, getString(R.string.submission_link_share));
         if (!isGif) b.sheet(3, image, getString(R.string.share_image));
-        b.sheet(4, save, getString(R.string.submission_save_image));
+        String lcUrl = contentUrl == null ? "" : contentUrl.toLowerCase();
+        int q = lcUrl.indexOf('?');
+        String path = q < 0 ? lcUrl : lcUrl.substring(0, q);
+        boolean isVideo = path.endsWith(".mp4") || lcUrl.contains("format=mp4");
+        b.sheet(4, save, getString(isVideo ? R.string.submission_save_video : R.string.submission_save_image));
         b.listener(
                 new DialogInterface.OnClickListener() {
                     @Override
@@ -696,6 +757,7 @@ public class AlbumPager extends BaseSaveActivity {
     public static class ImageFullNoSubmission extends Fragment {
 
         private int i = 0;
+        private int currentRotation = 0; // Track current rotation in degrees (0, 90, 180, 270)
 
         public ImageFullNoSubmission() {}
 
@@ -768,12 +830,29 @@ public class AlbumPager extends BaseSaveActivity {
                 View comments = rootView.findViewById(R.id.comments);
                 if (getActivity().getIntent().hasExtra(MediaView.SUBMISSION_URL)) {
                     if (comments != null) {
+                        final String submissionPermalink =
+                                getActivity()
+                                        .getIntent()
+                                        .getStringExtra(MediaView.SUBMISSION_URL);
+                        final boolean openCommentsDirect =
+                                getActivity()
+                                        .getIntent()
+                                        .getBooleanExtra(
+                                                MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
                         comments.setOnClickListener(
                                 new View.OnClickListener() {
                                     @Override
                                     public void onClick(View v) {
-                                        getActivity().finish();
-                                        SubmissionsView.datachanged(adapterPosition);
+                                        if (openCommentsDirect && submissionPermalink != null) {
+                                            OpenRedditLink.openUrl(
+                                                    getActivity(),
+                                                    "https://reddit.com" + submissionPermalink,
+                                                    false);
+                                            getActivity().finish();
+                                        } else {
+                                            getActivity().finish();
+                                            SubmissionsView.datachanged(adapterPosition);
+                                        }
                                     }
                                 });
                     }
@@ -853,6 +932,29 @@ public class AlbumPager extends BaseSaveActivity {
                 if (mute != null) {
                     mute.setVisibility(View.GONE);
                 }
+
+                // Set up rotation buttons
+                View rotateLeft = rootView.findViewById(R.id.rotate_left);
+                View rotateRight = rootView.findViewById(R.id.rotate_right);
+
+                if (rotateLeft != null) {
+                    rotateLeft.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            rotateImageLeft(rootView);
+                        }
+                    });
+                }
+
+                if (rotateRight != null) {
+                    rotateRight.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            rotateImageRight(rootView);
+                        }
+                    });
+                }
+
                 if (lq) {
                     rootView.findViewById(R.id.hq)
                             .setOnClickListener(
@@ -872,6 +974,17 @@ public class AlbumPager extends BaseSaveActivity {
                     rootView.findViewById(R.id.hq).setVisibility(View.GONE);
                 }
             }
+
+            if (currentRotation != 0) {
+                SubsamplingScaleImageView imageView = rootView.findViewById(R.id.image);
+                if (imageView != null) {
+                    imageView.setOrientation(currentRotation);
+                }
+            }
+
+            // Adjust button sizes for small screens
+            MiscUtil.adjustButtonSizesForSmallScreens(rootView, getActivity());
+
             return rootView;
         }
 
@@ -880,6 +993,67 @@ public class AlbumPager extends BaseSaveActivity {
             super.onCreate(savedInstanceState);
             Bundle bundle = this.getArguments();
             i = bundle.getInt("page", 0);
+            if (savedInstanceState != null) {
+                currentRotation = savedInstanceState.getInt("currentRotation", 0);
+            }
+        }
+
+        @Override
+        public void onSaveInstanceState(@NonNull Bundle outState) {
+            super.onSaveInstanceState(outState);
+            outState.putInt("currentRotation", currentRotation);
+        }
+
+        private void rotateImageLeft(View rootView) {
+            currentRotation = (currentRotation - 90 + 360) % 360;
+            refreshImageWithRotation(rootView);
+        }
+
+        private void rotateImageRight(View rootView) {
+            currentRotation = (currentRotation + 90) % 360;
+            refreshImageWithRotation(rootView);
+        }
+
+        private void refreshImageWithRotation(View rootView) {
+            final SubsamplingScaleImageView imageView = rootView.findViewById(R.id.image);
+            if (imageView != null) {
+                // Set background to black to prevent ghosting
+                imageView.setBackgroundColor(android.graphics.Color.BLACK);
+
+                // Recycle the current image to clear any cached state
+                imageView.recycle();
+
+                // Apply the rotation and reload the image
+                imageView.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isAdded()) return;
+                        AlbumPager activity = (AlbumPager) getActivity();
+                        if (activity == null || activity.images == null) return;
+
+                        imageView.setOrientation(currentRotation);
+
+                        // Reload the image
+                        final Image current = activity.images.get(i);
+                        final String url = current.getImageUrl();
+
+                        if (SettingValues.loadImageLq
+                                && (SettingValues.lowResAlways
+                                        || (!NetworkUtil.isConnectedWifi(activity)
+                                                && SettingValues.lowResMobile))) {
+                            String lqurl =
+                                    url.substring(0, url.lastIndexOf("."))
+                                            + (SettingValues.lqLow
+                                                    ? "m"
+                                                    : (SettingValues.lqMid ? "l" : "h"))
+                                            + url.substring(url.lastIndexOf("."));
+                            loadImage(rootView, ImageFullNoSubmission.this, lqurl, activity.images.size() == 1);
+                        } else {
+                            loadImage(rootView, ImageFullNoSubmission.this, url, activity.images.size() == 1);
+                        }
+                    }
+                });
+            }
         }
     }
 

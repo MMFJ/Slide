@@ -3,10 +3,16 @@ package me.edgan.redditslide.Activities;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -27,6 +33,7 @@ import androidx.appcompat.widget.SwitchCompat;
 import com.afollestad.materialdialogs.DialogAction;
 import com.afollestad.materialdialogs.MaterialDialog;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.gson.Gson;
@@ -58,6 +65,7 @@ import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
 
 import net.dean.jraw.ApiException;
 import net.dean.jraw.http.HttpRequest;
+import net.dean.jraw.http.RestResponse;
 import net.dean.jraw.managers.AccountManager;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.Subreddit;
@@ -80,6 +88,8 @@ public class Submit extends BaseActivity {
     private String trying;
     private String URL;
     private String selectedFlairID;
+    private String selectedFlairText;
+    private boolean isFlairRequired = false;
     private SwitchCompat inboxReplies;
     private View image;
     private View link;
@@ -88,7 +98,13 @@ public class Submit extends BaseActivity {
     public static final String EXTRA_BODY = "body";
     public static final String EXTRA_IS_SELF = "is_self";
 
+    private static final int FLAIR_REQUIRED_COLOR = Color.parseColor("#FF9800");
+
     AsyncTask<Void, Void, Subreddit> tchange;
+    AsyncTask<Void, Void, Boolean> tFlairRequired;
+    private final Handler subredditDebounce = new Handler(Looper.getMainLooper());
+    private Runnable subredditDebounceRunnable;
+    private String lastCheckedSubreddit = "";
     private OkHttpClient client;
     private Gson gson;
     private ActivityResultLauncher<PickVisualMediaRequest> submitImageLauncher;
@@ -200,7 +216,16 @@ public class Submit extends BaseActivity {
                         if (tchange != null) {
                             tchange.cancel(true);
                         }
+                        if (tFlairRequired != null) {
+                            tFlairRequired.cancel(true);
+                        }
                         findViewById(R.id.submittext).setVisibility(View.GONE);
+                        isFlairRequired = false;
+                        selectedFlairID = null;
+                        selectedFlairText = null;
+                        lastCheckedSubreddit = "";
+                        refreshFlairState();
+                        scheduleSubredditCheck(s.toString());
                     }
                 });
 
@@ -210,63 +235,21 @@ public class Submit extends BaseActivity {
                     public void onFocusChange(View v, boolean hasFocus) {
                         findViewById(R.id.submittext).setVisibility(View.GONE);
                         if (!hasFocus) {
-                            tchange =
-                                    new AsyncTask<Void, Void, Subreddit>() {
-                                        @Override
-                                        protected Subreddit doInBackground(Void... params) {
-                                            try {
-                                                return Authentication.reddit.getSubreddit(
-                                                        subredditText.getText().toString());
-                                            } catch (Exception ignored) {
-
-                                            }
-                                            return null;
-                                        }
-
-                                        @Override
-                                        protected void onPostExecute(Subreddit s) {
-
-                                            if (s != null) {
-                                                String text =
-                                                        s.getDataNode()
-                                                                .get("submit_text_html")
-                                                                .asText();
-                                                if (text != null
-                                                        && !text.isEmpty()
-                                                        && !text.equals("null")) {
-                                                    findViewById(R.id.submittext)
-                                                            .setVisibility(View.VISIBLE);
-                                                    setViews(
-                                                            text,
-                                                            subredditText.getText().toString(),
-                                                            (SpoilerRobotoTextView)
-                                                                    findViewById(R.id.submittext),
-                                                            (CommentOverflow)
-                                                                    findViewById(
-                                                                            R.id.commentOverflow));
-                                                }
-                                                if (s.getSubredditType().equals("RESTRICTED")) {
-                                                    subredditText.setText("");
-                                                    new AlertDialog.Builder(Submit.this)
-                                                            .setTitle(
-                                                                    R.string.err_submit_restricted)
-                                                            .setMessage(
-                                                                    R.string
-                                                                            .err_submit_restricted_text)
-                                                            .setPositiveButton(
-                                                                    R.string.btn_ok, null)
-                                                            .show();
-                                                }
-                                            } else {
-                                                findViewById(R.id.submittext)
-                                                        .setVisibility(View.GONE);
-                                            }
-                                        }
-                                    };
-                            tchange.execute();
+                            runSubredditCheck(subredditText.getText().toString());
                         }
                     }
                 });
+
+        subredditText.setOnItemClickListener(
+                (parent, view, position, id) ->
+                        runSubredditCheck(subredditText.getText().toString()));
+
+        // Pre-filled subreddit (e.g. launched from a sub view) — setText() fires before the
+        // watcher is attached, so trigger the check explicitly so flair requirement loads.
+        String initialSub = subredditText.getText().toString();
+        if (!initialSub.isEmpty()) {
+            runSubredditCheck(initialSub);
+        }
 
         findViewById(R.id.selftextradio)
                 .setOnClickListener(
@@ -321,7 +304,7 @@ public class Submit extends BaseActivity {
                                         try {
                                             return TitleExtractor.getPageTitle(params[0]);
                                         } catch (Exception e) {
-                                            e.printStackTrace();
+                                            LogUtil.e(e, "Submit.doInBackground failed");
                                         }
                                         return null;
                                     }
@@ -414,6 +397,14 @@ public class Submit extends BaseActivity {
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View view) {
+                                if (isFlairRequired && selectedFlairID == null) {
+                                    Toast.makeText(
+                                                    Submit.this,
+                                                    R.string.crosspost_flair_required_short,
+                                                    Toast.LENGTH_LONG)
+                                            .show();
+                                    return;
+                                }
                                 ((FloatingActionButton) findViewById(R.id.send)).hide();
                                 new AsyncDo().execute();
                             }
@@ -509,12 +500,8 @@ public class Submit extends BaseActivity {
                                                     CharSequence text) {
                                                 RichFlair selected = flairs.get(allKeys.get(which));
                                                 selectedFlairID = selected.getId();
-                                                ((TextView) findViewById(R.id.flair))
-                                                        .setText(
-                                                                getString(
-                                                                        R.string
-                                                                                .submit_selected_flair,
-                                                                        selected.getText()));
+                                                selectedFlairText = selected.getText();
+                                                refreshFlairState();
                                             }
                                         })
                                 .show();
@@ -526,6 +513,151 @@ public class Submit extends BaseActivity {
                 }
             }
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+
+    private void scheduleSubredditCheck(final String subreddit) {
+        if (subredditDebounceRunnable != null) {
+            subredditDebounce.removeCallbacks(subredditDebounceRunnable);
+        }
+        if (subreddit == null || subreddit.trim().length() < 2) {
+            return;
+        }
+        subredditDebounceRunnable = () -> runSubredditCheck(subreddit);
+        subredditDebounce.postDelayed(subredditDebounceRunnable, 700);
+    }
+
+    private void runSubredditCheck(final String subredditRaw) {
+        final String subreddit = subredditRaw == null ? "" : subredditRaw.trim();
+        if (subreddit.isEmpty() || subreddit.equals(lastCheckedSubreddit)) {
+            return;
+        }
+        lastCheckedSubreddit = subreddit;
+        if (subredditDebounceRunnable != null) {
+            subredditDebounce.removeCallbacks(subredditDebounceRunnable);
+            subredditDebounceRunnable = null;
+        }
+        if (tchange != null) {
+            tchange.cancel(true);
+        }
+        final AutoCompleteTextView subredditText =
+                (AutoCompleteTextView) findViewById(R.id.subreddittext);
+        tchange =
+                new AsyncTask<Void, Void, Subreddit>() {
+                    @Override
+                    protected Subreddit doInBackground(Void... params) {
+                        try {
+                            return Authentication.reddit.getSubreddit(subreddit);
+                        } catch (Exception ignored) {
+                        }
+                        return null;
+                    }
+
+                    @Override
+                    protected void onPostExecute(Subreddit s) {
+                        if (s != null) {
+                            String text = s.getDataNode().get("submit_text_html").asText();
+                            if (text != null && !text.isEmpty() && !text.equals("null")) {
+                                findViewById(R.id.submittext).setVisibility(View.VISIBLE);
+                                setViews(
+                                        text,
+                                        subreddit,
+                                        (SpoilerRobotoTextView)
+                                                findViewById(R.id.submittext),
+                                        (CommentOverflow) findViewById(R.id.commentOverflow));
+                            }
+                            if (s.getSubredditType().equals("RESTRICTED")) {
+                                subredditText.setText("");
+                                lastCheckedSubreddit = "";
+                                new AlertDialog.Builder(Submit.this)
+                                        .setTitle(R.string.err_submit_restricted)
+                                        .setMessage(R.string.err_submit_restricted_text)
+                                        .setPositiveButton(R.string.btn_ok, null)
+                                        .show();
+                                return;
+                            }
+                            fetchFlairRequirement(subreddit);
+                        } else {
+                            findViewById(R.id.submittext).setVisibility(View.GONE);
+                        }
+                    }
+                };
+        tchange.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+
+    private void fetchFlairRequirement(final String subreddit) {
+        if (tFlairRequired != null) {
+            tFlairRequired.cancel(true);
+        }
+        tFlairRequired =
+                new AsyncTask<Void, Void, Boolean>() {
+                    @Override
+                    protected Boolean doInBackground(Void... voids) {
+                        try {
+                            HttpRequest r =
+                                    Authentication.reddit
+                                            .request()
+                                            .path(
+                                                    "/api/v1/"
+                                                            + subreddit
+                                                            + "/post_requirements")
+                                            .get()
+                                            .build();
+                            RestResponse response = Authentication.reddit.execute(r);
+                            JsonNode root = response.getJson();
+                            LogUtil.v(
+                                    "Submit: post_requirements /r/"
+                                            + subreddit
+                                            + " response: "
+                                            + (root == null ? "null" : root.toString()));
+                            if (root != null && root.has("is_flair_required")) {
+                                return root.get("is_flair_required").asBoolean(false);
+                            }
+                        } catch (Exception e) {
+                            LogUtil.v(
+                                    "Submit: post_requirements lookup failed: "
+                                            + e.getClass().getSimpleName()
+                                            + ": "
+                                            + e.getMessage());
+                        }
+                        return false;
+                    }
+
+                    @Override
+                    protected void onPostExecute(Boolean required) {
+                        isFlairRequired = required != null && required;
+                        refreshFlairState();
+                    }
+                };
+        tFlairRequired.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+
+    private void refreshFlairState() {
+        TextView flair = (TextView) findViewById(R.id.flair);
+        if (flair == null) {
+            return;
+        }
+        String base =
+                selectedFlairID != null
+                        ? getString(R.string.submit_selected_flair, selectedFlairText)
+                        : getString(R.string.editor_btn_select_flair);
+        if (isFlairRequired && selectedFlairID == null) {
+            SpannableString span = new SpannableString(base + " *");
+            span.setSpan(
+                    new ForegroundColorSpan(FLAIR_REQUIRED_COLOR),
+                    span.length() - 1,
+                    span.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            flair.setText(span);
+        } else {
+            flair.setText(base);
+        }
+
+        boolean canSend = !(isFlairRequired && selectedFlairID == null);
+        FloatingActionButton send = (FloatingActionButton) findViewById(R.id.send);
+        if (send != null) {
+            send.setEnabled(canSend);
+            send.setAlpha(canSend ? 1f : 0.4f);
+        }
     }
 
     public void setViews(
@@ -567,38 +699,55 @@ public class Submit extends BaseActivity {
             try {
                 new UploadImgurSubmit(this, uris.get(0));
             } catch (Exception e) {
-                e.printStackTrace();
+                LogUtil.e(e, "Submit.handleImageIntent failed");
             }
         } else {
             // Multiple images
             try {
                 new UploadImgurAlbumSubmit(this, uris.toArray(new Uri[0]));
             } catch (Exception e) {
-                e.printStackTrace();
+                LogUtil.e(e, "Submit.handleImageIntent failed");
             }
         }
     }
 
     private class AsyncDo extends AsyncTask<Void, Void, Void> {
 
+        // Snapshot of all View state, captured on the UI thread in onPreExecute().
+        // doInBackground() runs on a worker thread and must not touch Views directly.
+        private boolean selfVisible;
+        private boolean linkVisible;
+        private boolean imageVisible;
+        private String bodyText;
+        private String subredditText;
+        private String titleText;
+        private String urlText;
+        private boolean sendReplies;
+
+        @Override
+        protected void onPreExecute() {
+            selfVisible = self.getVisibility() == View.VISIBLE;
+            linkVisible = link.getVisibility() == View.VISIBLE;
+            imageVisible = image.getVisibility() == View.VISIBLE;
+            bodyText = ((EditText) findViewById(R.id.bodytext)).getText().toString();
+            subredditText =
+                    ((AutoCompleteTextView) findViewById(R.id.subreddittext))
+                            .getText()
+                            .toString();
+            titleText = ((EditText) findViewById(R.id.titletext)).getText().toString();
+            urlText = ((EditText) findViewById(R.id.urltext)).getText().toString();
+            sendReplies = inboxReplies.isChecked();
+        }
+
         @Override
         protected Void doInBackground(Void... voids) {
             try {
-                if (self.getVisibility() == View.VISIBLE) {
-                    final String text =
-                            ((EditText) findViewById(R.id.bodytext)).getText().toString();
+                if (selfVisible) {
+                    final String text = bodyText;
                     try {
                         AccountManager.SubmissionBuilder builder =
                                 new AccountManager.SubmissionBuilder(
-                                        ((EditText) findViewById(R.id.bodytext))
-                                                .getText()
-                                                .toString(),
-                                        ((AutoCompleteTextView) findViewById(R.id.subreddittext))
-                                                .getText()
-                                                .toString(),
-                                        ((EditText) findViewById(R.id.titletext))
-                                                .getText()
-                                                .toString());
+                                        bodyText, subredditText, titleText);
 
                         if (selectedFlairID != null) {
                             builder.flairID(selectedFlairID);
@@ -606,20 +755,20 @@ public class Submit extends BaseActivity {
 
                         Submission s = new AccountManager(Authentication.reddit).submit(builder);
                         new AccountManager(Authentication.reddit)
-                                .sendRepliesToInbox(s, inboxReplies.isChecked());
+                                .sendRepliesToInbox(s, sendReplies);
                         OpenRedditLink.openUrl(
                                 Submit.this,
                                 "reddit.com/r/"
-                                        + ((AutoCompleteTextView) findViewById(R.id.subreddittext))
-                                                .getText()
-                                                .toString()
+                                        + subredditText
                                         + "/comments/"
                                         + s.getFullName().substring(3),
                                 true);
                         Submit.this.finish();
                     } catch (final ApiException e) {
+                        // Network failures (bare RuntimeException) propagate to the outer
+                        // catch (Exception); this branch only handles Reddit API errors.
                         Drafts.addDraft(text);
-                        e.printStackTrace();
+                        LogUtil.e(e, "Submit.doInBackground failed");
 
                         runOnUiThread(
                                 new Runnable() {
@@ -634,42 +783,30 @@ public class Submit extends BaseActivity {
                                     }
                                 });
                     }
-                } else if (link.getVisibility() == View.VISIBLE) {
+                } else if (linkVisible) {
                     try {
                         Submission s =
                                 new AccountManager(Authentication.reddit)
                                         .submit(
                                                 new AccountManager.SubmissionBuilder(
-                                                        new URL(
-                                                                ((EditText)
-                                                                                findViewById(
-                                                                                        R.id
-                                                                                                .urltext))
-                                                                        .getText()
-                                                                        .toString()),
-                                                        ((AutoCompleteTextView)
-                                                                        findViewById(
-                                                                                R.id.subreddittext))
-                                                                .getText()
-                                                                .toString(),
-                                                        ((EditText) findViewById(R.id.titletext))
-                                                                .getText()
-                                                                .toString()));
+                                                        new URL(urlText),
+                                                        subredditText,
+                                                        titleText));
                         new AccountManager(Authentication.reddit)
-                                .sendRepliesToInbox(s, inboxReplies.isChecked());
+                                .sendRepliesToInbox(s, sendReplies);
                         OpenRedditLink.openUrl(
                                 Submit.this,
                                 "reddit.com/r/"
-                                        + ((AutoCompleteTextView) findViewById(R.id.subreddittext))
-                                                .getText()
-                                                .toString()
+                                        + subredditText
                                         + "/comments/"
                                         + s.getFullName().substring(3),
                                 true);
 
                         Submit.this.finish();
                     } catch (final ApiException e) {
-                        e.printStackTrace();
+                        // Network failures (bare RuntimeException) propagate to the outer
+                        // catch (Exception); this branch only handles Reddit API errors.
+                        LogUtil.e(e, "Submit.run failed");
 
                         runOnUiThread(
                                 new Runnable() {
@@ -694,29 +831,21 @@ public class Submit extends BaseActivity {
                                     }
                                 });
                     }
-                } else if (image.getVisibility() == View.VISIBLE) {
+                } else if (imageVisible) {
                     try {
                         Submission s =
                                 new AccountManager(Authentication.reddit)
                                         .submit(
                                                 new AccountManager.SubmissionBuilder(
                                                         new URL(URL),
-                                                        ((AutoCompleteTextView)
-                                                                        findViewById(
-                                                                                R.id.subreddittext))
-                                                                .getText()
-                                                                .toString(),
-                                                        ((EditText) findViewById(R.id.titletext))
-                                                                .getText()
-                                                                .toString()));
+                                                        subredditText,
+                                                        titleText));
                         new AccountManager(Authentication.reddit)
-                                .sendRepliesToInbox(s, inboxReplies.isChecked());
+                                .sendRepliesToInbox(s, sendReplies);
                         OpenRedditLink.openUrl(
                                 Submit.this,
                                 "reddit.com/r/"
-                                        + ((AutoCompleteTextView) findViewById(R.id.subreddittext))
-                                                .getText()
-                                                .toString()
+                                        + subredditText
                                         + "/comments/"
                                         + s.getFullName().substring(3),
                                 true);
@@ -747,7 +876,7 @@ public class Submit extends BaseActivity {
                     }
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                LogUtil.e(e, "Submit.run failed");
 
                 runOnUiThread(
                         new Runnable() {
@@ -815,7 +944,7 @@ public class Submit extends BaseActivity {
                         .setMessage(R.string.editor_err_msg)
                         .setPositiveButton(R.string.btn_ok, null)
                         .show();
-                e.printStackTrace();
+                LogUtil.e(e, "Submit.onPostExecute failed");
             }
         }
     }
@@ -873,7 +1002,7 @@ public class Submit extends BaseActivity {
                         .setMessage(R.string.editor_err_msg)
                         .setPositiveButton(R.string.btn_ok, null)
                         .show();
-                e.printStackTrace();
+                LogUtil.e(e, "Submit.onPostExecute failed");
             }
         }
     }

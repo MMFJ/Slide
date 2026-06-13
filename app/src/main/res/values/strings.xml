@@ -25,6 +25,7 @@
     <string name="submission_gild">Open in browser</string>
     <string name="submission_save">Save post</string>
     <string name="submission_save_image">Save image</string>
+    <string name="submission_save_video">Save video</string>
     <string name="submission_load_full">Load full thread</string>
     <string name="submission_np_link">This is a no participation link. Please don\'t vote or comment.</string>
     <string name="submission_tap_gif">Tap to load GIF</string>
@@ -274,6 +275,12 @@
     <string name="err_authentication">Authentication failed</string>
     <string name="err_submit_restricted">This subreddit is restricted</string>
     <string name="err_submit_restricted_text">You are not allowed to post here. Please choose another subreddit</string>
+    <string name="err_crosspost_disallowed">This subreddit does not allow crossposts</string>
+    <string name="err_crosspost_disallowed_text">/r/%s does not allow crossposts. Please choose another subreddit.</string>
+    <string name="err_crosspost_not_subscribed">You must subscribe to /r/%s before crossposting.</string>
+    <string name="err_crosspost_sub_not_found">/r/%s does not exist.</string>
+    <string name="crosspost_flair_required">Flair is required to post in /r/%s. Please select a flair.</string>
+    <string name="crosspost_flair_required_short">Flair is required — please select a flair before posting.</string>
     <string name="error_video_not_found">Video not found</string>
     <string name="error_video_message">An error occurred while loading this video</string>
     <string name="error_album_not_found">Album not found</string>
@@ -1039,7 +1046,7 @@
     <string name="load_medium_quality">Load medium quality images (max. 640x640)</string>
     <string name="load_high_quality">Load high quality images (max. 1080x1080)</string>
     <string name="choose_color_title">Choose a color</string>
-    <string name="enter_text_to_filter_click_enter_to_add">Enter text to filter, click enter to add</string>
+    <string name="enter_text_to_filter_click_enter_to_add">Enter text to search, press enter to add a filter</string>
     <string name="mode_desktop_compact">Desktop compact</string>
     <string name="show_content_type_text_beside_links">Show content type text beside links</string>
     <string name="comment_shadowbox">Comment shadowbox</string>
@@ -1133,6 +1140,11 @@
     <string name="load_videos_internally_content">Would you like to try out the Slide Video plugin? This will allow you to view videos (like YouTube) internally!</string>
     <string name="do_not_show_again">Don\'t show again</string>
     <string name="enter_text_to_filter_click_enter_to_add_flair">Enter text to filter (subreddit:flair_text), click enter to add</string>
+    <plurals name="filter_count">
+        <item quantity="one">%1$d filter (%2$d max shown)</item>
+        <item quantity="other">%1$d filters (%2$d max shown)</item>
+    </plurals>
+    <string name="filter_limit_reached">Showing first %1$d of %2$d. Search to narrow the results.</string>
     <plurals name="landscape_columns">
         <item quantity="one">%d column in landscape</item>
         <item quantity="other">%d columns in landscape</item>
@@ -1240,6 +1252,8 @@
     <string name="theme_pixel">Pixel</string>
     <string name="save_images_to_subreddit_specific_subfolders">Save images to subreddit-specific subfolders</string>
     <string name="description_save_subfolders">Works in submission and comment views</string>
+    <string name="save_media_to_type_specific_subfolders">Save media to type-specific subfolders</string>
+    <string name="description_save_type_subfolders">Images go to \"images\", videos and GIFs to \"videos\"</string>
     <string name="show_image_download_button">Download Shortcut</string>
     <string name="description_image_download_button">Show download button in the image viewer</string>
     <string name="content_settings">Content settings</string>
@@ -1325,6 +1339,8 @@
     <string name="settings_reddit_redirect_uri_invalid">Invalid redirect URI: must be in the form scheme://hostname</string>
     <string name="reddit_user_agent_override">Reddit User Agent Override</string>
     <string name="click_custom_user_agent">Click to set custom user agent</string>
+    <string name="settings_enable_overrides">Enable Overrides</string>
+    <string name="settings_enable_overrides_desc">Use your custom client ID, redirect URI, and user agent instead of the app defaults. Leave off unless you know you need it.</string>
 
     <string name="settings_section_sound">Sound</string>
     <string name="settings_unmute_default">Unmute videos by default</string>
@@ -1383,4 +1399,6 @@
     <string name="video_speed_1_5x">1.5x</string>
     <string name="video_speed_2x">2x</string>
     <string name="video_speed_control_content_desc">Playback speed control</string>
+    <string name="image_rotate_content_desc">Rotate image 90 degrees clockwise</string>
+    <string name="image_rotate_left_content_desc">Rotate image 90 degrees counter-clockwise</string>
 </resources>

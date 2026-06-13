@@ -88,6 +88,24 @@ public class SpoilerRobotoTextView extends RobotoTextView implements ClickableTe
     private List<CharacterStyle> storedSpoilerSpans = new ArrayList<>();
     private List<Integer> storedSpoilerStarts = new ArrayList<>();
     private List<Integer> storedSpoilerEnds = new ArrayList<>();
+
+    /**
+     * Base name (title_postId_commentId) used when saving media opened from a link inside this
+     * view. Set by the comment adapter so comment media is named after its source. Null for
+     * non-comment text, in which case no title is attached and the save falls back to a timestamp.
+     */
+    private String downloadName;
+
+    public void setDownloadName(String downloadName) {
+        this.downloadName = downloadName;
+    }
+
+    /** Attaches the download base name to a media-viewer intent when one is available. */
+    private void addDownloadName(Intent intent) {
+        if (downloadName != null && !downloadName.isEmpty()) {
+            intent.putExtra(MediaView.EXTRA_SUBMISSION_TITLE, downloadName);
+        }
+    }
     public static final Pattern htmlSpoilerPattern =
             Pattern.compile("<a href=\"[#/](?:spoiler|sp|s)\">([^<]*)</a>");
     public static final Pattern nativeSpoilerPattern =
@@ -517,6 +535,10 @@ public void setEmoteText(String text, TextView textView) {
  * with one that uses the downloaded image.
  */
 private void loadGiphyEmote(EmoteSpanRequest request, TextView textView, int posCount) {
+    // Respect the "Don't load any images" data saving setting.
+    if (SettingValues.shouldSkipImages(getContext())) {
+        return;
+    }
     Log.d("EmoteDebug", "Starting image download for giphy emote: " + request.gifUrl);
     loadThumbnailFromUrl(request.gifUrl, new ImageCallback() {
         @Override
@@ -936,6 +958,7 @@ private void loadGiphyEmote(EmoteSpanRequest request, TextView textView, int pos
                         Intent intent2 = new Intent(activity, MediaView.class);
                         intent2.putExtra(MediaView.EXTRA_URL, url);
                         intent2.putExtra(MediaView.SUBREDDIT, subreddit);
+                        addDownloadName(intent2);
                         activity.startActivity(intent2);
                     } else {
                         LinkUtil.openExternally(url);
@@ -970,6 +993,7 @@ private void loadGiphyEmote(EmoteSpanRequest request, TextView textView, int pos
                             i.putExtra(Album.SUBREDDIT, subreddit);
                             i.putExtra(Album.EXTRA_URL, url);
                         }
+                        addDownloadName(i);
                         activity.startActivity(i);
                     } else {
                         LinkUtil.openExternally(url);
@@ -979,6 +1003,7 @@ private void loadGiphyEmote(EmoteSpanRequest request, TextView textView, int pos
                     if (SettingValues.image) {
                         Intent i = new Intent(activity, TumblrPager.class);
                         i.putExtra(Album.EXTRA_URL, url);
+                        addDownloadName(i);
                         activity.startActivity(i);
                     } else {
                         LinkUtil.openExternally(url);
@@ -1098,6 +1123,7 @@ private void loadGiphyEmote(EmoteSpanRequest request, TextView textView, int pos
             Intent myIntent = new Intent(getContext(), MediaView.class);
             myIntent.putExtra(MediaView.EXTRA_URL, url);
             myIntent.putExtra(MediaView.SUBREDDIT, subreddit);
+            addDownloadName(myIntent);
             getContext().startActivity(myIntent);
             //}
         } else {
@@ -1111,6 +1137,7 @@ private void loadGiphyEmote(EmoteSpanRequest request, TextView textView, int pos
 
             myIntent.putExtra(MediaView.EXTRA_URL, url);
             myIntent.putExtra(MediaView.SUBREDDIT, subreddit);
+            addDownloadName(myIntent);
             getContext().startActivity(myIntent);
 
         } else {
@@ -1123,6 +1150,7 @@ private void loadGiphyEmote(EmoteSpanRequest request, TextView textView, int pos
             Intent myIntent = new Intent(getContext(), MediaView.class);
             myIntent.putExtra(MediaView.EXTRA_URL, submission);
             myIntent.putExtra(MediaView.SUBREDDIT, subreddit);
+            addDownloadName(myIntent);
             getContext().startActivity(myIntent);
         } else {
             LinkUtil.openExternally(submission);
@@ -1155,7 +1183,7 @@ private void loadGiphyEmote(EmoteSpanRequest request, TextView textView, int pos
                                     Spanned.SPAN_INCLUSIVE_INCLUSIVE);
                         } catch (Exception ignored) {
                             // catch out of bounds
-                            ignored.printStackTrace();
+                            LogUtil.e(ignored, "SpoilerRobotoTextView.setOrRemoveSpoilerSpans failed");
                         }
                     }
                 }
@@ -1308,6 +1336,12 @@ private void loadGiphyEmote(EmoteSpanRequest request, TextView textView, int pos
     }
 
     private void processRedditPreviewImages(SpannableStringBuilder builder) {
+        // Respect the "Don't load any images" data saving setting. When active, leave the URLs
+        // as plain text/links instead of downloading and inlining the images.
+        if (SettingValues.shouldSkipImages(getContext())) {
+            return;
+        }
+
         Pattern previewPattern = Pattern.compile("https://preview\\.redd\\.it/[^\\s]+");
         Matcher previewMatcher = previewPattern.matcher(builder);
 

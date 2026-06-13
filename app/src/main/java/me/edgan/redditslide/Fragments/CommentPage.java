@@ -93,6 +93,7 @@ import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.handler.ToolbarScrollHideHandler;
 import me.edgan.redditslide.ui.settings.SettingsSubAdapter;
 import me.edgan.redditslide.util.BlendModeUtil;
+import me.edgan.redditslide.util.FileUtil;
 import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.MiscUtil;
@@ -124,6 +125,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import me.edgan.redditslide.util.LogUtil;
 
 /**
  * Fragment which displays comment trees.
@@ -779,7 +781,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        getActivity().onBackPressed();
+                        getActivity().getOnBackPressedDispatcher().onBackPressed();
                     }
                 });
         toolbar.inflateMenu(R.menu.menu_comment_items);
@@ -908,73 +910,86 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                     }
                 }
                 return true;
-            case R.id.sort: {
-                openPopup(toolbar);
-                return true;
-            }
-            case R.id.content: {
-                if (adapter != null && adapter.submission != null) {
-                    if (!PostMatch.openExternal(adapter.submission.getUrl())) {
-                        ContentType.Type type = ContentType.getContentType(adapter.submission);
-                        switch (type) {
-                            case STREAMABLE:
-                                if (SettingValues.video) {
-                                    Intent myIntent = new Intent(getActivity(), MediaView.class);
-                                    myIntent.putExtra(MediaView.SUBREDDIT, subreddit);
-                                    myIntent.putExtra(
-                                            MediaView.EXTRA_URL, adapter.submission.getUrl());
-                                    myIntent.putExtra(
-                                            EXTRA_SUBMISSION_TITLE,
-                                            adapter.submission.getTitle());
-                                    getActivity().startActivity(myIntent);
+            case R.id.sort:
+                {
+                    openPopup(toolbar);
+                    return true;
+                }
+            case R.id.content:
+                {
+                    if (adapter != null && adapter.submission != null) {
+                        if (!PostMatch.openExternal(adapter.submission.getUrl())) {
+                            ContentType.Type type = ContentType.getContentType(adapter.submission);
+                            switch (type) {
+                                case STREAMABLE:
+                                    if (SettingValues.video) {
+                                        Intent myIntent =
+                                                new Intent(getActivity(), MediaView.class);
+                                        myIntent.putExtra(MediaView.SUBREDDIT, subreddit);
+                                        myIntent.putExtra(
+                                                MediaView.EXTRA_URL, adapter.submission.getUrl());
+                                        myIntent.putExtra(
+                                                EXTRA_SUBMISSION_TITLE,
+                                                FileUtil.buildDownloadName(adapter.submission));
+                                        getActivity().startActivity(myIntent);
 
-                                } else {
-                                    LinkUtil.openExternally(adapter.submission.getUrl());
-                                }
-                                break;
-                            case IMGUR:
-                            case XKCD:
-                                Intent i2 = new Intent(getActivity(), MediaView.class);
-                                i2.putExtra(MediaView.SUBREDDIT, subreddit);
-                                i2.putExtra(
-                                        EXTRA_SUBMISSION_TITLE, adapter.submission.getTitle());
-                                if (adapter.submission.getDataNode().has("preview")
-                                        && adapter.submission
-                                                .getDataNode()
-                                                .get("preview")
-                                                .get("images")
-                                                .get(0)
-                                                .get("source")
-                                                .has("height")
-                                        && type != ContentType.Type.XKCD) { // Load the preview image which
-                                    // has probably already been
-                                    // cached in memory instead of
-                                    // the direct link
-                                    String previewUrl = adapter.submission
-                                            .getDataNode()
-                                            .get("preview")
-                                            .get("images")
-                                            .get(0)
-                                            .get("source")
-                                            .get("url")
-                                            .asText();
-                                    i2.putExtra(MediaView.EXTRA_DISPLAY_URL, previewUrl);
-                                }
-                                i2.putExtra(MediaView.EXTRA_URL, adapter.submission.getUrl());
-                                getActivity().startActivity(i2);
-                                break;
-                            case EMBEDDED:
-                                if (SettingValues.video) {
-                                    String data = adapter.submission
-                                            .getDataNode()
-                                            .get("media_embed")
-                                            .get("content")
-                                            .asText();
-                                    {
-                                        Intent i = new Intent(
-                                                getActivity(), FullscreenVideo.class);
-                                        i.putExtra(FullscreenVideo.EXTRA_HTML, data);
-                                        getActivity().startActivity(i);
+                                    } else {
+                                        LinkUtil.openExternally(adapter.submission.getUrl());
+                                    }
+                                    break;
+                                case IMGUR:
+                                case XKCD:
+                                    Intent i2 = new Intent(getActivity(), MediaView.class);
+                                    i2.putExtra(MediaView.SUBREDDIT, subreddit);
+                                    i2.putExtra(
+                                            EXTRA_SUBMISSION_TITLE,
+                                            FileUtil.buildDownloadName(adapter.submission));
+                                    if (adapter.submission.getDataNode().has("preview")
+                                            && adapter.submission
+                                                    .getDataNode()
+                                                    .get("preview")
+                                                    .get("images")
+                                                    .get(0)
+                                                    .get("source")
+                                                    .has("height")
+                                            && type
+                                                    != ContentType.Type
+                                                            .XKCD) { // Load the preview image which
+                                        // has probably already been
+                                        // cached in memory instead of
+                                        // the direct link
+                                        String previewUrl =
+                                                adapter.submission
+                                                        .getDataNode()
+                                                        .get("preview")
+                                                        .get("images")
+                                                        .get(0)
+                                                        .get("source")
+                                                        .get("url")
+                                                        .asText();
+                                        i2.putExtra(MediaView.EXTRA_DISPLAY_URL, previewUrl);
+                                    }
+                                    i2.putExtra(MediaView.EXTRA_URL, adapter.submission.getUrl());
+                                    getActivity().startActivity(i2);
+                                    break;
+                                case EMBEDDED:
+                                    if (SettingValues.video) {
+                                        String data =
+                                                adapter.submission
+                                                        .getDataNode()
+                                                        .get("media_embed")
+                                                        .get("content")
+                                                        .asText();
+                                        {
+                                            Intent i =
+                                                    new Intent(
+                                                            getActivity(), FullscreenVideo.class);
+                                            i.putExtra(FullscreenVideo.EXTRA_HTML, data);
+                                            getActivity().startActivity(i);
+                                        }
+                                    } else {
+                                        LinkUtil.openExternally(adapter.submission.getUrl());
+                                    }
                                     }
                                 } else {
                                     LinkUtil.openExternally(adapter.submission.getUrl());
@@ -1018,7 +1033,9 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         Intent i = new Intent(getActivity(), RedditGalleryPager.class);
                                         i.putExtra(RedditGalleryPager.SUBREDDIT, subreddit);
                                         i.putExtra(MediaView.SUBMISSION_URL, adapter.submission.getUrl());
-                                        i.putExtra(EXTRA_SUBMISSION_TITLE, adapter.submission.getTitle());
+                                        i.putExtra(
+                                                EXTRA_SUBMISSION_TITLE,
+                                                FileUtil.buildDownloadName(adapter.submission));
                                         // Pass the list of GalleryImage via a Serializable extra
                                         i.putExtra(RedditGallery.GALLERY_URLS, images);
 
@@ -1032,7 +1049,9 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         Intent i = new Intent(getActivity(), RedditGallery.class);
                                         i.putExtra(RedditGallery.SUBREDDIT, subreddit);
                                         i.putExtra(MediaView.SUBMISSION_URL, adapter.submission.getUrl());
-                                        i.putExtra(EXTRA_SUBMISSION_TITLE, adapter.submission.getTitle());
+                                        i.putExtra(
+                                                EXTRA_SUBMISSION_TITLE,
+                                                FileUtil.buildDownloadName(adapter.submission));
                                         // Pass the list of GalleryImage via a Serializable extra
                                         i.putExtra(RedditGallery.GALLERY_URLS, images);
 
@@ -1043,7 +1062,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         getActivity().overridePendingTransition(R.anim.slideright, R.anim.fade_out);
                                     }
                                 } catch (Exception e) {
-                                    e.printStackTrace();
+                                    LogUtil.e(e, "CommentPage.Pager failed");
                                     // If parsing fails, gracefully open externally as a fallback
                                     LinkUtil.openExternally(adapter.submission.getUrl());
                                 }
@@ -1101,7 +1120,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     }
                                     i.putExtra(
                                             EXTRA_SUBMISSION_TITLE,
-                                            adapter.submission.getTitle());
+                                            FileUtil.buildDownloadName(adapter.submission));
                                     getActivity().startActivity(i);
                                     getActivity()
                                             .overridePendingTransition(
@@ -1170,7 +1189,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
             }
                 return true;
             case android.R.id.home:
-                getActivity().onBackPressed();
+                getActivity().getOnBackPressedDispatcher().onBackPressed();
                 return true;
         }
         return false;
@@ -1314,8 +1333,12 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                 "moderators");
                                                         paginator.setSorting(Sorting.HOT);
                                                         paginator.setTimePeriod(TimePeriod.ALL);
-                                                        while (paginator.hasNext()) {
-                                                            mods.addAll(paginator.next());
+                                                        try {
+                                                            while (paginator.hasNext()) {
+                                                                mods.addAll(paginator.next());
+                                                            }
+                                                        } catch (RuntimeException e) {
+                                                            // Connection failure; show whatever mods loaded instead of crashing
                                                         }
                                                         return null;
                                                     }
@@ -1504,8 +1527,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                                                                 });
                                                                                                             }
                                                                                                         });
-                                                                                        e
-                                                                                                .printStackTrace();
+                                                                                        LogUtil.e(e, "CommentPage.run failed");
                                                                                     }
                                                                                     return null;
                                                                                 }
@@ -1923,7 +1945,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                         !NetworkUtil.isConnected(getActivity()),
                         new ObjectMapper().reader());
             } catch (IOException e) {
-                e.printStackTrace();
+                LogUtil.e(e, "CommentPage.doAdapter failed");
             }
             if (s != null && s.getComments() != null) {
                 doRefresh(false);

@@ -31,6 +31,7 @@ import com.cocosw.bottomsheet.BottomSheet;
 import me.edgan.redditslide.Adapters.ImageGridAdapter;
 import me.edgan.redditslide.Fragments.BlankFragment;
 import me.edgan.redditslide.Fragments.SubmissionsView;
+import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
@@ -72,7 +73,7 @@ public class RedditGalleryPager extends BaseSaveActivity implements GalleryParen
 
         switch (id) {
             case android.R.id.home:
-                onBackPressed();
+                getOnBackPressedDispatcher().onBackPressed();
                 return true;
 
             case R.id.vertical:
@@ -115,11 +116,23 @@ public class RedditGalleryPager extends BaseSaveActivity implements GalleryParen
                 }
                 return true;
 
-            case R.id.comments:
+            case R.id.comments: {
                 int adapterPosition = getIntent().getIntExtra(MediaView.ADAPTER_POSITION, -1);
-                finish();
-                SubmissionsView.datachanged(adapterPosition);
+                String submissionPermalink =
+                        getIntent().getStringExtra(MediaView.SUBMISSION_URL);
+                boolean openCommentsDirect =
+                        getIntent()
+                                .getBooleanExtra(MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
+                if (openCommentsDirect && submissionPermalink != null) {
+                    OpenRedditLink.openUrl(
+                            this, "https://reddit.com" + submissionPermalink, false);
+                    finish();
+                } else {
+                    finish();
+                    SubmissionsView.datachanged(adapterPosition);
+                }
                 return true;
+            }
 
             case R.id.download:
                 if (images != null) {
@@ -371,7 +384,11 @@ public class RedditGalleryPager extends BaseSaveActivity implements GalleryParen
         if (!isGif) {
             bottomSheetBuilder.sheet(3, image, getString(R.string.share_image));
         }
-        bottomSheetBuilder.sheet(4, save, getString(R.string.submission_save_image));
+        String lcUrl = contentUrl == null ? "" : contentUrl.toLowerCase();
+        int q = lcUrl.indexOf('?');
+        String path = q < 0 ? lcUrl : lcUrl.substring(0, q);
+        boolean isVideo = path.endsWith(".mp4") || lcUrl.contains("format=mp4");
+        bottomSheetBuilder.sheet(4, save, getString(isVideo ? R.string.submission_save_video : R.string.submission_save_image));
 
         bottomSheetBuilder.listener(
                 (dialog, which) -> {
@@ -448,6 +465,7 @@ public class RedditGalleryPager extends BaseSaveActivity implements GalleryParen
     public static class ImageFullNoSubmission extends Fragment {
 
         private int i = 0;
+        private int currentRotation = 0; // Track current rotation in degrees
 
         public ImageFullNoSubmission() {}
 
@@ -521,15 +539,54 @@ public class RedditGalleryPager extends BaseSaveActivity implements GalleryParen
             if (mute != null) {
                 mute.setVisibility(View.GONE);
             }
+
+            // Set up rotation buttons
+            View rotateLeft = rootView.findViewById(R.id.rotate_left);
+            if (rotateLeft != null) {
+                rotateLeft.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        rotateImageLeft(rootView);
+                    }
+                });
+            }
+
+            View rotateRight = rootView.findViewById(R.id.rotate_right);
+            if (rotateRight != null) {
+                rotateRight.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        rotateImageRight(rootView);
+                    }
+                });
+            }
+
             View comments = rootView.findViewById(R.id.comments);
             if (getActivity().getIntent().hasExtra(MediaView.SUBMISSION_URL)) {
                 if (comments != null) {
+                    final String submissionPermalink =
+                            getActivity()
+                                    .getIntent()
+                                    .getStringExtra(MediaView.SUBMISSION_URL);
+                    final boolean openCommentsDirect =
+                            getActivity()
+                                    .getIntent()
+                                    .getBooleanExtra(
+                                            MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
                     comments.setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
                                 public void onClick(View v) {
-                                    getActivity().finish();
-                                    SubmissionsView.datachanged(adapterPosition);
+                                    if (openCommentsDirect && submissionPermalink != null) {
+                                        OpenRedditLink.openUrl(
+                                                getActivity(),
+                                                "https://reddit.com" + submissionPermalink,
+                                                false);
+                                        getActivity().finish();
+                                    } else {
+                                        getActivity().finish();
+                                        SubmissionsView.datachanged(adapterPosition);
+                                    }
                                 }
                             });
                 }
@@ -538,6 +595,16 @@ public class RedditGalleryPager extends BaseSaveActivity implements GalleryParen
                     comments.setVisibility(View.GONE);
                 }
             }
+            if (currentRotation != 0) {
+                me.edgan.redditslide.Views.SubsamplingScaleImageView imageView =
+                        rootView.findViewById(R.id.image);
+                if (imageView != null) {
+                    imageView.setOrientation(currentRotation);
+                }
+            }
+
+            // Adjust button sizes for small screens
+            MiscUtil.adjustButtonSizesForSmallScreens(rootView, getActivity());
             return rootView;
         }
 
@@ -546,6 +613,60 @@ public class RedditGalleryPager extends BaseSaveActivity implements GalleryParen
             super.onCreate(savedInstanceState);
             Bundle bundle = this.getArguments();
             i = bundle.getInt("page", 0);
+            if (savedInstanceState != null) {
+                currentRotation = savedInstanceState.getInt("currentRotation", 0);
+            }
+        }
+
+        @Override
+        public void onSaveInstanceState(@NonNull Bundle outState) {
+            super.onSaveInstanceState(outState);
+            outState.putInt("currentRotation", currentRotation);
+        }
+
+        private void rotateImageRight(View rootView) {
+            me.edgan.redditslide.Views.SubsamplingScaleImageView imageView =
+                    rootView.findViewById(R.id.image);
+            if (imageView != null) {
+                currentRotation = (currentRotation + 90) % 360;
+                refreshImageWithRotation(imageView, currentRotation);
+            }
+        }
+
+        private void rotateImageLeft(View rootView) {
+            me.edgan.redditslide.Views.SubsamplingScaleImageView imageView =
+                    rootView.findViewById(R.id.image);
+            if (imageView != null) {
+                currentRotation = (currentRotation - 90 + 360) % 360;
+                refreshImageWithRotation(imageView, currentRotation);
+            }
+        }
+
+        private void refreshImageWithRotation(me.edgan.redditslide.Views.SubsamplingScaleImageView imageView, int rotation) {
+            // Store the current source
+            if (imageView.loader != null && imageView.loader.savedImageSource != null) {
+                me.edgan.redditslide.Views.ImageSource currentSource = imageView.loader.savedImageSource;
+
+                // Set a proper black background to avoid ghosting
+                imageView.setBackgroundColor(android.graphics.Color.BLACK);
+
+                // Force a complete refresh by resetting and reloading with new orientation
+                imageView.recycle();
+                imageView.setOrientation(rotation);
+
+                // Delay the image reload slightly to ensure the view is properly cleared
+                imageView.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        imageView.loader.setImage(currentSource);
+                    }
+                });
+            } else {
+                // Fallback to direct orientation setting if no saved source
+                imageView.setBackgroundColor(android.graphics.Color.BLACK);
+                imageView.setOrientation(rotation);
+                imageView.invalidate();
+            }
         }
     }
 
@@ -575,6 +696,15 @@ public class RedditGalleryPager extends BaseSaveActivity implements GalleryParen
         @Override
         protected GalleryParent getGalleryParent() {
             return (RedditGalleryPager) getActivity();
+        }
+
+        // Override onCreateView to adjust button sizes for small screens
+        @Override
+        public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+            View rootView = super.onCreateView(inflater, container, savedInstanceState);
+            // Apply small-screen button resizing
+            MiscUtil.adjustButtonSizesForSmallScreens(rootView, getActivity());
+            return rootView;
         }
     }
 

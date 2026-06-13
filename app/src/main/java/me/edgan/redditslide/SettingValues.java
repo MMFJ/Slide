@@ -37,6 +37,7 @@ public class SettingValues {
     public static final String PREF_ALPHABETIZE_SUBSCRIBE = "alphabetizeSubscribe";
     public static final String PREF_COLOR_BACK = "colorBack";
     public static final String PREF_IMAGE_SUBFOLDERS = "imageSubfolders";
+    public static final String PREF_IMAGE_TYPE_SUBFOLDERS = "imageTypeSubfolders";
     public static final String PREF_IMAGE_DOWNLOAD_BUTTON = "imageDownloadButton";
     public static final String PREF_COLOR_NAV_BAR = "colorNavBar";
     public static final String PREF_READER_MODE = "readerDefault";
@@ -153,12 +154,14 @@ public class SettingValues {
     public static final String PREF_REDDIT_CLIENT_ID_OVERRIDE = "redditClientOverride";
     public static final String PREF_REDDIT_REDIRECT_URI_OVERRIDE = "redditRedirectUriOverride";
     public static final String PREF_REDDIT_USER_AGENT_OVERRIDE = "redditUserAgentOverride";
+    public static final String PREF_REDDIT_ENABLE_OVERRIDES = "redditEnableOverrides";
     public static final String PREF_DIALOG_COLORED_BORDER = "dialogColoredBorder";
 
     public static String imageSaveLocation;
     public static String redditClientIdOverride = "";
     public static String redditRedirectUriOverride = "";
     public static String redditUserAgentOverride = "";
+    public static boolean redditEnableOverrides = false;
     public static CreateCardView.CardEnum defaultCardView;
     public static Sorting defaultSorting;
     public static Sorting frontpageSorting;
@@ -259,6 +262,7 @@ public class SettingValues {
     public static boolean singleColumnMultiWindow;
     public static int nightModeState;
     public static boolean imageSubfolders;
+    public static boolean imageTypeSubfolders;
     public static boolean imageDownloadButton;
     public static boolean autoTime;
     public static boolean albumSwipe;
@@ -316,6 +320,7 @@ public class SettingValues {
         redditClientIdOverride = settings.getString(PREF_REDDIT_CLIENT_ID_OVERRIDE, "");
         redditRedirectUriOverride = settings.getString(PREF_REDDIT_REDIRECT_URI_OVERRIDE, "");
         redditUserAgentOverride = settings.getString(PREF_REDDIT_USER_AGENT_OVERRIDE, "");
+        redditEnableOverrides = settings.getBoolean(PREF_REDDIT_ENABLE_OVERRIDES, false);
         defaultCardView =
                 CreateCardView.CardEnum.valueOf(
                         settings.getString("defaultCardViewNew", "LARGE").toUpperCase());
@@ -351,6 +356,7 @@ public class SettingValues {
         largeDepth = prefs.getBoolean(PREF_LARGE_DEPTH, false);
         readerMode = prefs.getBoolean(PREF_READER_MODE, false);
         imageSubfolders = prefs.getBoolean(PREF_IMAGE_SUBFOLDERS, false);
+        imageTypeSubfolders = prefs.getBoolean(PREF_IMAGE_TYPE_SUBFOLDERS, false);
         imageDownloadButton = prefs.getBoolean(PREF_IMAGE_DOWNLOAD_BUTTON, true);
         isMuted = prefs.getBoolean(PREF_MUTE, false);
         unmuteDefault = prefs.getBoolean(PREF_UNMUTE_DEFAULT, false);
@@ -553,6 +559,32 @@ public class SettingValues {
 
     public static boolean getIsNSFWEnabled() {
         return prefs.getBoolean(PREF_HIDE_NSFW_PREVIEW + Authentication.name, true);
+    }
+
+    /**
+     * Whether data saving is currently active for the given context. This mirrors the gate used
+     * throughout the post adapters: data saving applies either always ({@link #lowResAlways}) or on
+     * mobile data only ({@link #lowResMobile}) when not connected to WiFi.
+     *
+     * @param context Context used to determine the current connection type.
+     * @return true if data saving should be applied right now.
+     */
+    public static boolean isDataSavingActive(android.content.Context context) {
+        return lowResAlways
+                || (lowResMobile
+                        && !me.edgan.redditslide.util.NetworkUtil.isConnectedWifi(context));
+    }
+
+    /**
+     * Whether images should be skipped entirely right now. This is true when the user selected
+     * "Don't load any images" ({@link #noImages}) and data saving is active for the current
+     * connection. See {@link #isDataSavingActive(android.content.Context)}.
+     *
+     * @param context Context used to determine the current connection type.
+     * @return true if images should not be loaded.
+     */
+    public static boolean shouldSkipImages(android.content.Context context) {
+        return noImages && isDataSavingActive(context);
     }
 
     public static void resetSelftextEnabled(String subreddit) {

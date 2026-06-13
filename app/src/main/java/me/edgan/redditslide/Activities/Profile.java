@@ -419,7 +419,7 @@ public class Profile extends BaseActivityAnim {
                         }
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    LogUtil.e(e, "Profile.doInBackground failed");
                 }
                 // Return false if not found or an error occurred.
                 return false;
@@ -460,7 +460,7 @@ public class Profile extends BaseActivityAnim {
                         }
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    LogUtil.e(e, "Profile.doInBackground failed");
                 }
                 return false;
             }
@@ -681,7 +681,7 @@ public class Profile extends BaseActivityAnim {
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
             case (android.R.id.home):
-                onBackPressed();
+                getOnBackPressedDispatcher().onBackPressed();
                 break;
             case (R.id.category):
                 new AsyncTask<Void, Void, List<String>>() {
@@ -707,7 +707,7 @@ public class Profile extends BaseActivityAnim {
                             categories.add(0, "No category");
                             return categories;
                         } catch (Exception e) {
-                            e.printStackTrace();
+                            LogUtil.e(e, "Profile.doInBackground failed");
                             // probably has no categories?
                             return new ArrayList<String>() {
                                 {

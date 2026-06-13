@@ -113,7 +113,7 @@ public class OpenRedditLink {
                     URL newUrl = new URL(url);
                     HttpURLConnection ucon = (HttpURLConnection) newUrl.openConnection();
                     ucon.setInstanceFollowRedirects(false);
-                    ucon.setRequestProperty("User-Agent", BuildConfig.APPLICATION_ID + "/" + BuildConfig.VERSION_NAME);
+                    ucon.setRequestProperty("User-Agent", "org.quantumbadger.redreader/1.25.2");
                     ucon.setRequestProperty("Host", newUrl.getHost());
                     String location = ucon.getHeaderField("location");
 
@@ -126,7 +126,7 @@ public class OpenRedditLink {
                         });
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    LogUtil.e(e, "OpenRedditLink.openUrl failed");
                 }
             }).start();
             return true;

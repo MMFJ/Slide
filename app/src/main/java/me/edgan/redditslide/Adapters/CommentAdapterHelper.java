@@ -69,7 +69,6 @@ import me.edgan.redditslide.util.SubmissionParser;
 import me.edgan.redditslide.util.TimeUtils;
 
 import net.dean.jraw.ApiException;
-import net.dean.jraw.http.NetworkException;
 import net.dean.jraw.http.oauth.InvalidScopeException;
 import net.dean.jraw.managers.AccountManager;
 import net.dean.jraw.managers.ModerationManager;
@@ -88,6 +87,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import me.edgan.redditslide.util.LogUtil;
+import androidx.core.content.ContextCompat;
 
 /** Created by Carlos on 8/4/2016. */
 public class CommentAdapterHelper {
@@ -276,10 +277,15 @@ public class CommentAdapterHelper {
                                 new AsyncTask<Void, Void, Ruleset>() {
                                     @Override
                                     protected Ruleset doInBackground(Void... voids) {
-                                        return Authentication.reddit.getRules(
-                                                adapter.currentBaseNode
-                                                        .getComment()
-                                                        .getSubredditName());
+                                        try {
+                                            return Authentication.reddit.getRules(
+                                                    adapter.currentBaseNode
+                                                            .getComment()
+                                                            .getSubredditName());
+                                        } catch (RuntimeException e) {
+                                            // Connection failures surface as a bare RuntimeException
+                                            return null;
+                                        }
                                     }
 
                                     @Override
@@ -288,6 +294,10 @@ public class CommentAdapterHelper {
                                                 .getCustomView()
                                                 .findViewById(R.id.report_loading)
                                                 .setVisibility(View.GONE);
+                                        if (rules == null) {
+                                            // Could not load rules (offline); leave the dialog as-is
+                                            return;
+                                        }
                                         if (rules.getSubredditRules().size() > 0) {
                                             TextView subHeader = new TextView(mContext);
                                             subHeader.setText(
@@ -411,8 +421,8 @@ public class CommentAdapterHelper {
                     new AccountManager(Authentication.reddit)
                             .sendRepliesToInbox(comment, showReplies);
 
-                } catch (ApiException e) {
-                    e.printStackTrace();
+                } catch (ApiException | RuntimeException e) {
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                 }
 
                 return null;
@@ -488,8 +498,8 @@ public class CommentAdapterHelper {
                         ActionStates.setSaved(comment, true);
                     }
 
-                } catch (ApiException e) {
-                    e.printStackTrace();
+                } catch (ApiException | RuntimeException e) {
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                 }
 
                 return null;
@@ -556,7 +566,7 @@ public class CommentAdapterHelper {
                     categories.add("New category");
                     return categories;
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                     return new ArrayList<String>() {
                         {
                             add("New category");
@@ -622,8 +632,7 @@ public class CommentAdapterHelper {
                                                                                 } catch (
                                                                                         ApiException
                                                                                                 e) {
-                                                                                    e
-                                                                                            .printStackTrace();
+                                                                                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                                                                                     return false;
                                                                                 }
                                                                             }
@@ -683,8 +692,8 @@ public class CommentAdapterHelper {
                                                                             Authentication.reddit)
                                                                     .save(comment, t);
                                                             return true;
-                                                        } catch (ApiException e) {
-                                                            e.printStackTrace();
+                                                        } catch (ApiException | RuntimeException e) {
+                                                            LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                                                             return false;
                                                         }
                                                     }
@@ -997,12 +1006,18 @@ public class CommentAdapterHelper {
                                         .setCancelable(false)
                                         .show();
                             } else {
+                                // Snapshot View state on the UI thread; the AsyncTask below
+                                // runs doInBackground() on a worker thread.
+                                final String noteText = note.getText().toString();
+                                final String messageText = message.getText().toString();
+                                final String timeText = time.getText().toString();
+                                final String reasonText = reason.getText().toString();
                                 new AsyncTask<Void, Void, Boolean>() {
                                     @Override
                                     protected Boolean doInBackground(Void... params) {
                                         try {
-                                            String n = note.getText().toString();
-                                            String m = message.getText().toString();
+                                            String n = noteText;
+                                            String m = messageText;
 
                                             if (n.isEmpty()) {
                                                 n = null;
@@ -1010,12 +1025,12 @@ public class CommentAdapterHelper {
                                             if (m.isEmpty()) {
                                                 m = null;
                                             }
-                                            if (time.getText().toString().isEmpty()) {
+                                            if (timeText.isEmpty()) {
                                                 new ModerationManager(Authentication.reddit)
                                                         .banUserPermanently(
                                                                 submission.getSubredditName(),
                                                                 submission.getAuthor(),
-                                                                reason.getText().toString(),
+                                                                reasonText,
                                                                 n,
                                                                 m);
                                             } else {
@@ -1023,18 +1038,17 @@ public class CommentAdapterHelper {
                                                         .banUser(
                                                                 submission.getSubredditName(),
                                                                 submission.getAuthor(),
-                                                                reason.getText().toString(),
+                                                                reasonText,
                                                                 n,
                                                                 m,
-                                                                Integer.parseInt(
-                                                                        time.getText().toString()));
+                                                                Integer.parseInt(timeText));
                                             }
                                             return true;
                                         } catch (Exception e) {
                                             if (e instanceof InvalidScopeException) {
                                                 scope = true;
                                             }
-                                            e.printStackTrace();
+                                            LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                                             return false;
                                         }
                                     }
@@ -1135,8 +1149,8 @@ public class CommentAdapterHelper {
                 try {
                     new ModerationManager(Authentication.reddit)
                             .setDistinguishedStatus(comment, DistinguishedStatus.MODERATOR);
-                } catch (ApiException e) {
-                    e.printStackTrace();
+                } catch (ApiException | RuntimeException e) {
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                     return false;
                 }
                 return true;
@@ -1170,8 +1184,8 @@ public class CommentAdapterHelper {
                 try {
                     new ModerationManager(Authentication.reddit)
                             .setDistinguishedStatus(comment, DistinguishedStatus.NORMAL);
-                } catch (ApiException e) {
-                    e.printStackTrace();
+                } catch (ApiException | RuntimeException e) {
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                     return false;
                 }
                 return true;
@@ -1204,8 +1218,8 @@ public class CommentAdapterHelper {
             protected Boolean doInBackground(Void... params) {
                 try {
                     new ModerationManager(Authentication.reddit).setSticky(comment, true);
-                } catch (ApiException e) {
-                    e.printStackTrace();
+                } catch (ApiException | RuntimeException e) {
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                     return false;
                 }
                 return true;
@@ -1274,8 +1288,8 @@ public class CommentAdapterHelper {
             protected Boolean doInBackground(Void... params) {
                 try {
                     new ModerationManager(Authentication.reddit).approve(comment);
-                } catch (ApiException e) {
-                    e.printStackTrace();
+                } catch (ApiException | RuntimeException e) {
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                     return false;
                 }
                 return true;
@@ -1308,8 +1322,8 @@ public class CommentAdapterHelper {
             protected Boolean doInBackground(Void... params) {
                 try {
                     new ModerationManager(Authentication.reddit).setSticky(comment, false);
-                } catch (ApiException e) {
-                    e.printStackTrace();
+                } catch (ApiException | RuntimeException e) {
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                     return false;
                 }
                 return true;
@@ -1352,8 +1366,8 @@ public class CommentAdapterHelper {
             protected Boolean doInBackground(Void... params) {
                 try {
                     new ModerationManager(Authentication.reddit).remove(comment, spam);
-                } catch (ApiException | NetworkException e) {
-                    e.printStackTrace();
+                } catch (ApiException | RuntimeException e) {
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                     return false;
                 }
                 return true;
@@ -1450,8 +1464,8 @@ public class CommentAdapterHelper {
                             .setDistinguishedStatus(
                                     Authentication.reddit.get(comment.getFullName()).get(0),
                                     DistinguishedStatus.MODERATOR);
-                } catch (ApiException | NetworkException e) {
-                    e.printStackTrace();
+                } catch (ApiException | RuntimeException e) {
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                     return false;
                 }
                 return true;
@@ -1491,8 +1505,8 @@ public class CommentAdapterHelper {
                     } else {
                         new ModerationManager(Authentication.reddit).setUnlocked(comment);
                     }
-                } catch (ApiException e) {
-                    e.printStackTrace();
+                } catch (ApiException | RuntimeException e) {
+                    LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                     return false;
                 }
                 return true;
@@ -1509,7 +1523,7 @@ public class CommentAdapterHelper {
         mod.setSpan(
                 new RelativeSizeSpan(0.8f), 0, mod.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         mod.setSpan(
-                new ForegroundColorSpan(c.getResources().getColor(R.color.md_green_300)),
+                new ForegroundColorSpan(ContextCompat.getColor(c, R.color.md_green_300)),
                 0,
                 mod.length(),
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -1531,7 +1545,7 @@ public class CommentAdapterHelper {
         mod.setSpan(
                 new RelativeSizeSpan(0.8f), 0, mod.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         mod.setSpan(
-                new ForegroundColorSpan(c.getResources().getColor(R.color.md_red_300)),
+                new ForegroundColorSpan(ContextCompat.getColor(c, R.color.md_red_300)),
                 0,
                 mod.length(),
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -1959,7 +1973,7 @@ public class CommentAdapterHelper {
                 adapter.editComment(n, holder);
                 dialog.dismiss();
             } catch (Exception e) {
-                e.printStackTrace();
+                LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                 ((Activity) mContext)
                         .runOnUiThread(
                                 new Runnable() {
@@ -2036,8 +2050,8 @@ public class CommentAdapterHelper {
                 new ModerationManager(Authentication.reddit).delete(baseNode.getComment());
                 adapter.deleted.add(baseNode.getComment().getFullName());
                 return true;
-            } catch (ApiException e) {
-                e.printStackTrace();
+            } catch (ApiException | RuntimeException e) {
+                LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
                 return false;
             }
         }
@@ -2056,8 +2070,8 @@ public class CommentAdapterHelper {
         protected Void doInBackground(String... reason) {
             try {
                 new AccountManager(Authentication.reddit).report(baseNode.getComment(), reason[0]);
-            } catch (ApiException e) {
-                e.printStackTrace();
+            } catch (ApiException | RuntimeException e) {
+                LogUtil.e(e, "CommentAdapterHelper.doInBackground failed");
             }
             return null;
         }

@@ -12,6 +12,8 @@ import com.google.android.material.snackbar.Snackbar;
 
 import net.dean.jraw.models.Submission;
 
+import me.edgan.redditslide.util.FileUtil;
+
 import java.util.ArrayList;
 
 import me.edgan.redditslide.Activities.Album;
@@ -88,9 +90,10 @@ public class SubmissionClickActions {
                                                 Intent myIntent = new Intent(contextActivity, MediaView.class);
                                                 myIntent.putExtra(MediaView.SUBREDDIT, submission.getSubredditName());
                                                 myIntent.putExtra(MediaView.EXTRA_URL, submission.getUrl());
-                                                myIntent.putExtra(EXTRA_SUBMISSION_TITLE, submission.getTitle());
-                                                PopulateBase.addAdaptorPosition(myIntent, submission,
-                                                        holder.getBindingAdapterPosition());
+                                                myIntent.putExtra(
+                                                        EXTRA_SUBMISSION_TITLE,
+                                                        FileUtil.buildDownloadName(submission));
+                                                PopulateBase.addAdaptorPosition(myIntent, submission, holder.getBindingAdapterPosition(), contextActivity);
                                                 contextActivity.startActivity(myIntent);
                                             } else {
                                                 LinkUtil.openExternally(submission.getUrl());
@@ -132,7 +135,9 @@ public class SubmissionClickActions {
                                                     i.putExtra(Album.SUBREDDIT, submission.getSubredditName());
                                                 }
 
-                                                i.putExtra(EXTRA_SUBMISSION_TITLE, submission.getTitle());
+                                                i.putExtra(
+                                                        EXTRA_SUBMISSION_TITLE,
+                                                        FileUtil.buildDownloadName(submission));
                                                 i.putExtra(RedditGallery.SUBREDDIT, submission.getSubredditName());
 
                                                 ArrayList<GalleryImage> urls = new ArrayList<>();
@@ -158,8 +163,7 @@ public class SubmissionClickActions {
                                                 // Set DataShare for upvoting in gallery
                                                 DataShare.sharedSubmission = submission;
 
-                                                PopulateBase.addAdaptorPosition(i, submission,
-                                                        holder.getBindingAdapterPosition());
+                                                PopulateBase.addAdaptorPosition(i, submission, holder.getBindingAdapterPosition(), contextActivity);
                                                 contextActivity.startActivity(i);
                                                 contextActivity.overridePendingTransition(R.anim.slideright,
                                                         R.anim.fade_out);
@@ -192,11 +196,12 @@ public class SubmissionClickActions {
                                                     i.putExtra(Album.SUBREDDIT, submission.getSubredditName());
                                                 }
 
-                                                i.putExtra(EXTRA_SUBMISSION_TITLE, submission.getTitle());
+                                                i.putExtra(
+                                                        EXTRA_SUBMISSION_TITLE,
+                                                        FileUtil.buildDownloadName(submission));
                                                 i.putExtra(Album.EXTRA_URL, submission.getUrl());
 
-                                                PopulateBase.addAdaptorPosition(i, submission,
-                                                        holder.getBindingAdapterPosition());
+                                                PopulateBase.addAdaptorPosition(i, submission, holder.getBindingAdapterPosition(), contextActivity);
                                                 contextActivity.startActivity(i);
                                                 contextActivity.overridePendingTransition(R.anim.slideright,
                                                         R.anim.fade_out);
@@ -216,8 +221,7 @@ public class SubmissionClickActions {
                                                 }
                                                 i.putExtra(Album.EXTRA_URL, submission.getUrl());
 
-                                                PopulateBase.addAdaptorPosition(i, submission,
-                                                        holder.getBindingAdapterPosition());
+                                                PopulateBase.addAdaptorPosition(i, submission, holder.getBindingAdapterPosition(), contextActivity);
                                                 contextActivity.startActivity(i);
                                                 contextActivity.overridePendingTransition(R.anim.slideright,
                                                         R.anim.fade_out);

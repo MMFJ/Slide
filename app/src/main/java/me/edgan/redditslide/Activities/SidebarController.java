@@ -65,6 +65,7 @@ import me.edgan.redditslide.util.OnSingleClickListener;
 import me.edgan.redditslide.util.SortingUtil;
 import me.edgan.redditslide.util.StringUtil;
 import me.edgan.redditslide.util.SubmissionParser;
+import me.edgan.redditslide.util.LogUtil;
 
 public class SidebarController {
 
@@ -289,8 +290,12 @@ public class SidebarController {
                                         paginator.setSorting(Sorting.HOT);
                                         paginator.setTimePeriod(TimePeriod.ALL);
 
-                                        while (paginator.hasNext()) {
-                                            mods.addAll(paginator.next());
+                                        try {
+                                            while (paginator.hasNext()) {
+                                                mods.addAll(paginator.next());
+                                            }
+                                        } catch (RuntimeException e) {
+                                            // Connection failure; show whatever mods loaded instead of crashing
                                         }
 
                                         return null;
@@ -369,7 +374,7 @@ public class SidebarController {
                                         }
                                     }
                                 } catch (Exception e1) {
-                                    e1.printStackTrace();
+                                    LogUtil.e(e1, "SidebarController.doInBackground failed");
                                 }
 
                                 return params[0];
@@ -426,7 +431,7 @@ public class SidebarController {
 
                                                                                                 return true;
                                                                                             } catch (Exception e) {
-                                                                                                e.printStackTrace();
+                                                                                                LogUtil.e(e, "SidebarController.doInBackground failed");
 
                                                                                                 return false;
                                                                                             }
@@ -477,7 +482,7 @@ public class SidebarController {
 
                                                                                 return true;
                                                                             } catch (Exception e) {
-                                                                                e.printStackTrace();
+                                                                                LogUtil.e(e, "SidebarController.doInBackground failed");
                                                                                 return false;
                                                                             }
                                                                         }
@@ -740,7 +745,7 @@ public class SidebarController {
                                                                                 });
                                                                         }
                                                                     });
-                                                                e.printStackTrace();
+                                                                LogUtil.e(e, "SidebarController.run failed");
                                                             }
                                                             return null;
                                                         }
@@ -893,8 +898,8 @@ public class SidebarController {
                                                 Void... params) {
                                             try {
                                                 new AccountManager(Authentication.reddit).subscribe(subreddit);
-                                            } catch (NetworkException e) {
-                                                return false; // Either network crashed or trying to unsubscribe to a subreddit that the account isn't subscribed to
+                                            } catch (RuntimeException e) {
+                                                return false; // Network failure (bare RuntimeException on timeout) or trying to (un)subscribe to a subreddit the account isn't subscribed to
                                             }
                                             return true;
                                         }
@@ -950,8 +955,8 @@ public class SidebarController {
                                                 Void... params) {
                                             try {
                                                 new AccountManager(Authentication.reddit).unsubscribe(subreddit);
-                                            } catch (NetworkException e) {
-                                                return false; // Either network crashed or trying to unsubscribe to a subreddit that the account isn't subscribed to
+                                            } catch (RuntimeException e) {
+                                                return false; // Network failure (bare RuntimeException on timeout) or trying to (un)subscribe to a subreddit the account isn't subscribed to
                                             }
                                             return true;
                                         }

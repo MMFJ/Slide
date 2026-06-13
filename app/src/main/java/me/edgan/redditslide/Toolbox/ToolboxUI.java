@@ -57,6 +57,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import androidx.core.content.ContextCompat;
 
 /** Misc UI stuff for toolbox - usernote display, removal display, etc. */
 public class ToolboxUI {
@@ -448,7 +449,7 @@ public class ToolboxUI {
 
         noteBuilder.setSpan(
                 new RoundedBackgroundSpan(
-                        context.getResources().getColor(android.R.color.white),
+                        ContextCompat.getColor(context, android.R.color.white),
                         notes.getDisplayColorForUser(user),
                         false,
                         context),
@@ -708,7 +709,7 @@ public class ToolboxUI {
                                     flair[0],
                                     flair[1]);
                 }
-            } catch (ApiException | NetworkException e) {
+            } catch (ApiException | RuntimeException e) {
                 success = false;
             }
 
@@ -739,7 +740,7 @@ public class ToolboxUI {
             try {
                 new InboxManager(Authentication.reddit).compose(from, to, subject, body);
                 return true;
-            } catch (ApiException | NetworkException e) {
+            } catch (ApiException | RuntimeException e) {
                 return false;
             }
         }
@@ -770,7 +771,7 @@ public class ToolboxUI {
                                     DistinguishedStatus.MODERATOR);
                 }
                 return true;
-            } catch (ApiException | NetworkException e) {
+            } catch (ApiException | RuntimeException e) {
                 return false;
             }
         }
@@ -847,7 +848,8 @@ public class ToolboxUI {
 
             try {
                 Toolbox.downloadUsernotes(strings[0]);
-            } catch (NetworkException e) {
+            } catch (RuntimeException e) {
+                // Connection failures surface as a bare RuntimeException (not NetworkException)
                 return false;
             }
             if (Toolbox.getUsernotes(strings[0]) == null) {
@@ -910,7 +912,8 @@ public class ToolboxUI {
         protected Boolean doInBackground(String... strings) {
             try {
                 Toolbox.downloadUsernotes(strings[0]);
-            } catch (NetworkException e) {
+            } catch (RuntimeException e) {
+                // Connection failures surface as a bare RuntimeException (not NetworkException)
                 return false;
             }
             Toolbox.getUsernotes(strings[0]).removeNote(strings[1], note);
