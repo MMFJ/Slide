@@ -990,11 +990,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     } else {
                                         LinkUtil.openExternally(adapter.submission.getUrl());
                                     }
-                                    }
-                                } else {
-                                    LinkUtil.openExternally(adapter.submission.getUrl());
-                                }
-                                break;
+                                    break;
                             case REDDIT_GALLERY:
                                 // Instead of opening externally, parse the gallery and open RedditGallery or
                                 // RedditGalleryPager in-app

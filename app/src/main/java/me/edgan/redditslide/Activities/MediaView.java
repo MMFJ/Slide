@@ -1502,7 +1502,7 @@ public class MediaView extends BaseSaveActivity {
 
     /**
      * Shows visual feedback for the vote action
-     * 
+     *
      * @param isUpvote true if upvoting, false if removing upvote
      */
     private void showVoteFeedback(boolean isUpvote) {

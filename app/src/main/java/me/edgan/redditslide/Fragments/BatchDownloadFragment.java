@@ -46,11 +46,9 @@ import net.dean.jraw.paginators.TimePeriod;
 import net.dean.jraw.paginators.UserProfilePaginator;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 /**
  * Batch Download tab on the user Profile screen.
@@ -183,10 +181,10 @@ public class BatchDownloadFragment extends Fragment {
                     Toast.makeText(getContext(), R.string.batch_dl_no_media, Toast.LENGTH_SHORT).show();
                     return;
                 }
-                
+
                 // Populate the static queue
                 BatchDownloadService.downloadQueue = queue;
-                
+
                 // Start the service
                 Intent startIntent = new Intent(getContext(), BatchDownloadService.class);
                 startIntent.setAction(BatchDownloadService.ACTION_START);
@@ -195,7 +193,7 @@ public class BatchDownloadFragment extends Fragment {
                 } else {
                     getContext().startService(startIntent);
                 }
-                
+
                 downloadBtn.setEnabled(false);
                 downloadBtn.setText("0/" + queue.size());
             }
@@ -212,7 +210,7 @@ public class BatchDownloadFragment extends Fragment {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent == null || intent.getAction() == null) return;
-            
+
             String action = intent.getAction();
             if (BatchDownloadService.BROADCAST_PROGRESS.equals(action)) {
                 int progress = intent.getIntExtra(BatchDownloadService.EXTRA_PROGRESS, 0);
@@ -566,7 +564,7 @@ public class BatchDownloadFragment extends Fragment {
             if (!showVideos) active.add("No Vid");
             if (!showVoted)  active.add("No Voted");
             if (!showViewed) active.add("No Viewed");
-            
+
             if (active.isEmpty()) {
                 typBtn.setText(R.string.batch_dl_type_filter);
             } else {

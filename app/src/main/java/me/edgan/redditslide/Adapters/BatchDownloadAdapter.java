@@ -175,7 +175,7 @@ public class BatchDownloadAdapter extends RecyclerView.Adapter<BatchDownloadAdap
                     }
                     i.putExtra(me.edgan.redditslide.Activities.RedditGallery.SUBREDDIT, sub.getSubredditName());
                     i.putExtra(me.edgan.redditslide.Notifications.ImageDownloadNotificationService.EXTRA_SUBMISSION_TITLE, sub.getTitle());
-                    
+
                     java.util.ArrayList<me.edgan.redditslide.Activities.GalleryImage> urls = new java.util.ArrayList<>();
                     com.fasterxml.jackson.databind.JsonNode dataNode = sub.getDataNode();
                     if (dataNode.has("gallery_data")) {

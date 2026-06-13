@@ -5,13 +5,13 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.AsyncTask; // Added
 import android.util.Log;
-import android.widget.Toast; // Added
+// Added
 
 // Added
 import com.google.gson.JsonObject; // Added
 
 import me.edgan.redditslide.Notifications.ImageDownloadNotificationService;
-import me.edgan.redditslide.R; // Added
+// Added
 // Added
 // Added
 

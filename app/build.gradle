@@ -225,6 +225,7 @@ dependencies {
     implementation "androidx.lifecycle:lifecycle-runtime:2.10.0"
     implementation "androidx.databinding:databinding-runtime:8.13.2"
     implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.2.0"
+    implementation "androidx.localbroadcastmanager:localbroadcastmanager:1.1.0"
 /** ExoPlayer **/
     // Application level media player
     implementation "androidx.media3:media3-exoplayer:1.10.1"

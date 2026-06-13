@@ -531,10 +531,10 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                         /*
                          * Todo a way to unhide
                          * s.setAction(R.string.btn_undo, new View.OnClickListener() {
-                         * 
+                         *
                          * @Override
                          * public void onClick(View v) {
-                         * 
+                         *
                          * }
                          * });
                          */

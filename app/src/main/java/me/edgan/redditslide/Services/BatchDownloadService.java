@@ -1,11 +1,9 @@
 package me.edgan.redditslide.Services;
 
 import android.app.Notification;
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -22,7 +20,6 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nostra13.universalimageloader.core.DisplayImageOptions;
 import com.nostra13.universalimageloader.core.assist.ImageScaleType;
-import com.nostra13.universalimageloader.core.listener.SimpleImageLoadingListener;
 
 import me.edgan.redditslide.Adapters.BatchDownloadItem;
 import me.edgan.redditslide.ContentType;
@@ -36,7 +33,6 @@ import me.edgan.redditslide.util.LogUtil;
 import net.dean.jraw.models.Submission;
 
 import java.io.File;
-import java.io.IOException;
 import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -51,7 +47,7 @@ public class BatchDownloadService extends Service {
 
     public static final String ACTION_START = "me.edgan.redditslide.BATCH_DOWNLOAD_START";
     public static final String ACTION_CANCEL = "me.edgan.redditslide.BATCH_DOWNLOAD_CANCEL";
-    
+
     public static final String BROADCAST_PROGRESS = "me.edgan.redditslide.BATCH_PROGRESS";
     public static final String BROADCAST_ITEM_DONE = "me.edgan.redditslide.BATCH_ITEM_DONE";
     public static final String BROADCAST_ITEM_FAILED = "me.edgan.redditslide.BATCH_ITEM_FAILED";
@@ -223,7 +219,7 @@ public class BatchDownloadService extends Service {
     private boolean downloadVideo(Submission sub) {
         String url = sub.getUrl();
         if (url == null || url.isEmpty()) return false;
-        
+
         try {
             // GifUtils handles network/caching on the calling thread when called from a background thread
             // Passing true for 'save' and -1 for index.
@@ -277,12 +273,12 @@ public class BatchDownloadService extends Service {
     private boolean downloadImage(Submission sub) {
         String url = sub.getUrl();
         if (url == null || url.isEmpty()) return false;
-        
+
         // Fix for imgur urls without extensions
         if (url.contains("imgur.com") && !url.contains(".png") && !url.contains(".jpg")) {
             url = url + ".png";
         }
-        
+
         return downloadSingleInline(url, sub.getSubredditName(), sub.getTitle(), -1);
     }
 
@@ -362,7 +358,7 @@ public class BatchDownloadService extends Service {
         try {
             URL parsedUrl = new URL(url);
             String path = parsedUrl.getPath();
-            if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") 
+            if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg")
                 || path.endsWith(".gif") || path.endsWith(".mp4")) {
                 extension = path.substring(path.lastIndexOf("."));
             } else {
@@ -373,9 +369,9 @@ public class BatchDownloadService extends Service {
         }
 
         String fileIndex = index > -1 ? String.format(Locale.ENGLISH, "_%03d", index) : "";
-        String title = (submissionTitle != null && !submissionTitle.trim().isEmpty()) 
+        String title = (submissionTitle != null && !submissionTitle.trim().isEmpty())
                 ? submissionTitle : String.valueOf(System.currentTimeMillis());
-        String subfolderPath = (subreddit != null && !subreddit.isEmpty()) 
+        String subfolderPath = (subreddit != null && !subreddit.isEmpty())
                 ? File.separator + subreddit : "/";
 
         String tempPath = getApplicationContext().getCacheDir().getAbsolutePath();
