@@ -1,24 +1,19 @@
-<h1 align="center">Slide</h1>
+<h1 align="center">Slide-Mod</h1>
 <p align="center">
 <img src="app/src/main/res/drawable/ic_launcher.png" width="180">
 </p>
 
-<hr style="display: inline-block; width: 100%; border: 1px dotted #ff00cc;">
+> [!IMPORTANT]
+> **Slide-Mod** is a parallel, customized fork of the open-source [Slide for Reddit](https://github.com/cygnusx-1-org/Slide) Android client. This repository is **not** the main active upstream codebase, but a customized build containing additional mod features.
+> Upstream code is regularly merged to keep features and compatibility aligned.
 
-<p align="center" style="margin-top: -2em;">
-  <a href="https://discord.gg/vDuSpJEDrW">
-    <picture>
-      <source height="24px" media="(prefers-color-scheme: dark)" srcset="/assets/icons/Discord.png" />
-      <img height="24px" src="/assets/icons/Discord.png" />
-    </picture>
-  </a>&nbsp;&nbsp;&nbsp;
-  <a href="https://old.reddit.com/r/slidereddit/">
-    <picture>
-      <source height="24px" media="(prefers-color-scheme: dark)" srcset="/assets/icons/Reddit.png" />
-      <img height="24px" src="/assets/icons/Reddit.png" />
-    </picture>
-  </a>
-</p>
+### 🌟 Slide-Mod Custom Features
+- **Batch Media Downloader**: Bulk fetch and download images, videos, and galleries directly from user profiles (with filters for voted/viewed posts and post-download auto-upvote/read actions).
+- **Perceptual Duplicate Detection**: Integrated dHash visual analysis to automatically identify and filter out visually identical images/thumbnails in the batch lists (even when URLs differ).
+- **Custom Gestures**: Integrated swipe-up gestures to upvote and swipe-to-download in the media viewer.
+- **Improved UI Targets**: Enhanced upvote touch targets with borderless ripple containers across layouts.
+
+<hr style="display: inline-block; width: 100%; border: 1px dotted #ff00cc;">
 
 Slide is an open-source, ad-free [Reddit](https://www.reddit.com) browser for
 Android. It is based around the
