@@ -43,3 +43,4 @@ changelog_override.txt
 
 # Local documentation (not synced to GitHub)
 docs/
+.claude

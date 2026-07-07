@@ -12,6 +12,7 @@ import android.content.Intent;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Movie;
 import android.graphics.drawable.Drawable;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
@@ -30,12 +31,10 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
-
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
-
-import com.cocosw.bottomsheet.BottomSheet;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.nostra13.universalimageloader.core.DisplayImageOptions;
@@ -44,44 +43,9 @@ import com.nostra13.universalimageloader.core.assist.ImageScaleType;
 import com.nostra13.universalimageloader.core.imageaware.ImageViewAware;
 import com.nostra13.universalimageloader.core.listener.ImageLoadingListener;
 import com.nostra13.universalimageloader.core.listener.ImageLoadingProgressListener;
-
 import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.Authentication;
-import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.DataShare;
-import me.edgan.redditslide.OpenRedditLink;
-import me.edgan.redditslide.Fragments.SubmissionsView;
-import me.edgan.redditslide.Notifications.ImageDownloadNotificationService;
-import me.edgan.redditslide.R;
-import me.edgan.redditslide.Reddit;
-import me.edgan.redditslide.SecretConstants;
-import me.edgan.redditslide.SettingValues;
-import me.edgan.redditslide.SubmissionViews.OpenVRedditTask;
-import me.edgan.redditslide.Views.ExoVideoView;
-import me.edgan.redditslide.Views.ImageSource;
-import me.edgan.redditslide.Views.SubsamplingScaleImageView;
-import me.edgan.redditslide.Visuals.ColorPreferences;
-import me.edgan.redditslide.Vote;
-import me.edgan.redditslide.util.AnimatorUtil;
-import me.edgan.redditslide.util.BlendModeUtil;
-import me.edgan.redditslide.util.CompatUtil;
-import me.edgan.redditslide.util.DialogUtil;
-import me.edgan.redditslide.util.FileUtil;
-import me.edgan.redditslide.util.GifUtils;
-import me.edgan.redditslide.util.HttpUtil;
-import me.edgan.redditslide.util.ImageSaveUtils;
-import me.edgan.redditslide.util.LinkUtil;
-import me.edgan.redditslide.util.LogUtil;
-import me.edgan.redditslide.util.NetworkUtil;
-import me.edgan.redditslide.util.ShareUtil;
-import me.edgan.redditslide.util.StorageUtil;
-import me.edgan.redditslide.util.MiscUtil;
-
-import net.dean.jraw.models.Submission;
-import net.dean.jraw.models.VoteDirection;
-
-import org.apache.commons.text.StringEscapeUtils;
-
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -95,10 +59,39 @@ import java.net.URLConnection;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
-
-import android.graphics.Movie;
+import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.Fragments.SubmissionsView;
+import me.edgan.redditslide.Notifications.ImageDownloadNotificationService;
+import me.edgan.redditslide.OpenRedditLink;
+import me.edgan.redditslide.R;
+import me.edgan.redditslide.Reddit;
+import me.edgan.redditslide.SecretConstants;
+import me.edgan.redditslide.SettingValues;
+import me.edgan.redditslide.SubmissionViews.OpenVRedditTask;
+import me.edgan.redditslide.Views.ExoVideoView;
+import me.edgan.redditslide.Views.ImageSource;
+import me.edgan.redditslide.Views.SubsamplingScaleImageView;
+import me.edgan.redditslide.Visuals.ColorPreferences;
+import me.edgan.redditslide.Vote;
+import me.edgan.redditslide.util.AnimatorUtil;
+import me.edgan.redditslide.util.BlendModeUtil;
+import me.edgan.redditslide.util.BottomSheet;
+import me.edgan.redditslide.util.CompatUtil;
+import me.edgan.redditslide.util.DialogUtil;
+import me.edgan.redditslide.util.FileUtil;
 import me.edgan.redditslide.util.GifDrawable;
-import androidx.annotation.NonNull;
+import me.edgan.redditslide.util.GifUtils;
+import me.edgan.redditslide.util.HttpUtil;
+import me.edgan.redditslide.util.ImageSaveUtils;
+import me.edgan.redditslide.util.LinkUtil;
+import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MiscUtil;
+import me.edgan.redditslide.util.NetworkUtil;
+import me.edgan.redditslide.util.ShareUtil;
+import me.edgan.redditslide.util.StorageUtil;
+import net.dean.jraw.models.Submission;
+import net.dean.jraw.models.VoteDirection;
+import org.apache.commons.text.StringEscapeUtils;
 
 /** Created by ccrama on 3/5/2015. */
 public class MediaView extends BaseSaveActivity {
@@ -473,6 +466,8 @@ public class MediaView extends BaseSaveActivity {
             stopPosition = savedInstanceState.getLong("position");
         }
 
+        MiscUtil.applyWideColorGamut(this);
+
         setContentView(R.layout.activity_media);
 
         MiscUtil.setupOldSwipeModeBackground(this, getWindow().getDecorView());
@@ -489,8 +484,13 @@ public class MediaView extends BaseSaveActivity {
             speedBtn.setVisibility(View.GONE);
         }
 
-        final String firstUrl = getIntent().getExtras().getString(EXTRA_DISPLAY_URL, "");
-        contentUrl = getIntent().getExtras().getString(EXTRA_URL);
+        Bundle mediaExtras = getIntent().getExtras();
+        if (mediaExtras == null) {
+            finish();
+            return;
+        }
+        final String firstUrl = mediaExtras.getString(EXTRA_DISPLAY_URL, "");
+        contentUrl = mediaExtras.getString(EXTRA_URL);
 
         if (contentUrl == null || contentUrl.isEmpty()) {
             finish();
@@ -775,7 +775,17 @@ public class MediaView extends BaseSaveActivity {
         final ProgressBar loader = (ProgressBar) findViewById(R.id.gifprogress);
         final String gifUrl = GifUtils.AsyncLoadGif.formatUrl(dat); // Corrected static call
 
-        if (gifUrl.toLowerCase().endsWith(".gif")) {
+        // Check the URL path, not the whole string: giphy/external-preview gifs carry query
+        // params (e.g. ...giphy.gif?width=296&s=...), so endsWith(".gif") on the full URL is false
+        // and they would wrongly fall through to the ExoPlayer branch, which has no GIF extractor
+        // and spins forever. Stripping the query lets real gifs reach the direct-GIF decoder.
+        final String gifPath = Uri.parse(gifUrl).getPath();
+        // ...but reddit serves an MP4 transcode at preview.redd.it/<id>.gif?format=mp4 — the path
+        // still ends in .gif while the bytes are actually MP4. Decoding those with Movie returns
+        // null and the viewer closes instantly, so treat format=mp4 URLs as video and send them
+        // to the ExoPlayer branch (getVideoType() already classifies preview.redd.it as DIRECT).
+        final boolean isMp4Transcode = gifUrl.toLowerCase().contains("format=mp4");
+        if (gifPath != null && gifPath.toLowerCase().endsWith(".gif") && !isMp4Transcode) {
             // Handle direct .gif URLs with Movie/GifDrawable
             Log.v(TAG, "Loading direct GIF: " + gifUrl); // Changed to Log.v
             findViewById(R.id.gifarea).setVisibility(View.VISIBLE); // Ensure gifarea is visible for progress bar
@@ -938,50 +948,13 @@ public class MediaView extends BaseSaveActivity {
                         (MediaView.this).finish();
                     } else {
                         try {
-                            if (result != null && !result.isJsonNull() && result.has("image")) {
-                                String type = result.get("image")
-                                        .getAsJsonObject()
-                                        .get("image")
-                                        .getAsJsonObject()
-                                        .get("type")
-                                        .getAsString();
-                                String urls = result.get("image")
-                                        .getAsJsonObject()
-                                        .get("links")
-                                        .getAsJsonObject()
-                                        .get("original")
-                                        .getAsString();
-
-                                if (type.contains("gif")) {
-                                    doLoadGif(urls);
-                                } else if (!imageShown) { // only load if there is no image
-                                    displayImage(urls);
-                                }
-                            } else if (result != null && result.has("data")) {
-                                String type = result.get("data")
-                                        .getAsJsonObject()
-                                        .get("type")
-                                        .getAsString();
-                                String urls = result.get("data")
-                                        .getAsJsonObject()
-                                        .get("link")
-                                        .getAsString();
-                                String mp4 = "";
-                                if (result.get("data").getAsJsonObject().has("mp4")) {
-                                    mp4 = result.get("data")
-                                            .getAsJsonObject()
-                                            .get("mp4")
-                                            .getAsString();
-                                }
-
-                                if (type.contains("gif")) {
-                                    doLoadGif(((mp4 == null || mp4.isEmpty()) ? urls : mp4));
-                                } else if (!imageShown) { // only load if there is no image
-                                    displayImage(urls);
-                                }
-                            } else {
-                                if (!imageShown)
-                                    doLoadImage(finalUrl);
+                            HttpUtil.ImgurMedia media = HttpUtil.parseImgurMedia(result);
+                            if (media == null) {
+                                if (!imageShown) doLoadImage(finalUrl);
+                            } else if (media.isGif()) {
+                                doLoadGif(media.getGifUrl());
+                            } else if (!imageShown) { // only load if there is no image
+                                displayImage(media.getImageUrl());
                             }
                         } catch (Exception e2) {
                             LogUtil.e(e2, "MediaView.onPostExecute failed");
@@ -1027,14 +1000,14 @@ public class MediaView extends BaseSaveActivity {
                                                     @Override
                                                     public boolean onLongClick(View v) {
                                                         try {
-                                                            new AlertDialog.Builder(MediaView.this)
+                                                            DialogUtil.showWithCardBackground(new AlertDialog.Builder(MediaView.this)
                                                                     .setTitle(
                                                                             result.get("safe_title")
                                                                                     .getAsString())
                                                                     .setMessage(
                                                                             result.get("alt")
                                                                                     .getAsString())
-                                                                    .show();
+                                                                    );
                                                         } catch (Exception ignored) {
 
                                                         }

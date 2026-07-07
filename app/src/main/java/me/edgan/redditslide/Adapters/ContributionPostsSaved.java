@@ -1,17 +1,16 @@
 package me.edgan.redditslide.Adapters;
 
+import java.util.ArrayList;
+import java.util.Map;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.HasSeen;
 import me.edgan.redditslide.PostMatch;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.PhotoLoader;
-
 import net.dean.jraw.models.Contribution;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.paginators.UserSavedPaginator;
-
-import java.util.ArrayList;
 
 /** Created by ccrama on 9/17/2015. */
 public class ContributionPostsSaved extends ContributionPosts {
@@ -45,7 +44,19 @@ public class ContributionPostsSaved extends ContributionPosts {
             ArrayList<Contribution> newData = new ArrayList<>();
             try {
                 if (reset || paginator == null) {
-                    paginator = new UserSavedPaginator(Authentication.reddit, where, subreddit);
+                    // Request post previews/thumbnails the same way the main feed does so they
+                    // show up here regardless of the account's Reddit media preference (#274).
+                    paginator =
+                            new UserSavedPaginator(Authentication.reddit, where, subreddit) {
+                                @Override
+                                protected Map<String, String> getExtraQueryArgs() {
+                                    Map<String, String> args = super.getExtraQueryArgs();
+                                    args.put("feature", "link_preview");
+                                    args.put("always_show_media", "1");
+                                    args.put("sr_detail", "true");
+                                    return args;
+                                }
+                            };
                     paginator.setSorting(SettingValues.getSubmissionSort(subreddit));
                     paginator.setTimePeriod(SettingValues.getSubmissionTimePeriod(subreddit));
                     if (category != null) paginator.setCategory(category);

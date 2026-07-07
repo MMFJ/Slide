@@ -7,10 +7,12 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.StrictMode;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.List;
+import java.util.Objects;
 import me.edgan.redditslide.Activities.CommentsScreenSingle;
 import me.edgan.redditslide.Activities.LiveThread;
 import me.edgan.redditslide.Activities.MainActivity;
@@ -27,11 +29,6 @@ import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.GifUtils;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
-
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.List;
-import java.util.Objects;
 
 public class OpenRedditLink {
 
@@ -104,31 +101,18 @@ public class OpenRedditLink {
         }
 
         String path = Objects.requireNonNull(uri.getPath());
+        String host = uri.getHost();
 
-        if (path.matches("(?i)/r/[a-z0-9-_.]+/s/.*")) {
-            new Thread(() -> {
-                try {
-                    StrictMode.ThreadPolicy gfgPolicy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
-                    StrictMode.setThreadPolicy(gfgPolicy);
-                    URL newUrl = new URL(url);
-                    HttpURLConnection ucon = (HttpURLConnection) newUrl.openConnection();
-                    ucon.setInstanceFollowRedirects(false);
-                    ucon.setRequestProperty("User-Agent", "org.quantumbadger.redreader/1.25.2");
-                    ucon.setRequestProperty("Host", newUrl.getHost());
-                    String location = ucon.getHeaderField("location");
-
-                    if (location != null) {
-                        String finalUrl = new URL(location).toString();
-                        Uri finalUri = formatRedditUrl(location);
-                        // Return to main thread to handle the UI
-                        ((Activity) context).runOnUiThread(() -> {
-                            openUrl(context, finalUrl, openIfOther);
-                        });
-                    }
-                } catch (Exception e) {
-                    LogUtil.e(e, "OpenRedditLink.openUrl failed");
-                }
-            }).start();
+        // Some Reddit links don't encode the destination in the URL and instead redirect to it:
+        //   - share links:  reddit.com/r/$sub/s/$id
+        //   - hosted video: v.redd.it/$id -> reddit.com/video/$id -> the post permalink
+        // Resolve the redirect on a background thread and re-open the resulting URL. Each call
+        // follows a single hop, so the video chain recurses (v.redd.it -> /video/ -> post) until
+        // it lands on the post in-app instead of dropping the user into a browser.
+        if (path.matches("(?i)/r/[a-z0-9-_.]+/s/.*")
+                || "v.redd.it".equals(host)
+                || path.matches("(?i)/video/.*")) {
+            resolveRedirectThenOpen(context, url, openIfOther);
             return true;
         }
 
@@ -344,6 +328,37 @@ public class OpenRedditLink {
         return true;
     }
 
+    /**
+     * Follows a single HTTP redirect for {@code url} on a background thread and re-opens the
+     * resulting location with {@link #openUrl(Context, String, boolean)}. Used for Reddit links
+     * that only resolve to their real destination via a redirect (share links and v.redd.it
+     * videos). Does nothing if the URL doesn't redirect.
+     */
+    private static void resolveRedirectThenOpen(Context context, String url, boolean openIfOther) {
+        new Thread(() -> {
+            try {
+                StrictMode.ThreadPolicy gfgPolicy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
+                StrictMode.setThreadPolicy(gfgPolicy);
+                URL newUrl = new URL(url);
+                HttpURLConnection ucon = (HttpURLConnection) newUrl.openConnection();
+                ucon.setInstanceFollowRedirects(false);
+                ucon.setRequestProperty("User-Agent", "org.quantumbadger.redreader/1.25.2");
+                ucon.setRequestProperty("Host", newUrl.getHost());
+                String location = ucon.getHeaderField("location");
+
+                if (location != null) {
+                    String finalUrl = new URL(location).toString();
+                    // Return to main thread to handle the UI
+                    ((Activity) context).runOnUiThread(() -> {
+                        openUrl(context, finalUrl, openIfOther);
+                    });
+                }
+            } catch (Exception e) {
+                LogUtil.e(e, "OpenRedditLink.openUrl failed");
+            }
+        }).start();
+    }
+
     public static void openUrl(Context c, String submission, String subreddit, String id) {
         Intent i = new Intent(c, CommentsScreenSingle.class);
         i.putExtra(CommentsScreenSingle.EXTRA_SUBREDDIT, subreddit);
@@ -477,6 +492,11 @@ public class OpenRedditLink {
         } else if (path.matches("(?i)/comments/\\w+.*")) {
             // Submission without a given subreddit. Format:
             // reddit.com/comments/$post_id/$post_title [optional]
+            return RedditLinkType.SUBMISSION_WITHOUT_SUB;
+        } else if (path.matches("(?i)/gallery/\\w+.*")) {
+            // Gallery submission. Format: reddit.com/gallery/$post_id
+            // The id is the submission id, so open it like a subreddit-less submission and let
+            // the post screen render the gallery natively instead of falling through to a browser.
             return RedditLinkType.SUBMISSION_WITHOUT_SUB;
         } else if (path.matches("(?i)/r/[a-z0-9-_.]+.*")) {
             // Subreddit. Format: reddit.com/r/$subreddit/$sort [optional]

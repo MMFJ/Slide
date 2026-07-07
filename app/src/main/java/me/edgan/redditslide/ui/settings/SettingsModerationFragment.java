@@ -1,7 +1,6 @@
 package me.edgan.redditslide.ui.settings;
 
 import android.app.Activity;
-import android.content.DialogInterface;
 import android.os.AsyncTask;
 import android.widget.PopupMenu;
 import android.widget.RelativeLayout;
@@ -9,14 +8,13 @@ import android.widget.TextView;
 
 import androidx.appcompat.widget.SwitchCompat;
 
-import com.afollestad.materialdialogs.MaterialDialog;
-
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SettingValues.RemovalReasonType;
 import me.edgan.redditslide.SettingValues.ToolboxRemovalMessageType;
 import me.edgan.redditslide.Toolbox.Toolbox;
 import me.edgan.redditslide.UserSubscriptions;
+import me.edgan.redditslide.util.MaterialProgressDialog;
 
 
 public class SettingsModerationFragment {
@@ -74,25 +72,23 @@ public class SettingsModerationFragment {
                             .setEnabled(SettingValues.toolboxEnabled);
                     popupMenu.setOnMenuItemClickListener(
                             item -> {
-                                switch (item.getItemId()) {
-                                    case R.id.slide:
-                                        setModRemovalReasonType(
-                                                removalReasonsCurrentView,
-                                                RemovalReasonType.SLIDE.ordinal(),
-                                                R.string.settings_mod_removal_slide);
-                                        break;
-                                    case R.id.toolbox:
-                                        setModRemovalReasonType(
-                                                removalReasonsCurrentView,
-                                                RemovalReasonType.TOOLBOX.ordinal(),
-                                                R.string.settings_mod_removal_toolbox);
-                                        break;
-                                        // For implementing reddit native removal reasons:
-                                        /*case R.id.reddit:
-                                        setModRemovalReasonType(removalReasonsCurrentView,
-                                                RemovalReasonType.REDDIT.ordinal(), R.string.settings_mod_removal_reddit);
-                                        break;*/
+                                int itemId = item.getItemId();
+                                if (itemId == R.id.slide) {
+                                    setModRemovalReasonType(
+                                            removalReasonsCurrentView,
+                                            RemovalReasonType.SLIDE.ordinal(),
+                                            R.string.settings_mod_removal_slide);
+                                } else if (itemId == R.id.toolbox) {
+                                    setModRemovalReasonType(
+                                            removalReasonsCurrentView,
+                                            RemovalReasonType.TOOLBOX.ordinal(),
+                                            R.string.settings_mod_removal_toolbox);
                                 }
+                                // For implementing reddit native removal reasons:
+                                /*else if (itemId == R.id.reddit) {
+                                    setModRemovalReasonType(removalReasonsCurrentView,
+                                            RemovalReasonType.REDDIT.ordinal(), R.string.settings_mod_removal_reddit);
+                                }*/
                                 return true;
                             });
                     popupMenu.show();
@@ -149,31 +145,27 @@ public class SettingsModerationFragment {
                             .inflate(R.menu.settings_toolbox_message, popupMenu.getMenu());
                     popupMenu.setOnMenuItemClickListener(
                             item -> {
-                                switch (item.getItemId()) {
-                                    case R.id.comment:
-                                        setToolboxRemovalMessageType(
-                                                removalMessageCurrentView,
-                                                ToolboxRemovalMessageType.COMMENT.ordinal(),
-                                                R.string.toolbox_removal_comment);
-                                        break;
-                                    case R.id.pm:
-                                        setToolboxRemovalMessageType(
-                                                removalMessageCurrentView,
-                                                ToolboxRemovalMessageType.PM.ordinal(),
-                                                R.string.toolbox_removal_pm);
-                                        break;
-                                    case R.id.both:
-                                        setToolboxRemovalMessageType(
-                                                removalMessageCurrentView,
-                                                ToolboxRemovalMessageType.BOTH.ordinal(),
-                                                R.string.toolbox_removal_both);
-                                        break;
-                                    case R.id.none:
-                                        setToolboxRemovalMessageType(
-                                                removalMessageCurrentView,
-                                                ToolboxRemovalMessageType.NONE.ordinal(),
-                                                R.string.toolbox_removal_none);
-                                        break;
+                                int itemId = item.getItemId();
+                                if (itemId == R.id.comment) {
+                                    setToolboxRemovalMessageType(
+                                            removalMessageCurrentView,
+                                            ToolboxRemovalMessageType.COMMENT.ordinal(),
+                                            R.string.toolbox_removal_comment);
+                                } else if (itemId == R.id.pm) {
+                                    setToolboxRemovalMessageType(
+                                            removalMessageCurrentView,
+                                            ToolboxRemovalMessageType.PM.ordinal(),
+                                            R.string.toolbox_removal_pm);
+                                } else if (itemId == R.id.both) {
+                                    setToolboxRemovalMessageType(
+                                            removalMessageCurrentView,
+                                            ToolboxRemovalMessageType.BOTH.ordinal(),
+                                            R.string.toolbox_removal_both);
+                                } else if (itemId == R.id.none) {
+                                    setToolboxRemovalMessageType(
+                                            removalMessageCurrentView,
+                                            ToolboxRemovalMessageType.NONE.ordinal(),
+                                            R.string.toolbox_removal_none);
                                 }
                                 return true;
                             });
@@ -214,17 +206,17 @@ public class SettingsModerationFragment {
         // Set up force refresh button
         refreshLayout.setEnabled(SettingValues.toolboxEnabled);
         refreshLayout.setOnClickListener(
-                v ->
-                        new MaterialDialog.Builder(context)
-                                .content(R.string.settings_mod_toolbox_refreshing)
-                                .progress(false, UserSubscriptions.modOf.size() * 2)
-                                .showListener(
-                                        dialog ->
-                                                new AsyncRefreshToolboxTask(dialog)
-                                                        .executeOnExecutor(
-                                                                AsyncTask.THREAD_POOL_EXECUTOR))
-                                .cancelable(false)
-                                .show());
+                v -> {
+                    MaterialProgressDialog dialog =
+                            new MaterialProgressDialog.Builder(context)
+                                    .content(R.string.settings_mod_toolbox_refreshing)
+                                    .progress(false, UserSubscriptions.modOf.size() * 2)
+                                    .cancelable(false)
+                                    .build();
+                    dialog.show();
+                    new AsyncRefreshToolboxTask(dialog)
+                            .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+                });
     }
 
     private void setToolboxRemovalMessageType(
@@ -251,10 +243,10 @@ public class SettingsModerationFragment {
     }
 
     private static class AsyncRefreshToolboxTask extends AsyncTask<Void, Void, Void> {
-        final MaterialDialog dialog;
+        final MaterialProgressDialog dialog;
 
-        AsyncRefreshToolboxTask(DialogInterface dialog) {
-            this.dialog = (MaterialDialog) dialog;
+        AsyncRefreshToolboxTask(MaterialProgressDialog dialog) {
+            this.dialog = dialog;
         }
 
         @Override

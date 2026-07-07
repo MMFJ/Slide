@@ -1,6 +1,5 @@
 package me.edgan.redditslide.SubmissionViews;
 
-
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.DialogInterface;
@@ -9,25 +8,27 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
+import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
-
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
-import com.cocosw.bottomsheet.BottomSheet;
 import com.devspark.robototextview.RobotoTypefaces;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
-
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.Activities.MainActivity;
 import me.edgan.redditslide.Adapters.CommentAdapter;
@@ -44,18 +45,25 @@ import me.edgan.redditslide.SubmissionCache;
 import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.Views.CreateCardView;
 import me.edgan.redditslide.Views.DoEditorActions;
+import me.edgan.redditslide.Views.RoundImageTriangleView;
+import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.FontPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.Vote;
+import me.edgan.redditslide.markdown.MarkdownImages;
 import me.edgan.redditslide.util.AnimatorUtil;
 import me.edgan.redditslide.util.BlendModeUtil;
+import me.edgan.redditslide.util.BottomSheet;
 import me.edgan.redditslide.util.CompatUtil;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LayoutUtils;
+import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialInputDialog;
 import me.edgan.redditslide.util.OnSingleClickListener;
+import me.edgan.redditslide.util.PostRecovery;
 import me.edgan.redditslide.util.SubmissionBottomSheetActions;
 import me.edgan.redditslide.util.SubmissionModActions;
 import me.edgan.redditslide.util.SubmissionParser;
-
 import net.dean.jraw.ApiException;
 import net.dean.jraw.fluent.FlairReference;
 import net.dean.jraw.fluent.FluentRedditClient;
@@ -65,20 +73,55 @@ import net.dean.jraw.models.Contribution;
 import net.dean.jraw.models.FlairTemplate;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.VoteDirection;
-
 import org.apache.commons.text.StringEscapeUtils;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import me.edgan.redditslide.util.LogUtil;
 
 /** Created by ccrama on 9/19/2015. */
 public class PopulateSubmissionViewHolder {
 
     public PopulateSubmissionViewHolder() {}
+
+    /**
+     * Maps a post's {@link ContentType.Type} to the corner-flag color shown on its thumbnail.
+     * Returns {@link Color#TRANSPARENT} for types that should not be flagged (e.g. plain
+     * self/comment posts with no distinct media).
+     */
+    private static int getFlagColor(ContentType.Type type, Activity context) {
+        final int colorRes;
+        switch (type) {
+            case IMAGE:
+            case IMGUR:
+            case DEVIANTART:
+            case XKCD:
+                colorRes = R.color.post_type_flag_image;
+                break;
+            case GIF:
+                colorRes = R.color.post_type_flag_gif;
+                break;
+            case ALBUM:
+            case REDDIT_GALLERY:
+                colorRes = R.color.post_type_flag_gallery;
+                break;
+            case VIDEO:
+            case VREDDIT_DIRECT:
+            case VREDDIT_REDIRECT:
+            case STREAMABLE:
+            case TUMBLR:
+            case EMBEDDED:
+                colorRes = R.color.post_type_flag_video;
+                break;
+            case LINK:
+            case EXTERNAL:
+                colorRes = R.color.post_type_flag_link;
+                break;
+            case SELF:
+                colorRes = R.color.post_type_flag_text;
+                break;
+            default:
+                // NONE, REDDIT, SPOILER, etc. — no flag.
+                return Color.TRANSPARENT;
+        }
+        return ContextCompat.getColor(context, colorRes);
+    }
 
     public <T extends Contribution> void populateSubmissionViewHolder(
             final SubmissionViewHolder holder,
@@ -92,6 +135,10 @@ public class PopulateSubmissionViewHolder {
             final boolean offline,
             final String baseSub,
             @Nullable final CommentAdapter adapter) {
+        // A link recovered earlier this session was rewritten onto a now-discarded Submission
+        // instance; re-apply it to this freshly bound instance so the recovered link persists
+        // across leaving and returning (the recovered title already survives via SubmissionCache).
+        PostRecovery.reapplyRecoveredLink(submission);
         holder.itemView.findViewById(R.id.vote).setVisibility(View.GONE);
 
         if (!offline
@@ -352,6 +399,18 @@ public class PopulateSubmissionViewHolder {
 
         final ContentType.Type type = ContentType.getContentType(submission);
 
+        if (thumbImage2 instanceof RoundImageTriangleView) {
+            // Must call setFlagColor() on every bind, including the TRANSPARENT (pref-off) case:
+            // thumbnail views are recycled, so skipping this when the flag is off would leave a
+            // stale triangle from a previously-bound post. Do not guard this whole block behind
+            // SettingValues.thumbnailFlags.
+            ((RoundImageTriangleView) thumbImage2)
+                    .setFlagColor(
+                            SettingValues.thumbnailFlags
+                                    ? getFlagColor(type, mContext)
+                                    : Color.TRANSPARENT);
+        }
+
         SubmissionClickActions.addClickFunctions(holder.leadImage, type, mContext, submission, holder, full);
 
         if (thumbImage2 != null) {
@@ -442,9 +501,9 @@ public class PopulateSubmissionViewHolder {
                 && !submission.getSelftext().isEmpty()
                 && !submission.isNsfw()
                 && !submission.getDataNode().get("spoiler").asBoolean()
-                && !submission.getDataNode().get("selftext_html").asText().trim().isEmpty()) {
+                && !submission.getDataNode().path("selftext_html").asText("").trim().isEmpty()) {
             holder.body.setVisibility(View.VISIBLE);
-            String text = submission.getDataNode().get("selftext_html").asText();
+            String text = submission.getDataNode().path("selftext_html").asText("");
             int typef = new FontPreferences(mContext).getFontTypeComment().getTypeface();
             Typeface typeface;
             if (typef >= 0) {
@@ -485,7 +544,8 @@ public class PopulateSubmissionViewHolder {
         }
 
         if (full) {
-            if (!submission.getSelftext().isEmpty()) {
+            String recoveredText = PostRecovery.getRecovered(submission.getFullName());
+            if (recoveredText != null || !submission.getSelftext().isEmpty()) {
                 int typef = new FontPreferences(mContext).getFontTypeComment().getTypeface();
                 Typeface typeface;
                 if (typef >= 0) {
@@ -495,12 +555,35 @@ public class PopulateSubmissionViewHolder {
                 }
                 holder.firstTextView.setTypeface(typeface);
 
-                setViews(
-                        submission.getDataNode().get("selftext_html").asText(),
+                String selftextSubreddit =
                         submission.getSubredditName() == null
                                 ? "all"
-                                : submission.getSubredditName(),
-                        holder);
+                                : submission.getSubredditName();
+                if (recoveredText != null) {
+                    // Body recovered from the archive. Arctic Shift returns markdown only (no
+                    // selftext_html), so render via Markwon regardless of the markdownNewReddit
+                    // setting; the empty bodyHtml means inline images in the recovered text aren't
+                    // drawn (text-only recovery).
+                    setViewsMarkdown(
+                            recoveredText,
+                            "",
+                            submission.getDataNode(),
+                            selftextSubreddit,
+                            holder);
+                } else if (SettingValues.markdownNewReddit) {
+                    // New Reddit-style: render the raw selftext via Markwon (issue #179).
+                    setViewsMarkdown(
+                            submission.getSelftext(),
+                            submission.getDataNode().path("selftext_html").asText(""),
+                            submission.getDataNode(),
+                            selftextSubreddit,
+                            holder);
+                } else {
+                    setViews(
+                            submission.getDataNode().path("selftext_html").asText(""),
+                            selftextSubreddit,
+                            holder);
+                }
                 holder.itemView.findViewById(R.id.body_area).setVisibility(View.VISIBLE);
             } else {
                 holder.itemView.findViewById(R.id.body_area).setVisibility(View.GONE);
@@ -983,7 +1066,7 @@ public class PopulateSubmissionViewHolder {
                                                                     break;
                                                                 case 2:
                                                                     {
-                                                                        new AlertDialog.Builder(
+                                                                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(
                                                                                         mContext)
                                                                                 .setTitle(
                                                                                         R.string
@@ -1082,32 +1165,19 @@ public class PopulateSubmissionViewHolder {
                                                                                         R.string
                                                                                                 .btn_cancel,
                                                                                         null)
-                                                                                .show();
+                                                                                );
                                                                     }
                                                                     break;
                                                                 case 3:
                                                                     {
-                                                                        new MaterialDialog.Builder(
-                                                                                        mContext)
-                                                                                .items(data)
-                                                                                .title(
-                                                                                        R.string
-                                                                                                .sidebar_select_flair)
-                                                                                .itemsCallback(
-                                                                                        new MaterialDialog
-                                                                                                .ListCallback() {
+                                                                        new MaterialAlertDialogBuilder(
+        new ContextThemeWrapper(mContext, new ColorPreferences(mContext).getFontStyle().getBaseId()))
+        .setTitle(R.string.sidebar_select_flair)
+        .setItems(
+                data.toArray(new CharSequence[0]),
+                new DialogInterface.OnClickListener() {
                                                                                             @Override
-                                                                                            public
-                                                                                            void
-                                                                                                    onSelection(
-                                                                                                            MaterialDialog
-                                                                                                                    dialog,
-                                                                                                            View
-                                                                                                                    itemView,
-                                                                                                            int
-                                                                                                                    which,
-                                                                                                            CharSequence
-                                                                                                                    text) {
+                                                                                            public void onClick(DialogInterface dialog, int which) {
                                                                                                 final
                                                                                                 FlairTemplate
                                                                                                         t =
@@ -1116,9 +1186,7 @@ public class PopulateSubmissionViewHolder {
                                                                                                                                 which);
                                                                                                 if (t
                                                                                                         .isTextEditable()) {
-                                                                                                    new MaterialDialog
-                                                                                                                    .Builder(
-                                                                                                                    mContext)
+                                                                                                    new MaterialInputDialog.Builder(mContext)
                                                                                                             .title(
                                                                                                                     R
                                                                                                                             .string
@@ -1129,26 +1197,15 @@ public class PopulateSubmissionViewHolder {
                                                                                                                                     R
                                                                                                                                             .string
                                                                                                                                             .mod_flair_hint),
-                                                                                                                    t
-                                                                                                                            .getText(),
-                                                                                                                    true,
-                                                                                                                    (dialog14,
-                                                                                                                            input) -> {})
+                                                                                                                    t.getText(), null)
                                                                                                             .positiveText(
                                                                                                                     R
                                                                                                                             .string
                                                                                                                             .btn_set)
                                                                                                             .onPositive(
-                                                                                                                    new MaterialDialog
-                                                                                                                            .SingleButtonCallback() {
+                                                                                                                    new MaterialInputDialog.ButtonCallback() {
                                                                                                                         @Override
-                                                                                                                        public
-                                                                                                                        void
-                                                                                                                                onClick(
-                                                                                                                                        MaterialDialog
-                                                                                                                                                dialog,
-                                                                                                                                        DialogAction
-                                                                                                                                                which) {
+                                                                                                                        public void onClick(MaterialInputDialog dialog) {
                                                                                                                             final
                                                                                                                             String
                                                                                                                                     flair =
@@ -1463,4 +1520,22 @@ public class PopulateSubmissionViewHolder {
         }
     }
 
+    /**
+     * New Reddit-style rendering of self-text: render the raw markdown via Markwon into the
+     * single body TextView and clear the overflow block list. See issue #179.
+     */
+    private void setViewsMarkdown(
+            String rawMarkdown,
+            String bodyHtml,
+            JsonNode dataNode,
+            String subredditName,
+            SubmissionViewHolder holder) {
+        MarkdownImages.renderInto(
+                holder.firstTextView,
+                holder.commentOverflow,
+                subredditName,
+                rawMarkdown,
+                bodyHtml,
+                dataNode);
+    }
 }

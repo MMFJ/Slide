@@ -17,14 +17,12 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.devspark.robototextview.RobotoTypefaces;
-
+import java.util.List;
 import me.edgan.redditslide.Activities.Album;
 import me.edgan.redditslide.Activities.MediaView;
 import me.edgan.redditslide.ImgurAlbum.Image;
@@ -34,11 +32,10 @@ import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SpoilerRobotoTextView;
 import me.edgan.redditslide.Views.ExoVideoView;
 import me.edgan.redditslide.Visuals.FontPreferences;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.GifUtils;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.SubmissionParser;
-
-import java.util.List;
 
 public class AlbumView extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static final int VIEW_TYPE_IMAGE = 1;
@@ -96,6 +93,7 @@ public class AlbumView extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                                                     d.dismiss();
                                                 }
                                             });
+                                    DialogUtil.matchDialogToCardBackground(d);
                                     d.show();
                                 }
                             });
@@ -189,7 +187,13 @@ public class AlbumView extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             {
                 if (user.getTitle() != null) {
                     List<String> text = SubmissionParser.getBlocks(user.getTitle());
-                    LinkUtil.setTextWithLinks(text.get(0), holder.text);
+                    if (!text.isEmpty()) {
+                        LinkUtil.setTextWithLinks(text.get(0), holder.text);
+                    } else {
+                        // No blocks: clear any stale text left over from a recycled row so the
+                        // emptiness check below hides the view instead of showing the wrong caption.
+                        holder.text.setText("");
+                    }
                     if (holder.text.getText().toString().isEmpty()) {
                         holder.text.setVisibility(View.GONE);
                     }
@@ -201,7 +205,13 @@ public class AlbumView extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             {
                 if (user.getDescription() != null) {
                     List<String> text = SubmissionParser.getBlocks(user.getDescription());
-                    LinkUtil.setTextWithLinks(text.get(0), holder.body);
+                    if (!text.isEmpty()) {
+                        LinkUtil.setTextWithLinks(text.get(0), holder.body);
+                    } else {
+                        // No blocks: clear any stale text left over from a recycled row so the
+                        // emptiness check below hides the view instead of showing the wrong caption.
+                        holder.body.setText("");
+                    }
                     if (holder.body.getText().toString().isEmpty()) {
                         holder.body.setVisibility(View.GONE);
                     }

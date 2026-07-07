@@ -23,19 +23,14 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
-
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.view.ContextThemeWrapper;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.appcompat.widget.Toolbar;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.GravityCompat;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputLayout;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -43,7 +38,6 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-
 import me.edgan.redditslide.Adapters.SideArrayAdapter;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Constants;
@@ -58,13 +52,14 @@ import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.ui.settings.ManageOfflineContent;
 import me.edgan.redditslide.ui.settings.SettingsActivity;
 import me.edgan.redditslide.util.AnimatorUtil;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.EditTextValidator;
 import me.edgan.redditslide.util.KeyboardUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialInputDialog;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
 import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
-import androidx.core.content.ContextCompat;
 
 public class DrawerController {
 
@@ -143,6 +138,16 @@ public class DrawerController {
                                     Intent inte = new Intent(mainActivity, Profile.class);
                                     inte.putExtra(Profile.EXTRA_PROFILE, Authentication.name);
                                     inte.putExtra(Profile.EXTRA_SAVED, true);
+                                    mainActivity.startActivity(inte);
+                                }
+                            });
+            header.findViewById(R.id.local_saved)
+                    .setOnClickListener(
+                            new OnSingleClickListener() {
+                                @Override
+                                public void onSingleClick(View view) {
+                                    Intent inte =
+                                            new Intent(mainActivity, PostLocalSaved.class);
                                     mainActivity.startActivity(inte);
                                 }
                             });
@@ -493,7 +498,7 @@ public class DrawerController {
                                 new View.OnClickListener() {
                                     @Override
                                     public void onClick(View v) {
-                                        new AlertDialog.Builder(mainActivity)
+                                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(mainActivity)
                                             .setTitle(R.string.profile_remove)
                                             .setMessage(R.string.profile_remove_account)
                                             .setNegativeButton(
@@ -561,7 +566,7 @@ public class DrawerController {
                                                         }
                                                     })
                                             .setPositiveButton(R.string.btn_cancel, null)
-                                            .show();
+                                            );
                                     }
                                 });
                 t.setOnClickListener(
@@ -623,37 +628,25 @@ public class DrawerController {
                             new View.OnClickListener() {
                                 @Override
                                 public void onClick(View view) {
-                                    new MaterialDialog.Builder(mainActivity)
+                                    new MaterialInputDialog.Builder(mainActivity)
                                         .inputRange(3, 20)
-                                        .alwaysCallInputCallback()
                                         .input(
                                                 mainActivity.getString(R.string.user_enter),
                                                 null,
-                                                new MaterialDialog.InputCallback() {
-                                                    @Override
-                                                    public void onInput(
-                                                            @NonNull MaterialDialog dialog,
-                                                            CharSequence input) {
-                                                        final EditText editText = dialog.getInputEditText();
-                                                        EditTextValidator.validateUsername(editText);
-                                                        if (input.length() >= 3 && input.length() <= 20) {
-                                                            dialog.getActionButton(DialogAction.POSITIVE).setEnabled(true);
-                                                        }
+                                                (dialog, input) -> {
+                                                    final EditText editText = dialog.getInputEditText();
+                                                    EditTextValidator.validateUsername(editText);
+                                                    if (input.length() >= 3 && input.length() <= 20) {
+                                                        dialog.getActionButton(DialogInterface.BUTTON_POSITIVE).setEnabled(true);
                                                     }
                                                 })
                                         .positiveText(R.string.user_btn_gotomultis)
                                         .onPositive(
-                                                new MaterialDialog.SingleButtonCallback() {
-                                                    @Override
-                                                    public void onClick(
-                                                            @NonNull MaterialDialog dialog,
-                                                            @NonNull DialogAction which) {
-
-                                                        if (mainActivity.runAfterLoad == null) {
-                                                            Intent inte = new Intent(mainActivity, MultiredditOverview.class);
-                                                            inte.putExtra(Profile.EXTRA_PROFILE, dialog.getInputEditText().getText().toString());
-                                                            mainActivity.startActivity(inte);
-                                                        }
+                                                dialog -> {
+                                                    if (mainActivity.runAfterLoad == null) {
+                                                        Intent inte = new Intent(mainActivity, MultiredditOverview.class);
+                                                        inte.putExtra(Profile.EXTRA_PROFILE, dialog.getInputEditText().getText().toString());
+                                                        mainActivity.startActivity(inte);
                                                     }
                                                 })
                                         .negativeText(R.string.btn_cancel)

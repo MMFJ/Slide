@@ -2,7 +2,6 @@ package me.edgan.redditslide.util;
 
 import android.app.Activity;
 import android.graphics.Color;
-import android.os.Build;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -24,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.Adapters.CommentAdapter;
+import me.edgan.redditslide.Adapters.CommentAdapterHelper;
 import me.edgan.redditslide.Adapters.CommentViewHolder;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.R;
@@ -36,9 +36,6 @@ import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
 import net.dean.jraw.models.Comment;
 import net.dean.jraw.models.CommentNode;
 import net.dean.jraw.models.VoteDirection;
-
-// Added imports based on usage in the method
-import me.edgan.redditslide.Adapters.CommentAdapterHelper;
 
 public class CommentStateUtil {
 
@@ -64,7 +61,7 @@ public class CommentStateUtil {
             adapter.hiddenPersons.remove(n.getFullName());
             adapter.unhideAll(baseNode, holder.getBindingAdapterPosition() + 1);
             if (adapter.toCollapse.contains(n.getFullName()) && SettingValues.collapseComments) {
-                adapter.setViews(SubmissionParser.replaceProcessingImgPlaceholders(n.getDataNode().get("body_html").asText(), n.getDataNode()), adapter.submission.getSubredditName(), holder);
+                adapter.setViews(SubmissionParser.replaceProcessingImgPlaceholders(n.getDataNode().path("body_html").asText(""), n.getDataNode()), adapter.submission.getSubredditName(), holder);
             }
             CommentAdapterHelper.hideChildrenObject(holder.childrenNumber);
             holder.commentOverflow.setVisibility(View.VISIBLE);
@@ -268,7 +265,7 @@ public class CommentStateUtil {
                                 final ArrayList<String> keys = new ArrayList<>(accounts.keySet());
                                 final int i = keys.indexOf(adapter.changedProfile);
 
-                                new AlertDialog.Builder(adapter.mContext)
+                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(adapter.mContext)
                                     .setTitle(R.string.sorting_choose)
                                     .setSingleChoiceItems(
                                         keys.toArray(new String[0]),
@@ -278,7 +275,7 @@ public class CommentStateUtil {
                                             profile.setText("/u/" + adapter.changedProfile);
                                         })
                                     .setNegativeButton(R.string.btn_cancel, null)
-                                    .show();
+                                    );
                             }
                         });
                     replyLine.requestFocus();
@@ -389,7 +386,7 @@ public class CommentStateUtil {
                                         final ArrayList<String> keys = new ArrayList<>(accounts.keySet());
                                         final int i = keys.indexOf(adapter.changedProfile);
 
-                                        new AlertDialog.Builder(adapter.mContext)
+                                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(adapter.mContext)
                                             .setTitle(R.string.sorting_choose)
                                             .setSingleChoiceItems(
                                                 keys.toArray(new String[0]),
@@ -400,24 +397,22 @@ public class CommentStateUtil {
                                                 })
                                             .setNegativeButton(
                                                     R.string.btn_cancel, null)
-                                            .show();
+                                            );
                                     }
                                 });
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                                replyLine.setOnFocusChangeListener(
-                                    (view, b) -> {
-                                        if (b) {
-                                            view.postDelayed(
-                                                () -> {
-                                                    if (!view.hasFocus()) {
-                                                        view.requestFocus();
-                                                    }
-                                                },
-                                                100
-                                            );
-                                        }
-                                    });
-                            }
+                            replyLine.setOnFocusChangeListener(
+                                (view, b) -> {
+                                    if (b) {
+                                        view.postDelayed(
+                                            () -> {
+                                                if (!view.hasFocus()) {
+                                                    view.requestFocus();
+                                                }
+                                            },
+                                            100
+                                        );
+                                    }
+                                });
                             replyLine.requestFocus(); // TODO: Not working when called a second time
                             // time
                             KeyboardUtil.toggleKeyboard(adapter.mContext, InputMethodManager.SHOW_FORCED, InputMethodManager.HIDE_IMPLICIT_ONLY);

@@ -7,19 +7,16 @@ import android.view.View;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
 import androidx.appcompat.widget.AppCompatCheckBox;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.SwitchCompat;
-
+import java.util.Map;
 import me.edgan.redditslide.Activities.BaseActivityAnim;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SubmissionCache;
 import me.edgan.redditslide.Views.CreateCardView;
 import me.edgan.redditslide.util.MiscUtil;
-
-import java.util.Map;
 
 /** Created by ccrama on 9/17/2015. */
 public class EditCardsLayout extends BaseActivityAnim {
@@ -65,37 +62,30 @@ public class EditCardsLayout extends BaseActivityAnim {
                                 popup.setOnMenuItemClickListener(
                                         new PopupMenu.OnMenuItemClickListener() {
                                             public boolean onMenuItemClick(MenuItem item) {
-                                                switch (item.getItemId()) {
-                                                    case R.id.center:
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setMiddleCard(
-                                                                        true, layout));
-                                                        break;
-                                                    case R.id.card:
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setCardViewType(
-                                                                        CreateCardView.CardEnum
-                                                                                .LARGE,
-                                                                        layout));
-                                                        break;
-                                                    case R.id.list:
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setCardViewType(
-                                                                        CreateCardView.CardEnum
-                                                                                .LIST,
-                                                                        layout));
-                                                        break;
-                                                    case R.id.desktop:
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setCardViewType(
-                                                                        CreateCardView.CardEnum
-                                                                                .DESKTOP,
-                                                                        layout));
-                                                        break;
+                                                int itemId = item.getItemId();
+                                                if (itemId == R.id.center) {
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setMiddleCard(
+                                                                    true, layout));
+                                                } else if (itemId == R.id.card) {
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setCardViewType(
+                                                                    CreateCardView.CardEnum.LARGE,
+                                                                    layout));
+                                                } else if (itemId == R.id.list) {
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setCardViewType(
+                                                                    CreateCardView.CardEnum.LIST,
+                                                                    layout));
+                                                } else if (itemId == R.id.desktop) {
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setCardViewType(
+                                                                    CreateCardView.CardEnum.DESKTOP,
+                                                                    layout));
                                                 }
                                                 ((TextView) findViewById(R.id.view_current))
                                                         .setText(
@@ -250,6 +240,23 @@ public class EditCardsLayout extends BaseActivityAnim {
         }
 
         {
+            SwitchCompat single = (SwitchCompat) findViewById(R.id.thumbnailflags);
+            single.setChecked(SettingValues.thumbnailFlags);
+            single.setOnCheckedChangeListener(
+                    new CompoundButton.OnCheckedChangeListener() {
+                        @Override
+                        public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                            SettingValues.thumbnailFlags = isChecked;
+                            SettingValues.prefs
+                                    .edit()
+                                    .putBoolean(SettingValues.PREF_THUMBNAIL_FLAGS, isChecked)
+                                    .apply();
+                            SubmissionCache.evictAll();
+                        }
+                    });
+        }
+
+        {
             SwitchCompat single = (SwitchCompat) findViewById(R.id.selftext);
 
             single.setChecked(SettingValues.cardText);
@@ -269,7 +276,9 @@ public class EditCardsLayout extends BaseActivityAnim {
         final TextView CURRENT_PICTURE = (TextView) findViewById(R.id.picture_current);
         assert CURRENT_PICTURE != null; // it won't be
 
-        if (SettingValues.bigPicCropped) {
+        if (SettingValues.bigPicLetterboxed) {
+            CURRENT_PICTURE.setText(R.string.mode_letterbox);
+        } else if (SettingValues.bigPicCropped) {
             CURRENT_PICTURE.setText(R.string.mode_cropped);
         } else if (SettingValues.bigPicEnabled) {
             CURRENT_PICTURE.setText(R.string.mode_bigpic);
@@ -291,85 +300,80 @@ public class EditCardsLayout extends BaseActivityAnim {
                                 popup.setOnMenuItemClickListener(
                                         new PopupMenu.OnMenuItemClickListener() {
                                             public boolean onMenuItemClick(MenuItem item) {
-                                                switch (item.getItemId()) {
-                                                    case R.id.bigpic:
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setBigPicEnabled(
-                                                                        true, layout));
-                                                        {
-                                                            SharedPreferences.Editor e =
-                                                                    SettingValues.prefs.edit();
-                                                            for (Map.Entry<String, ?> map :
-                                                                    SettingValues.prefs
-                                                                            .getAll()
-                                                                            .entrySet()) {
-                                                                if (map.getKey()
-                                                                        .startsWith(
-                                                                                "picsenabled")) {
-                                                                    e.remove(
-                                                                            map
-                                                                                    .getKey()); // reset all overridden values
-                                                                }
-                                                            }
-                                                            e.apply();
+                                                int itemId = item.getItemId();
+                                                if (itemId == R.id.bigpic) {
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setBigPicEnabled(
+                                                                    true, layout));
+                                                    SharedPreferences.Editor e =
+                                                            SettingValues.prefs.edit();
+                                                    for (Map.Entry<String, ?> map :
+                                                            SettingValues.prefs
+                                                                    .getAll()
+                                                                    .entrySet()) {
+                                                        if (map.getKey()
+                                                                .startsWith("picsenabled")) {
+                                                            e.remove(
+                                                                    map
+                                                                            .getKey()); // reset all overridden values
                                                         }
-                                                        break;
-                                                    case R.id.cropped:
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setBigPicCropped(
-                                                                        true, layout));
-                                                        break;
-                                                    case R.id.thumbnail:
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setBigPicEnabled(
-                                                                        false, layout));
-                                                        {
-                                                            SharedPreferences.Editor e =
-                                                                    SettingValues.prefs.edit();
-                                                            for (Map.Entry<String, ?> map :
-                                                                    SettingValues.prefs
-                                                                            .getAll()
-                                                                            .entrySet()) {
-                                                                if (map.getKey()
-                                                                        .startsWith(
-                                                                                "picsenabled")) {
-                                                                    e.remove(
-                                                                            map
-                                                                                    .getKey()); // reset all overridden values
-                                                                }
-                                                            }
-                                                            e.apply();
+                                                    }
+                                                    e.apply();
+                                                } else if (itemId == R.id.cropped) {
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setBigPicCropped(
+                                                                    true, layout));
+                                                } else if (itemId == R.id.letterbox) {
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setBigPicLetterboxed(
+                                                                    true, layout));
+                                                } else if (itemId == R.id.thumbnail) {
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setBigPicEnabled(
+                                                                    false, layout));
+                                                    SharedPreferences.Editor e =
+                                                            SettingValues.prefs.edit();
+                                                    for (Map.Entry<String, ?> map :
+                                                            SettingValues.prefs
+                                                                    .getAll()
+                                                                    .entrySet()) {
+                                                        if (map.getKey()
+                                                                .startsWith("picsenabled")) {
+                                                            e.remove(
+                                                                    map
+                                                                            .getKey()); // reset all overridden values
                                                         }
-                                                        break;
-                                                    case R.id.noThumbnails:
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setNoThumbnails(
-                                                                        true, layout));
-                                                        {
-                                                            SharedPreferences.Editor e =
-                                                                    SettingValues.prefs.edit();
-                                                            for (Map.Entry<String, ?> map :
-                                                                    SettingValues.prefs
-                                                                            .getAll()
-                                                                            .entrySet()) {
-                                                                if (map.getKey()
-                                                                        .startsWith(
-                                                                                "picsenabled")) {
-                                                                    e.remove(
-                                                                            map
-                                                                                    .getKey()); // reset all overridden values
-                                                                }
-                                                            }
-                                                            e.apply();
+                                                    }
+                                                    e.apply();
+                                                } else if (itemId == R.id.noThumbnails) {
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setNoThumbnails(
+                                                                    true, layout));
+                                                    SharedPreferences.Editor e =
+                                                            SettingValues.prefs.edit();
+                                                    for (Map.Entry<String, ?> map :
+                                                            SettingValues.prefs
+                                                                    .getAll()
+                                                                    .entrySet()) {
+                                                        if (map.getKey()
+                                                                .startsWith("picsenabled")) {
+                                                            e.remove(
+                                                                    map
+                                                                            .getKey()); // reset all overridden values
                                                         }
-                                                        break;
+                                                    }
+                                                    e.apply();
                                                 }
 
-                                                if (SettingValues.bigPicCropped) {
+                                                if (SettingValues.bigPicLetterboxed) {
+                                                    CURRENT_PICTURE.setText(
+                                                            R.string.mode_letterbox);
+                                                } else if (SettingValues.bigPicCropped) {
                                                     CURRENT_PICTURE.setText(R.string.mode_cropped);
                                                 } else if (SettingValues.bigPicEnabled) {
                                                     CURRENT_PICTURE.setText(R.string.mode_bigpic);
@@ -442,49 +446,46 @@ public class EditCardsLayout extends BaseActivityAnim {
                                 popup.setOnMenuItemClickListener(
                                         new PopupMenu.OnMenuItemClickListener() {
                                             public boolean onMenuItemClick(MenuItem item) {
-                                                switch (item.getItemId()) {
-                                                    case R.id.always:
-                                                        SettingValues.actionbarTap = false;
-                                                        SettingValues.prefs
-                                                                .edit()
-                                                                .putBoolean(
-                                                                        SettingValues
-                                                                                .PREF_ACTIONBAR_TAP,
-                                                                        false)
-                                                                .apply();
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setActionbarVisible(
-                                                                        true, layout));
-                                                        break;
-                                                    case R.id.tap:
-                                                        SettingValues.actionbarTap = true;
-                                                        SettingValues.prefs
-                                                                .edit()
-                                                                .putBoolean(
-                                                                        SettingValues
-                                                                                .PREF_ACTIONBAR_TAP,
-                                                                        true)
-                                                                .apply();
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setActionbarVisible(
-                                                                        false, layout));
-                                                        break;
-                                                    case R.id.button:
-                                                        SettingValues.actionbarTap = false;
-                                                        SettingValues.prefs
-                                                                .edit()
-                                                                .putBoolean(
-                                                                        SettingValues
-                                                                                .PREF_ACTIONBAR_TAP,
-                                                                        false)
-                                                                .apply();
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setActionbarVisible(
-                                                                        false, layout));
-                                                        break;
+                                                int itemId = item.getItemId();
+                                                if (itemId == R.id.always) {
+                                                    SettingValues.actionbarTap = false;
+                                                    SettingValues.prefs
+                                                            .edit()
+                                                            .putBoolean(
+                                                                    SettingValues
+                                                                            .PREF_ACTIONBAR_TAP,
+                                                                    false)
+                                                            .apply();
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setActionbarVisible(
+                                                                    true, layout));
+                                                } else if (itemId == R.id.tap) {
+                                                    SettingValues.actionbarTap = true;
+                                                    SettingValues.prefs
+                                                            .edit()
+                                                            .putBoolean(
+                                                                    SettingValues
+                                                                            .PREF_ACTIONBAR_TAP,
+                                                                    true)
+                                                            .apply();
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setActionbarVisible(
+                                                                    false, layout));
+                                                } else if (itemId == R.id.button) {
+                                                    SettingValues.actionbarTap = false;
+                                                    SettingValues.prefs
+                                                            .edit()
+                                                            .putBoolean(
+                                                                    SettingValues
+                                                                            .PREF_ACTIONBAR_TAP,
+                                                                    false)
+                                                            .apply();
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setActionbarVisible(
+                                                                    false, layout));
                                                 }
                                                 ((TextView) findViewById(R.id.actionbar_current))
                                                         .setText(
@@ -594,50 +595,47 @@ public class EditCardsLayout extends BaseActivityAnim {
                                 popup.setOnMenuItemClickListener(
                                         new PopupMenu.OnMenuItemClickListener() {
                                             public boolean onMenuItemClick(MenuItem item) {
-                                                switch (item.getItemId()) {
-                                                    case R.id.disabled:
-                                                        SettingValues.smallTag = 0;
-                                                        SettingValues.prefs
-                                                                .edit()
-                                                                .putInt(
-                                                                        SettingValues.PREF_SMALL_TAG_DROPDOWN,
-                                                                        0)
-                                                                .apply();
-                                                        ((TextView) findViewById(R.id.small_tag_current))
-                                                                .setText(R.string.small_tag_disabled);
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setSmallTag(
-                                                                        0, layout));
-                                                        break;
-                                                    case R.id.show_top_right:
-                                                        SettingValues.smallTag = 1;
-                                                        SettingValues.prefs
-                                                                .edit()
-                                                                .putInt(
-                                                                        SettingValues
-                                                                                .PREF_SMALL_TAG_DROPDOWN,
-                                                                        1)
-                                                                .apply();
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setSmallTag(
-                                                                        1, layout));
-                                                        break;
-                                                    case R.id.show_bottom_right:
-                                                        SettingValues.smallTag = 2;
-                                                        SettingValues.prefs
-                                                                .edit()
-                                                                .putInt(
-                                                                        SettingValues
-                                                                                .PREF_SMALL_TAG_DROPDOWN,
-                                                                        2)
-                                                                .apply();
-                                                        layout.removeAllViews();
-                                                        layout.addView(
-                                                                CreateCardView.setSmallTag(
-                                                                        2, layout));
-                                                        break;
+                                                int itemId = item.getItemId();
+                                                if (itemId == R.id.disabled) {
+                                                    SettingValues.smallTag = 0;
+                                                    SettingValues.prefs
+                                                            .edit()
+                                                            .putInt(
+                                                                    SettingValues
+                                                                            .PREF_SMALL_TAG_DROPDOWN,
+                                                                    0)
+                                                            .apply();
+                                                    ((TextView)
+                                                                    findViewById(
+                                                                            R.id.small_tag_current))
+                                                            .setText(R.string.small_tag_disabled);
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setSmallTag(0, layout));
+                                                } else if (itemId == R.id.show_top_right) {
+                                                    SettingValues.smallTag = 1;
+                                                    SettingValues.prefs
+                                                            .edit()
+                                                            .putInt(
+                                                                    SettingValues
+                                                                            .PREF_SMALL_TAG_DROPDOWN,
+                                                                    1)
+                                                            .apply();
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setSmallTag(1, layout));
+                                                } else if (itemId == R.id.show_bottom_right) {
+                                                    SettingValues.smallTag = 2;
+                                                    SettingValues.prefs
+                                                            .edit()
+                                                            .putInt(
+                                                                    SettingValues
+                                                                            .PREF_SMALL_TAG_DROPDOWN,
+                                                                    2)
+                                                            .apply();
+                                                    layout.removeAllViews();
+                                                    layout.addView(
+                                                            CreateCardView.setSmallTag(2, layout));
                                                 }
                                                 ((TextView) findViewById(R.id.small_tag_current))
                                         .setText(

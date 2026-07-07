@@ -1,24 +1,19 @@
 package me.edgan.redditslide.util;
 
 import android.text.TextUtils;
-
 import androidx.annotation.Nullable;
-
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
-
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import me.edgan.redditslide.Constants;
-
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
-
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * A class that helps with HTTP requests and response parsing.
@@ -26,6 +21,68 @@ import java.util.Map;
  * <p>Created by Fernando Barillas on 7/13/16.
  */
 public class HttpUtil {
+
+
+    /** Media info parsed from an imgur API response: the content type and direct links. */
+    public static final class ImgurMedia {
+        public final String type;
+        private final String url;
+        private final String mp4;
+
+        private ImgurMedia(String type, String url, String mp4) {
+            this.type = type;
+            this.url = url;
+            this.mp4 = mp4;
+        }
+
+        public boolean isGif() {
+            return type.contains("gif");
+        }
+
+        /** Best url for gif playback: the mp4 rendition when the API provides one. */
+        public String getGifUrl() {
+            return (mp4 == null || mp4.isEmpty()) ? url : mp4;
+        }
+
+        /** The plain image url. */
+        public String getImageUrl() {
+            return url;
+        }
+    }
+
+    /**
+     * Extracts the media type and links from either imgur response shape ("image" for the old
+     * gallery API, "data" for v3), or returns null when the response has neither.
+     */
+    @Nullable
+    public static ImgurMedia parseImgurMedia(@Nullable JsonObject result) {
+        if (result != null && !result.isJsonNull() && result.has("image")) {
+            String type =
+                    result.get("image")
+                            .getAsJsonObject()
+                            .get("image")
+                            .getAsJsonObject()
+                            .get("type")
+                            .getAsString();
+            String urls =
+                    result.get("image")
+                            .getAsJsonObject()
+                            .get("links")
+                            .getAsJsonObject()
+                            .get("original")
+                            .getAsString();
+            return new ImgurMedia(type, urls, null);
+        } else if (result != null && result.has("data")) {
+            String type = result.get("data").getAsJsonObject().get("type").getAsString();
+            String urls = result.get("data").getAsJsonObject().get("link").getAsString();
+            String mp4 = "";
+            if (result.get("data").getAsJsonObject().has("mp4")) {
+                mp4 = result.get("data").getAsJsonObject().get("mp4").getAsString();
+            }
+            return new ImgurMedia(type, urls, mp4);
+        }
+        return null;
+    }
 
     /**
      * Gets a JsonObject by calling apiUrl and parsing the JSON response String. This method should

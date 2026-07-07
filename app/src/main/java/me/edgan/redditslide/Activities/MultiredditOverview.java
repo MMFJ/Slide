@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
-import android.os.Build;
 import android.os.Bundle;
 import android.text.Spannable;
 import android.util.Log;
@@ -19,7 +18,6 @@ import android.view.Window;
 import android.view.animation.LinearInterpolator;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.PopupMenu;
@@ -29,11 +27,10 @@ import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.viewpager.widget.ViewPager;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.google.android.material.tabs.TabLayout;
-
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.CaseInsensitiveArrayList;
 import me.edgan.redditslide.Fragments.MultiredditView;
@@ -45,19 +42,16 @@ import me.edgan.redditslide.Views.PreCachingLayoutManager;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.BlendModeUtil;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialInputDialog;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.SortingUtil;
-
 import net.dean.jraw.models.MultiReddit;
 import net.dean.jraw.models.MultiSubreddit;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.paginators.Sorting;
 import net.dean.jraw.paginators.TimePeriod;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
 
 /** Created by ccrama on 9/17/2015. */
 public class MultiredditOverview extends BaseActivityAnim {
@@ -156,30 +150,28 @@ public class MultiredditOverview extends BaseActivityAnim {
             }
         }
 
-        switch (item.getItemId()) {
-            case android.R.id.home:
-                try {
-                    getOnBackPressedDispatcher().onBackPressed();
-                } catch (Exception ignored) {
+        int itemId = item.getItemId();
+        if (itemId == android.R.id.home) {
+            try {
+                getOnBackPressedDispatcher().onBackPressed();
+            } catch (Exception ignored) {
 
-                }
-                return true;
-            case R.id.action_edit:
-                {
-                    if (profile.isEmpty()
-                            && (UserSubscriptions.multireddits != null)
-                            && !UserSubscriptions.multireddits.isEmpty()) {
-                        Intent i = new Intent(MultiredditOverview.this, CreateMulti.class);
-                        i.putExtra(
-                                CreateMulti.EXTRA_MULTI,
-                                UserSubscriptions.multireddits
-                                        .get(pager.getCurrentItem())
-                                        .getDisplayName());
-                        startActivity(i);
-                    }
-                }
-                return true;
-            case R.id.search:
+            }
+            return true;
+        } else if (itemId == R.id.action_edit) {
+            if (profile.isEmpty()
+                    && (UserSubscriptions.multireddits != null)
+                    && !UserSubscriptions.multireddits.isEmpty()) {
+                Intent i = new Intent(MultiredditOverview.this, CreateMulti.class);
+                i.putExtra(
+                        CreateMulti.EXTRA_MULTI,
+                        UserSubscriptions.multireddits
+                                .get(pager.getCurrentItem())
+                                .getDisplayName());
+                startActivity(i);
+            }
+            return true;
+        } else if (itemId == R.id.search) {
                 {
                     UserSubscriptions.MultiCallback m =
                             new UserSubscriptions.MultiCallback() {
@@ -187,25 +179,17 @@ public class MultiredditOverview extends BaseActivityAnim {
                                 public void onComplete(List<MultiReddit> multireddits) {
                                     if ((multireddits != null) && !multireddits.isEmpty()) {
                                         searchMulti = multireddits.get(pager.getCurrentItem());
-                                        MaterialDialog.Builder builder =
-                                                new MaterialDialog.Builder(MultiredditOverview.this)
+                                        MaterialInputDialog.Builder builder =
+                                                new MaterialInputDialog.Builder(
+                                                                MultiredditOverview.this)
                                                         .title(R.string.search_title)
-                                                        .alwaysCallInputCallback()
                                                         .input(
                                                                 getString(R.string.search_msg),
                                                                 "",
-                                                                new MaterialDialog.InputCallback() {
-                                                                    @Override
-                                                                    public void onInput(
-                                                                            MaterialDialog
-                                                                                    materialDialog,
-                                                                            CharSequence
-                                                                                    charSequence) {
+                                                                (dialog, charSequence) ->
                                                                         term =
                                                                                 charSequence
-                                                                                        .toString();
-                                                                    }
-                                                                });
+                                                                                        .toString());
 
                                         // Add "search current sub" if it is not
                                         // frontpage/all/random
@@ -216,27 +200,16 @@ public class MultiredditOverview extends BaseActivityAnim {
                                                                         + searchMulti
                                                                                 .getDisplayName()))
                                                 .onPositive(
-                                                        new MaterialDialog.SingleButtonCallback() {
-                                                            @Override
-                                                            public void onClick(
-                                                                    @NonNull
-                                                                            MaterialDialog
-                                                                                    materialDialog,
-                                                                    @NonNull
-                                                                            DialogAction
-                                                                                    dialogAction) {
-                                                                Intent i =
-                                                                        new Intent(
-                                                                                MultiredditOverview
-                                                                                        .this,
-                                                                                Search.class);
-                                                                i.putExtra(Search.EXTRA_TERM, term);
-                                                                i.putExtra(
-                                                                        Search.EXTRA_MULTIREDDIT,
-                                                                        searchMulti
-                                                                                .getDisplayName());
-                                                                startActivity(i);
-                                                            }
+                                                        dialog -> {
+                                                            Intent i =
+                                                                    new Intent(
+                                                                            MultiredditOverview.this,
+                                                                            Search.class);
+                                                            i.putExtra(Search.EXTRA_TERM, term);
+                                                            i.putExtra(
+                                                                    Search.EXTRA_MULTIREDDIT,
+                                                                    searchMulti.getDisplayName());
+                                                            startActivity(i);
                                                         });
 
                                         builder.show();
@@ -250,43 +223,42 @@ public class MultiredditOverview extends BaseActivityAnim {
                         UserSubscriptions.getPublicMultireddits(m, profile);
                     }
                 }
-                return true;
-            case R.id.create:
-                if (profile.isEmpty()) {
-                    Intent i2 = new Intent(MultiredditOverview.this, CreateMulti.class);
-                    startActivity(i2);
-                }
-                return true;
-            case R.id.action_sort:
-                openPopup();
-                return true;
-
-            case R.id.subs:
-                ((DrawerLayout) findViewById(R.id.drawer_layout)).openDrawer(Gravity.RIGHT);
-                return true;
-            case R.id.gallery:
-                if (currentFragment != null && posts != null && !posts.isEmpty()) {
-                    Intent i2 = new Intent(this, Gallery.class);
-                    i2.putExtra(Gallery.EXTRA_PROFILE, profile);
-                    i2.putExtra(
-                            Gallery.EXTRA_MULTIREDDIT,
-                            currentFragment.posts.multiReddit.getDisplayName());
-                    startActivity(i2);
-                }
-                return true;
-            case R.id.action_shadowbox:
-                if (currentFragment != null && posts != null && !posts.isEmpty()) {
-                    Intent i = new Intent(this, Shadowbox.class);
-                    i.putExtra(Shadowbox.EXTRA_PAGE, getCurrentPage());
-                    i.putExtra(Shadowbox.EXTRA_PROFILE, profile);
-                    i.putExtra(
-                            Shadowbox.EXTRA_MULTIREDDIT,
-                            currentFragment.posts.multiReddit.getDisplayName());
-                    startActivity(i);
-                }
-                return true;
-            default:
-                return false;
+            return true;
+        } else if (itemId == R.id.create) {
+            if (profile.isEmpty()) {
+                Intent i2 = new Intent(MultiredditOverview.this, CreateMulti.class);
+                startActivity(i2);
+            }
+            return true;
+        } else if (itemId == R.id.action_sort) {
+            openPopup();
+            return true;
+        } else if (itemId == R.id.subs) {
+            ((DrawerLayout) findViewById(R.id.drawer_layout)).openDrawer(Gravity.RIGHT);
+            return true;
+        } else if (itemId == R.id.gallery) {
+            if (currentFragment != null && posts != null && !posts.isEmpty()) {
+                Intent i2 = new Intent(this, Gallery.class);
+                i2.putExtra(Gallery.EXTRA_PROFILE, profile);
+                i2.putExtra(
+                        Gallery.EXTRA_MULTIREDDIT,
+                        currentFragment.posts.multiReddit.getDisplayName());
+                startActivity(i2);
+            }
+            return true;
+        } else if (itemId == R.id.action_shadowbox) {
+            if (currentFragment != null && posts != null && !posts.isEmpty()) {
+                Intent i = new Intent(this, Shadowbox.class);
+                i.putExtra(Shadowbox.EXTRA_PAGE, getCurrentPage());
+                i.putExtra(Shadowbox.EXTRA_PROFILE, profile);
+                i.putExtra(
+                        Shadowbox.EXTRA_MULTIREDDIT,
+                        currentFragment.posts.multiReddit.getDisplayName());
+                startActivity(i);
+            }
+            return true;
+        } else {
+            return false;
         }
     }
 
@@ -320,7 +292,9 @@ public class MultiredditOverview extends BaseActivityAnim {
                         .setMessage(R.string.public_multireddit_err_msg)
                         .setNegativeButton(R.string.btn_go_back, (dialog, which) -> finish());
             }
-            b.show();
+            final AlertDialog multiDialog = b.create();
+            DialogUtil.matchDialogToCardBackground(MultiredditOverview.this, multiDialog);
+            multiDialog.show();
         } catch (Exception e) {
 
         }
@@ -650,16 +624,14 @@ public class MultiredditOverview extends BaseActivityAnim {
                         new ColorPreferences(MultiredditOverview.this)
                                 .getColor(usedArray.get(0).getDisplayName()));
                 doDrawerSubs(0);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    Window window = this.getWindow();
-                    int color = Palette.getDarkerColor(usedArray.get(0).getDisplayName());
+                Window window = this.getWindow();
+                int color = Palette.getDarkerColor(usedArray.get(0).getDisplayName());
 
-                    if (SettingValues.alwaysBlackStatusbar) {
-                        color = Color.BLACK;
-                    }
-
-                    window.setStatusBarColor(color);
+                if (SettingValues.alwaysBlackStatusbar) {
+                    color = Color.BLACK;
                 }
+
+                window.setStatusBarColor(color);
                 final View header = findViewById(R.id.header);
                 tabs.addOnTabSelectedListener(
                         new TabLayout.ViewPagerOnTabSelectedListener(pager) {
@@ -755,18 +727,16 @@ public class MultiredditOverview extends BaseActivityAnim {
                                     .setBackgroundColor(
                                             Palette.getColor(
                                                     usedArray.get(position).getDisplayName()));
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                                Window window = getWindow();
-                                int color =
-                                        Palette.getDarkerColor(
-                                                usedArray.get(position).getDisplayName());
+                            Window window = getWindow();
+                            int color =
+                                    Palette.getDarkerColor(
+                                            usedArray.get(position).getDisplayName());
 
-                                if (SettingValues.alwaysBlackStatusbar) {
-                                    color = Color.BLACK;
-                                }
-
-                                window.setStatusBarColor(color);
+                            if (SettingValues.alwaysBlackStatusbar) {
+                                color = Color.BLACK;
                             }
+
+                            window.setStatusBarColor(color);
                             tabs.setSelectedTabIndicatorColor(
                                     new ColorPreferences(MultiredditOverview.this)
                                             .getColor(usedArray.get(position).getDisplayName()));

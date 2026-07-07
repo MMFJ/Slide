@@ -2,7 +2,6 @@ package me.edgan.redditslide.Activities;
 
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -10,7 +9,6 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
-import android.webkit.CookieSyncManager;
 import android.webkit.DownloadListener;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -19,11 +17,14 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
-
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.widget.Toolbar;
 import androidx.webkit.WebViewClientCompat;
-
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.Fragments.SubmissionsView;
 import me.edgan.redditslide.OpenRedditLink;
@@ -37,12 +38,6 @@ import me.edgan.redditslide.util.AdBlocker;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
-
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
 
 public class Website extends BaseActivityAnim {
 
@@ -100,75 +95,75 @@ public class Website extends BaseActivityAnim {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case android.R.id.home:
+        int itemId = item.getItemId();
+        if (itemId == android.R.id.home) {
+            finish();
+            return true;
+        } else if (itemId == R.id.refresh) {
+            v.reload();
+            return true;
+        } else if (itemId == R.id.back) {
+            v.goBack();
+            return true;
+        } else if (itemId == R.id.comments) {
+            if (getIntent().getExtras() == null) {
+                return true;
+            }
+            final int commentUrl = getIntent().getExtras().getInt(LinkUtil.ADAPTER_POSITION);
+            String submissionPermalink = getIntent().getStringExtra(MediaView.SUBMISSION_URL);
+            boolean openCommentsDirect =
+                    getIntent().getBooleanExtra(MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
+            if (openCommentsDirect && submissionPermalink != null) {
+                OpenRedditLink.openUrl(this, "https://reddit.com" + submissionPermalink, false);
                 finish();
-                return true;
-            case R.id.refresh:
-                v.reload();
-                return true;
-            case R.id.back:
-                v.goBack();
-                return true;
-            case R.id.comments:
-                final int commentUrl = getIntent().getExtras().getInt(LinkUtil.ADAPTER_POSITION);
-                String submissionPermalink =
-                        getIntent().getStringExtra(MediaView.SUBMISSION_URL);
-                boolean openCommentsDirect =
-                        getIntent()
-                                .getBooleanExtra(MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
-                if (openCommentsDirect && submissionPermalink != null) {
-                    OpenRedditLink.openUrl(
-                            this, "https://reddit.com" + submissionPermalink, false);
-                    finish();
-                } else {
-                    finish();
-                    SubmissionsView.datachanged(commentUrl);
-                }
-                break;
-            case R.id.external:
-                Intent inte = new Intent(this, MakeExternal.class);
-                inte.putExtra("url", url);
-                startActivity(inte);
-                return true;
-            case R.id.store_cookies:
-                SettingValues.prefs
-                        .edit()
-                        .putBoolean(SettingValues.PREF_COOKIES, !SettingValues.cookies)
-                        .apply();
-                SettingValues.cookies = !SettingValues.cookies;
+            } else {
                 finish();
-                overridePendingTransition(0, 0);
-                startActivity(getIntent());
-                overridePendingTransition(0, 0);
-                return true;
-            case R.id.read:
-                v.evaluateJavascript(
-                        "(function(){return \"<html>\" + document.documentElement.innerHTML +"
-                                + " \"</html>\";})();",
-                        new ValueCallback<String>() {
-                            @Override
-                            public void onReceiveValue(String html) {
-                                Intent i = new Intent(Website.this, ReaderMode.class);
-                                if (html != null && !html.isEmpty()) {
-                                    ReaderMode.html = html;
-                                    LogUtil.v(html);
-                                } else {
-                                    ReaderMode.html = "";
-                                    i.putExtra("url", v.getUrl());
-                                }
-                                i.putExtra(LinkUtil.EXTRA_COLOR, subredditColor);
-                                startActivity(i);
+                SubmissionsView.datachanged(commentUrl);
+            }
+            return true;
+        } else if (itemId == R.id.external) {
+            Intent inte = new Intent(this, MakeExternal.class);
+            inte.putExtra("url", url);
+            startActivity(inte);
+            return true;
+        } else if (itemId == R.id.store_cookies) {
+            SettingValues.prefs
+                    .edit()
+                    .putBoolean(SettingValues.PREF_COOKIES, !SettingValues.cookies)
+                    .apply();
+            SettingValues.cookies = !SettingValues.cookies;
+            finish();
+            overridePendingTransition(0, 0);
+            startActivity(getIntent());
+            overridePendingTransition(0, 0);
+            return true;
+        } else if (itemId == R.id.read) {
+            v.evaluateJavascript(
+                    "(function(){return \"<html>\" + document.documentElement.innerHTML +"
+                            + " \"</html>\";})();",
+                    new ValueCallback<String>() {
+                        @Override
+                        public void onReceiveValue(String html) {
+                            Intent i = new Intent(Website.this, ReaderMode.class);
+                            if (html != null && !html.isEmpty()) {
+                                ReaderMode.html = html;
+                                LogUtil.v(html);
+                            } else {
+                                ReaderMode.html = "";
+                                i.putExtra("url", v.getUrl());
                             }
-                        });
-                return true;
-            case R.id.chrome:
-                LinkUtil.openExternally(v.getUrl());
-                return true;
-            case R.id.share:
-                Reddit.defaultShareText(v.getTitle(), v.getUrl(), Website.this);
+                            i.putExtra(LinkUtil.EXTRA_COLOR, subredditColor);
+                            startActivity(i);
+                        }
+                    });
+            return true;
+        } else if (itemId == R.id.chrome) {
+            LinkUtil.openExternally(v.getUrl());
+            return true;
+        } else if (itemId == R.id.share) {
+            Reddit.defaultShareText(v.getTitle(), v.getUrl(), Website.this);
 
-                return true;
+            return true;
         }
         return false;
     }
@@ -189,9 +184,13 @@ public class Website extends BaseActivityAnim {
         setContentView(R.layout.activity_web);
         MiscUtil.setupOldSwipeModeBackground(this, getWindow().getDecorView());
 
-        url = getIntent().getExtras().getString(LinkUtil.EXTRA_URL, "");
-        subredditColor =
-                getIntent().getExtras().getInt(LinkUtil.EXTRA_COLOR, Palette.getDefaultColor());
+        Bundle extras = getIntent().getExtras();
+        if (extras == null) {
+            finish();
+            return;
+        }
+        url = extras.getString(LinkUtil.EXTRA_URL, "");
+        subredditColor = extras.getInt(LinkUtil.EXTRA_COLOR, Palette.getDefaultColor());
 
         setSupportActionBar((Toolbar) findViewById(R.id.toolbar));
         setupAppBar(R.id.toolbar, "", true, subredditColor, R.id.appbar);
@@ -205,17 +204,8 @@ public class Website extends BaseActivityAnim {
 
         if (!SettingValues.cookies) {
             final CookieManager cookieManager = CookieManager.getInstance();
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                cookieManager.removeAllCookies(null);
-                cookieManager.flush();
-            } else {
-                final CookieSyncManager cookieSyncMngr = CookieSyncManager.createInstance(this);
-                cookieSyncMngr.startSync();
-                cookieManager.removeAllCookie();
-                cookieManager.removeSessionCookie();
-                cookieSyncMngr.stopSync();
-                cookieSyncMngr.sync();
-            }
+            cookieManager.removeAllCookies(null);
+            cookieManager.flush();
             cookieManager.setAcceptCookie(false);
 
             WebSettings ws = v.getSettings();

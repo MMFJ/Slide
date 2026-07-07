@@ -1,18 +1,18 @@
 package me.edgan.redditslide.Activities;
 
 import android.app.Dialog;
-import android.content.Context;
 import android.content.Intent;
+import android.content.res.Resources;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
+import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -20,33 +20,32 @@ import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.SwitchCompat;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-
-
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Drafts;
 import me.edgan.redditslide.Flair.RichFlair;
-import me.edgan.redditslide.ImgurAlbum.UploadImgur;
-import me.edgan.redditslide.ImgurAlbum.UploadImgurAlbum;
 import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
@@ -55,38 +54,36 @@ import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.Views.CommentOverflow;
 import me.edgan.redditslide.Views.DoEditorActions;
 import me.edgan.redditslide.Views.ImageInsertEditText;
-import me.edgan.redditslide.util.HttpUtil;
+import me.edgan.redditslide.Visuals.ColorPreferences;
+import me.edgan.redditslide.util.DialogUtil;
+import me.edgan.redditslide.util.FlairUtil;
 import me.edgan.redditslide.util.KeyboardUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialProgressDialog;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.SubmissionParser;
 import me.edgan.redditslide.util.TitleExtractor;
 import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
-
 import net.dean.jraw.ApiException;
 import net.dean.jraw.http.HttpRequest;
 import net.dean.jraw.http.RestResponse;
 import net.dean.jraw.managers.AccountManager;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.Subreddit;
-
 import okhttp3.OkHttpClient;
-import okhttp3.Request;
-
-import org.json.JSONObject;
-
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
 
 /** Created by ccrama on 3/5/2015. */
 public class Submit extends BaseActivity {
 
     private boolean sent;
     private String trying;
-    private String URL;
+    // The locally-picked image for an image post. The upload to Reddit/Imgur is deferred until
+    // submit, so this holds the content Uri in the meantime.
+    private Uri selectedImageUri;
+    // The locally-picked images for a Reddit gallery post; uploaded at submit time.
+    private final java.util.ArrayList<Uri> selectedGalleryUris = new java.util.ArrayList<>();
+    // Caption EditTexts, one per gallery image, aligned with selectedGalleryUris.
+    private final java.util.ArrayList<EditText> galleryCaptionFields = new java.util.ArrayList<>();
     private String selectedFlairID;
     private String selectedFlairText;
     private boolean isFlairRequired = false;
@@ -94,6 +91,7 @@ public class Submit extends BaseActivity {
     private View image;
     private View link;
     private View self;
+    private View gallery;
     public static final String EXTRA_SUBREDDIT = "subreddit";
     public static final String EXTRA_BODY = "body";
     public static final String EXTRA_IS_SELF = "is_self";
@@ -109,6 +107,8 @@ public class Submit extends BaseActivity {
     private Gson gson;
     private ActivityResultLauncher<PickVisualMediaRequest> submitImageLauncher;
     private ActivityResultLauncher<PickVisualMediaRequest> editorImageLauncher;
+    private ActivityResultLauncher<PickVisualMediaRequest> galleryImageLauncher;
+    private MaterialProgressDialog galleryProgress;
 
     @Override
     public void onDestroy() {
@@ -160,16 +160,22 @@ public class Submit extends BaseActivity {
                                 DoEditorActions.currentImageTarget = null;
                             }
                         });
+        galleryImageLauncher =
+                registerForActivityResult(
+                        new ActivityResultContracts.PickMultipleVisualMedia(20),
+                        uris -> {
+                            if (uris != null && !uris.isEmpty()) {
+                                onGalleryPicked(uris);
+                            }
+                        });
 
         applyColorTheme();
         setContentView(R.layout.activity_submit);
         MiscUtil.setupOldSwipeModeBackground(this, getWindow().getDecorView());
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            Window window = this.getWindow();
-            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
-            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-        }
+        Window window = this.getWindow();
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
 
         setupAppBar(R.id.toolbar, R.string.title_submit_post, true, true);
 
@@ -184,9 +190,11 @@ public class Submit extends BaseActivity {
                 ((AutoCompleteTextView) findViewById(R.id.subreddittext));
         image = findViewById(R.id.image);
         link = findViewById(R.id.url);
+        gallery = findViewById(R.id.gallery);
 
         image.setVisibility(View.GONE);
         link.setVisibility(View.GONE);
+        gallery.setVisibility(View.GONE);
 
         if (subreddit != null
                 && !subreddit.equals("frontpage")
@@ -260,6 +268,8 @@ public class Submit extends BaseActivity {
 
                                 image.setVisibility(View.GONE);
                                 link.setVisibility(View.GONE);
+                                gallery.setVisibility(View.GONE);
+                                updateSubmitEnabled();
                             }
                         });
         findViewById(R.id.imageradio)
@@ -270,6 +280,20 @@ public class Submit extends BaseActivity {
                                 self.setVisibility(View.GONE);
                                 image.setVisibility(View.VISIBLE);
                                 link.setVisibility(View.GONE);
+                                gallery.setVisibility(View.GONE);
+                                updateSubmitEnabled();
+                            }
+                        });
+        findViewById(R.id.galleryradio)
+                .setOnClickListener(
+                        new View.OnClickListener() {
+                            @Override
+                            public void onClick(View view) {
+                                self.setVisibility(View.GONE);
+                                image.setVisibility(View.GONE);
+                                link.setVisibility(View.GONE);
+                                gallery.setVisibility(View.VISIBLE);
+                                updateSubmitEnabled();
                             }
                         });
         findViewById(R.id.linkradio)
@@ -280,8 +304,19 @@ public class Submit extends BaseActivity {
                                 self.setVisibility(View.GONE);
                                 image.setVisibility(View.GONE);
                                 link.setVisibility(View.VISIBLE);
+                                gallery.setVisibility(View.GONE);
+                                updateSubmitEnabled();
                             }
                         });
+        findViewById(R.id.selGallery)
+                .setOnClickListener(
+                        v ->
+                                galleryImageLauncher.launch(
+                                        new PickVisualMediaRequest.Builder()
+                                                .setMediaType(
+                                                        ActivityResultContracts.PickVisualMedia
+                                                                .ImageOnly.INSTANCE)
+                                                .build()));
         findViewById(R.id.flair)
                 .setOnClickListener(
                         new View.OnClickListener() {
@@ -312,11 +347,12 @@ public class Submit extends BaseActivity {
                                     @Override
                                     protected void onPreExecute() {
                                         d =
-                                                new MaterialDialog.Builder(Submit.this)
+                                                new MaterialProgressDialog.Builder(Submit.this)
                                                         .progress(true, 100)
                                                         .title(R.string.editor_finding_title)
                                                         .content(R.string.misc_please_wait)
-                                                        .show();
+                                                        .show()
+                                                        .getDialog();
                                     }
 
                                     @Override
@@ -326,10 +362,10 @@ public class Submit extends BaseActivity {
                                             d.dismiss();
                                         } else {
                                             d.dismiss();
-                                            new AlertDialog.Builder(Submit.this)
+                                            DialogUtil.showWithCardBackground(new AlertDialog.Builder(Submit.this)
                                                     .setTitle(R.string.title_not_found)
                                                     .setPositiveButton(R.string.btn_ok, null)
-                                                    .show();
+                                                    );
                                         }
                                     }
                                 }.execute(
@@ -392,6 +428,7 @@ public class Submit extends BaseActivity {
             String data = intent.getStringExtra(Intent.EXTRA_SUBJECT);
             ((EditText) findViewById(R.id.titletext)).setText(data);
         }
+        updateSubmitEnabled();
         findViewById(R.id.send)
                 .setOnClickListener(
                         new View.OnClickListener() {
@@ -411,21 +448,6 @@ public class Submit extends BaseActivity {
                         });
     }
 
-    private void setImage(final String URL) {
-        this.URL = URL;
-
-        runOnUiThread(
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        findViewById(R.id.imagepost).setVisibility(View.VISIBLE);
-                        ((Reddit) getApplication())
-                                .getImageLoader()
-                                .displayImage(URL, ((ImageView) findViewById(R.id.imagepost)));
-                    }
-                });
-    }
-
     private void showFlairChooser() {
         client = Reddit.client;
         gson = new Gson();
@@ -433,36 +455,20 @@ public class Submit extends BaseActivity {
         String subreddit = ((EditText) findViewById(R.id.subreddittext)).getText().toString();
 
         final Dialog d =
-                new MaterialDialog.Builder(Submit.this)
+                new MaterialProgressDialog.Builder(Submit.this)
                         .title(R.string.submit_findingflairs)
                         .cancelable(true)
                         .content(R.string.misc_please_wait)
                         .progress(true, 100)
-                        .show();
+                        .show()
+                        .getDialog();
         new AsyncTask<Void, Void, JsonArray>() {
             ArrayList<JsonObject> flairs;
 
             @Override
             protected JsonArray doInBackground(Void... params) {
                 flairs = new ArrayList<>();
-                HttpRequest r =
-                        Authentication.reddit
-                                .request()
-                                .path("/r/" + subreddit + "/api/link_flair_v2.json")
-                                .get()
-                                .build();
-
-                Request request =
-                        new Request.Builder()
-                                .headers(
-                                        r.getHeaders()
-                                                .newBuilder()
-                                                .set("User-Agent", "Slide flair search")
-                                                .build())
-                                .url(r.getUrl())
-                                .build();
-
-                return HttpUtil.getJsonArray(client, gson, request);
+                return FlairUtil.fetchLinkFlairs(client, gson, subreddit);
             }
 
             @Override
@@ -487,22 +493,20 @@ public class Submit extends BaseActivity {
 
                         ArrayList<String> allKeys = new ArrayList<>(flairs.keySet());
 
-                        new MaterialDialog.Builder(Submit.this)
-                                .title(getString(R.string.submit_flairchoices, subreddit))
-                                .items(allKeys)
-                                .itemsCallback(
-                                        new MaterialDialog.ListCallback() {
-                                            @Override
-                                            public void onSelection(
-                                                    MaterialDialog dialog,
-                                                    View itemView,
-                                                    int which,
-                                                    CharSequence text) {
-                                                RichFlair selected = flairs.get(allKeys.get(which));
-                                                selectedFlairID = selected.getId();
-                                                selectedFlairText = selected.getText();
-                                                refreshFlairState();
-                                            }
+                        new MaterialAlertDialogBuilder(
+                                        new ContextThemeWrapper(
+                                                Submit.this,
+                                                new ColorPreferences(Submit.this)
+                                                        .getFontStyle()
+                                                        .getBaseId()))
+                                .setTitle(getString(R.string.submit_flairchoices, subreddit))
+                                .setItems(
+                                        allKeys.toArray(new CharSequence[0]),
+                                        (dialog, which) -> {
+                                            RichFlair selected = flairs.get(allKeys.get(which));
+                                            selectedFlairID = selected.getId();
+                                            selectedFlairText = selected.getText();
+                                            refreshFlairState();
                                         })
                                 .show();
                     } catch (Exception e) {
@@ -568,11 +572,11 @@ public class Submit extends BaseActivity {
                             if (s.getSubredditType().equals("RESTRICTED")) {
                                 subredditText.setText("");
                                 lastCheckedSubreddit = "";
-                                new AlertDialog.Builder(Submit.this)
+                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(Submit.this)
                                         .setTitle(R.string.err_submit_restricted)
                                         .setMessage(R.string.err_submit_restricted_text)
                                         .setPositiveButton(R.string.btn_ok, null)
-                                        .show();
+                                        );
                                 return;
                             }
                             fetchFlairRequirement(subreddit);
@@ -694,20 +698,157 @@ public class Submit extends BaseActivity {
     }
 
     public void handleImageIntent(List<Uri> uris) {
-        if (uris.size() == 1) {
-            // Get the Image from data (single image)
-            try {
-                new UploadImgurSubmit(this, uris.get(0));
-            } catch (Exception e) {
-                LogUtil.e(e, "Submit.handleImageIntent failed");
+        if (uris.isEmpty()) {
+            return;
+        }
+        // Just select the image; the actual upload (to Reddit or Imgur) is deferred until submit.
+        selectedImageUri = uris.get(0);
+
+        ImageView preview = (ImageView) findViewById(R.id.imagepost);
+        preview.setVisibility(View.VISIBLE);
+        preview.setImageURI(selectedImageUri);
+
+        ((TextView) findViewById(R.id.selImage)).setText(R.string.submit_change_img);
+
+        updateSubmitEnabled();
+    }
+
+    private static final int MAX_GALLERY_IMAGES = 20;
+
+    /**
+     * Appends the newly picked gallery images (one, a batch, or all at once) to the existing
+     * selection, preserving captions already typed. Duplicates are ignored and the total is capped
+     * at Reddit's gallery maximum.
+     */
+    private void onGalleryPicked(List<Uri> uris) {
+        for (Uri uri : uris) {
+            if (selectedGalleryUris.size() >= MAX_GALLERY_IMAGES) {
+                break;
             }
+            if (selectedGalleryUris.contains(uri)) {
+                continue;
+            }
+            addGalleryRow(uri);
+        }
+        updateGalleryCount();
+        updateSubmitEnabled();
+    }
+
+    /** Adds one thumbnail + caption + remove row for a gallery image. */
+    private void addGalleryRow(Uri uri) {
+        LinearLayout items = (LinearLayout) findViewById(R.id.galleryItems);
+        float density = Resources.getSystem().getDisplayMetrics().density;
+        int size = (int) (64 * density);
+        int margin = (int) (8 * density);
+        int fontColor = resolveColorAttr(R.attr.fontColor);
+
+        final LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rowLp =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        rowLp.setMargins(0, margin / 2, 0, margin / 2);
+        row.setLayoutParams(rowLp);
+
+        ImageView iv = new ImageView(this);
+        LinearLayout.LayoutParams ivLp = new LinearLayout.LayoutParams(size, size);
+        ivLp.setMargins(0, 0, margin, 0);
+        iv.setLayoutParams(ivLp);
+        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        iv.setImageURI(uri);
+        row.addView(iv);
+
+        final EditText caption = new EditText(this);
+        LinearLayout.LayoutParams capLp =
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        caption.setLayoutParams(capLp);
+        caption.setHint(R.string.submit_gallery_caption_hint);
+        caption.setMaxLines(2);
+        caption.setFilters(
+                new android.text.InputFilter[] {new android.text.InputFilter.LengthFilter(180)});
+        caption.setTextColor(fontColor);
+        row.addView(caption);
+
+        TextView remove = new TextView(this);
+        remove.setText("✕");
+        remove.setTextColor(fontColor);
+        remove.setTextSize(18);
+        remove.setPadding(margin, margin, margin, margin);
+        android.util.TypedValue bg = new android.util.TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, bg, true);
+        remove.setBackgroundResource(bg.resourceId);
+        row.addView(remove);
+
+        selectedGalleryUris.add(uri);
+        galleryCaptionFields.add(caption);
+        items.addView(row);
+
+        remove.setOnClickListener(
+                v -> {
+                    int idx = galleryCaptionFields.indexOf(caption);
+                    if (idx >= 0) {
+                        selectedGalleryUris.remove(idx);
+                        galleryCaptionFields.remove(idx);
+                    }
+                    items.removeView(row);
+                    updateGalleryCount();
+                    updateSubmitEnabled();
+                });
+    }
+
+    private void updateGalleryCount() {
+        TextView count = (TextView) findViewById(R.id.galleryCount);
+        if (selectedGalleryUris.isEmpty()) {
+            count.setVisibility(View.GONE);
         } else {
-            // Multiple images
-            try {
-                new UploadImgurAlbumSubmit(this, uris.toArray(new Uri[0]));
-            } catch (Exception e) {
-                LogUtil.e(e, "Submit.handleImageIntent failed");
-            }
+            count.setVisibility(View.VISIBLE);
+            count.setText(getString(R.string.submit_gallery_count, selectedGalleryUris.size()));
+        }
+    }
+
+    private int resolveColorAttr(int attr) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        getTheme().resolveAttribute(attr, tv, true);
+        return tv.data;
+    }
+
+    /**
+     * For an image/gallery post the submit button stays disabled until image(s) are picked, so the
+     * user can't submit an empty post.
+     */
+    private void updateSubmitEnabled() {
+        FloatingActionButton send = (FloatingActionButton) findViewById(R.id.send);
+        if (send == null) {
+            return;
+        }
+        boolean enabled = true;
+        if (image.getVisibility() == View.VISIBLE) {
+            enabled = selectedImageUri != null;
+        } else if (gallery.getVisibility() == View.VISIBLE) {
+            // Reddit galleries require at least two images.
+            enabled = selectedGalleryUris.size() >= 2;
+        }
+        send.setEnabled(enabled);
+        send.setAlpha(enabled ? 1f : 0.5f);
+    }
+
+    private void showGalleryProgress(String message) {
+        if (galleryProgress == null) {
+            galleryProgress =
+                    new MaterialProgressDialog.Builder(this)
+                            .progress(true, 0)
+                            .cancelable(false)
+                            .build();
+        }
+        galleryProgress.setTitle(message);
+        galleryProgress.show();
+    }
+
+    private void dismissGalleryProgress() {
+        if (galleryProgress != null) {
+            galleryProgress.dismiss();
         }
     }
 
@@ -718,18 +859,35 @@ public class Submit extends BaseActivity {
         private boolean selfVisible;
         private boolean linkVisible;
         private boolean imageVisible;
+        private boolean galleryVisible;
         private String bodyText;
         private String subredditText;
         private String titleText;
         private String urlText;
         private boolean sendReplies;
+        private boolean imageReddit;
+        private Uri imageUri;
+        private java.util.ArrayList<Uri> galleryUris;
+        private java.util.ArrayList<String> galleryCaptions;
+        private java.util.List<me.edgan.redditslide.markdown.UploadedImage> uploadedImages;
 
         @Override
         protected void onPreExecute() {
             selfVisible = self.getVisibility() == View.VISIBLE;
             linkVisible = link.getVisibility() == View.VISIBLE;
             imageVisible = image.getVisibility() == View.VISIBLE;
+            galleryVisible = gallery.getVisibility() == View.VISIBLE;
+            imageReddit = ((RadioButton) findViewById(R.id.imageHostReddit)).isChecked();
+            imageUri = selectedImageUri;
+            galleryUris = new java.util.ArrayList<>(selectedGalleryUris);
+            galleryCaptions = new java.util.ArrayList<>();
+            for (EditText field : galleryCaptionFields) {
+                galleryCaptions.add(field.getText().toString().trim());
+            }
             bodyText = ((EditText) findViewById(R.id.bodytext)).getText().toString();
+            uploadedImages =
+                    me.edgan.redditslide.util.RedditImageUploads.consume(
+                            (EditText) findViewById(R.id.bodytext));
             subredditText =
                     ((AutoCompleteTextView) findViewById(R.id.subreddittext))
                             .getText()
@@ -744,6 +902,44 @@ public class Submit extends BaseActivity {
             try {
                 if (selfVisible) {
                     final String text = bodyText;
+
+                    if (uploadedImages != null && !uploadedImages.isEmpty()) {
+                        // Inline Reddit images require submitting selftext as richtext_json,
+                        // which JRAW's submit() cannot do.
+                        try {
+                            String fullName =
+                                    me.edgan.redditslide.util.RichtextSubmission.submitSelf(
+                                            Authentication.reddit,
+                                            subredditText,
+                                            titleText,
+                                            bodyText,
+                                            uploadedImages,
+                                            sendReplies,
+                                            selectedFlairID);
+                            OpenRedditLink.openUrl(
+                                    Submit.this,
+                                    "reddit.com/r/"
+                                            + subredditText
+                                            + "/comments/"
+                                            + fullName.substring(3),
+                                    true);
+                            Submit.this.finish();
+                        } catch (final Exception e) {
+                            Drafts.addDraft(text);
+                            LogUtil.e(e, "Submit richtext self failed");
+                            runOnUiThread(
+                                    () ->
+                                            showErrorRetryDialog(
+                                                    getString(R.string.misc_err)
+                                                            + ": "
+                                                            + e.getMessage()
+                                                            + "\n"
+                                                            + getString(
+                                                                    R.string.misc_retry_draft)));
+                        }
+                        return null;
+                    }
+
                     try {
                         AccountManager.SubmissionBuilder builder =
                                 new AccountManager.SubmissionBuilder(
@@ -831,13 +1027,50 @@ public class Submit extends BaseActivity {
                                     }
                                 });
                     }
+                } else if (imageVisible && imageReddit) {
+                    // Upload to Reddit's media bucket, then submit a native image post
+                    // (kind=image) pointing at the uploaded media URL.
+                    try {
+                        String mediaUrl =
+                                me.edgan.redditslide.util.RedditMediaUpload.uploadForPostUrl(
+                                        Submit.this, imageUri);
+                        String permalink =
+                                me.edgan.redditslide.util.RichtextSubmission.submitImage(
+                                        Authentication.reddit,
+                                        subredditText,
+                                        titleText,
+                                        mediaUrl,
+                                        sendReplies,
+                                        selectedFlairID);
+                        OpenRedditLink.openUrl(
+                                Submit.this,
+                                permalink != null
+                                        ? permalink
+                                        : "reddit.com/r/" + subredditText,
+                                true);
+                        Submit.this.finish();
+                    } catch (final Exception e) {
+                        LogUtil.e(e, "Submit reddit image failed");
+                        runOnUiThread(
+                                () ->
+                                        showErrorRetryDialog(
+                                                getString(R.string.misc_err)
+                                                        + ": "
+                                                        + e.getMessage()
+                                                        + "\n"
+                                                        + getString(R.string.misc_retry)));
+                    }
                 } else if (imageVisible) {
                     try {
+                        // Upload to Imgur, then submit the resulting link as the post URL.
+                        String imgurUrl =
+                                me.edgan.redditslide.util.ImgurUtils.uploadSync(
+                                        Submit.this, imageUri);
                         Submission s =
                                 new AccountManager(Authentication.reddit)
                                         .submit(
                                                 new AccountManager.SubmissionBuilder(
-                                                        new URL(URL),
+                                                        new URL(imgurUrl),
                                                         subredditText,
                                                         titleText));
                         new AccountManager(Authentication.reddit)
@@ -874,6 +1107,53 @@ public class Submit extends BaseActivity {
                                     }
                                 });
                     }
+                } else if (galleryVisible) {
+                    // Upload every image to Reddit's media bucket, then submit a gallery post.
+                    try {
+                        java.util.ArrayList<String> assetIds = new java.util.ArrayList<>();
+                        for (int i = 0; i < galleryUris.size(); i++) {
+                            final int index = i + 1;
+                            final int total = galleryUris.size();
+                            runOnUiThread(
+                                    () ->
+                                            showGalleryProgress(
+                                                    getString(
+                                                            R.string.submit_uploading_gallery,
+                                                            index,
+                                                            total)));
+                            assetIds.add(
+                                    me.edgan.redditslide.util.RedditMediaUpload
+                                            .uploadForGalleryAssetId(
+                                                    Submit.this, galleryUris.get(i)));
+                        }
+                        String permalink =
+                                me.edgan.redditslide.util.RichtextSubmission.submitGallery(
+                                        Authentication.reddit,
+                                        subredditText,
+                                        titleText,
+                                        assetIds,
+                                        galleryCaptions,
+                                        sendReplies,
+                                        selectedFlairID);
+                        runOnUiThread(Submit.this::dismissGalleryProgress);
+                        OpenRedditLink.openUrl(
+                                Submit.this,
+                                permalink != null ? permalink : "reddit.com/r/" + subredditText,
+                                true);
+                        Submit.this.finish();
+                    } catch (final Exception e) {
+                        LogUtil.e(e, "Submit gallery failed");
+                        runOnUiThread(
+                                () -> {
+                                    dismissGalleryProgress();
+                                    showErrorRetryDialog(
+                                            getString(R.string.misc_err)
+                                                    + ": "
+                                                    + e.getMessage()
+                                                    + "\n"
+                                                    + getString(R.string.misc_retry));
+                                });
+                    }
                 }
             } catch (Exception e) {
                 LogUtil.e(e, "Submit.run failed");
@@ -890,125 +1170,8 @@ public class Submit extends BaseActivity {
         }
     }
 
-    private class UploadImgurSubmit extends UploadImgur {
-
-        private final Uri uri;
-
-        public UploadImgurSubmit(Context c, Uri u) {
-            this.c = c;
-            this.uri = u;
-
-            dialog =
-                    new MaterialDialog.Builder(c)
-                            .title(c.getString(R.string.editor_uploading_image))
-                            .progress(false, 100)
-                            .cancelable(false)
-                            .autoDismiss(false)
-                            .build();
-
-            new MaterialDialog.Builder(c)
-                    .title(c.getString(R.string.editor_upload_image_question))
-                    .cancelable(false)
-                    .autoDismiss(false)
-                    .positiveText(c.getString(R.string.btn_upload))
-                    .onPositive(
-                            new MaterialDialog.SingleButtonCallback() {
-                                @Override
-                                public void onClick(MaterialDialog d, DialogAction w) {
-                                    d.dismiss();
-                                    dialog.show();
-                                    execute(uri);
-                                }
-                            })
-                    .negativeText(c.getString(R.string.btn_cancel))
-                    .onNegative(
-                            new MaterialDialog.SingleButtonCallback() {
-                                @Override
-                                public void onClick(MaterialDialog d, DialogAction w) {
-                                    d.dismiss();
-                                }
-                            })
-                    .show();
-        }
-
-        @Override
-        protected void onPostExecute(final JSONObject result) {
-            dialog.dismiss();
-            try {
-                final String url = result.getJSONObject("data").getString("link");
-                setImage(url);
-
-            } catch (Exception e) {
-                new AlertDialog.Builder(c)
-                        .setTitle(R.string.err_title)
-                        .setMessage(R.string.editor_err_msg)
-                        .setPositiveButton(R.string.btn_ok, null)
-                        .show();
-                LogUtil.e(e, "Submit.onPostExecute failed");
-            }
-        }
-    }
-
-    private class UploadImgurAlbumSubmit extends UploadImgurAlbum {
-
-        private final Uri[] uris;
-
-        public UploadImgurAlbumSubmit(Context c, Uri... u) {
-            this.c = c;
-            this.uris = u;
-
-            dialog =
-                    new MaterialDialog.Builder(c)
-                            .title(c.getString(R.string.editor_uploading_image))
-                            .progress(false, 100)
-                            .cancelable(false)
-                            .build();
-
-            new MaterialDialog.Builder(c)
-                    .title(c.getString(R.string.editor_upload_image_question))
-                    .cancelable(false)
-                    .autoDismiss(false)
-                    .positiveText(c.getString(R.string.btn_upload))
-                    .onPositive(
-                            new MaterialDialog.SingleButtonCallback() {
-                                @Override
-                                public void onClick(MaterialDialog d, DialogAction w) {
-                                    d.dismiss();
-                                    dialog.show();
-                                    execute(uris);
-                                }
-                            })
-                    .negativeText(c.getString(R.string.btn_cancel))
-                    .onNegative(
-                            new MaterialDialog.SingleButtonCallback() {
-                                @Override
-                                public void onClick(MaterialDialog d, DialogAction w) {
-                                    d.dismiss();
-                                }
-                            })
-                    .show();
-        }
-
-        @Override
-        protected void onPostExecute(final String result) {
-            dialog.dismiss();
-            try {
-                ((RadioButton) findViewById(R.id.linkradio)).setChecked(true);
-                link.setVisibility(View.VISIBLE);
-                ((EditText) findViewById(R.id.urltext)).setText(finalUrl);
-            } catch (Exception e) {
-                new AlertDialog.Builder(c)
-                        .setTitle(R.string.err_title)
-                        .setMessage(R.string.editor_err_msg)
-                        .setPositiveButton(R.string.btn_ok, null)
-                        .show();
-                LogUtil.e(e, "Submit.onPostExecute failed");
-            }
-        }
-    }
-
     private void showErrorRetryDialog(String message) {
-        new AlertDialog.Builder(Submit.this)
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(Submit.this)
                 .setTitle(R.string.err_title)
                 .setMessage(message)
                 .setNegativeButton(R.string.btn_no, (dialogInterface, i) -> finish())
@@ -1018,7 +1181,6 @@ public class Submit extends BaseActivity {
                                 ((FloatingActionButton) findViewById(R.id.send)).show())
                 .setOnDismissListener(
                         dialog -> ((FloatingActionButton) findViewById(R.id.send)).show())
-                .create()
-                .show();
+                );
     }
 }

@@ -8,10 +8,10 @@ import android.view.View;
 import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.PopupMenu;
-
 import me.edgan.redditslide.Fragments.SubmissionsView;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.SortingUtil;
 import net.dean.jraw.paginators.Sorting;
@@ -244,10 +244,10 @@ public class SubredditSortController {
                         activity.reloadSubs();
                     }
                 };
-        new AlertDialog.Builder(activity) // Use activity context
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(activity) // Use activity context
                 .setTitle(R.string.sorting_choose)
                 .setSingleChoiceItems(
                         SortingUtil.getSortingTimesStrings(), SortingUtil.getSortingTimeId(""), l2)
-                .show();
+                );
     }
 }

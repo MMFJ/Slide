@@ -8,18 +8,15 @@ import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
 import androidx.viewpager.widget.ViewPager;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
-
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Autocache.AutoCacheScheduler;
 import me.edgan.redditslide.Fragments.BlankFragment;
@@ -32,9 +29,9 @@ import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SwipeLayout.Utils;
 import me.edgan.redditslide.UserSubscriptions;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
-
 import net.dean.jraw.models.Submission;
 
 /**
@@ -93,13 +90,18 @@ public class CommentsScreenSingle extends BaseActivityAnim {
         super.onCreate(savedInstance);
         applyColorTheme();
         setContentView(R.layout.activity_slide);
-        name = getIntent().getExtras().getString(EXTRA_SUBMISSION, "");
+        Bundle extras = getIntent().getExtras();
+        if (extras == null) {
+            finish();
+            return;
+        }
+        name = extras.getString(EXTRA_SUBMISSION, "");
 
-        subreddit = getIntent().getExtras().getString(EXTRA_SUBREDDIT, "");
-        np = getIntent().getExtras().getBoolean(EXTRA_NP, false);
-        context = getIntent().getExtras().getString(EXTRA_CONTEXT, "");
+        subreddit = extras.getString(EXTRA_SUBREDDIT, "");
+        np = extras.getBoolean(EXTRA_NP, false);
+        context = extras.getString(EXTRA_CONTEXT, "");
 
-        contextNumber = getIntent().getExtras().getInt(EXTRA_CONTEXT_NUMBER, 5);
+        contextNumber = extras.getInt(EXTRA_CONTEXT_NUMBER, 5);
 
         if (subreddit.equals(Reddit.EMPTY_STRING)) {
             new AsyncGetSubredditName().execute(name);
@@ -256,13 +258,13 @@ public class CommentsScreenSingle extends BaseActivityAnim {
                             new Runnable() {
                                 @Override
                                 public void run() {
-                                    new AlertDialog.Builder(CommentsScreenSingle.this)
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(CommentsScreenSingle.this)
                                             .setTitle(R.string.submission_not_found)
                                             .setMessage(R.string.submission_not_found_msg)
                                             .setPositiveButton(
                                                     R.string.btn_ok, (dialog, which) -> finish())
                                             .setOnDismissListener(dialog -> finish())
-                                            .show();
+                                            );
                                 }
                             });
                 } catch (Exception ignored) {

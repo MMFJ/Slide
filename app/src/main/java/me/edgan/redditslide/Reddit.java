@@ -1,6 +1,5 @@
 package me.edgan.redditslide;
 
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.Application;
@@ -13,7 +12,6 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -21,15 +19,12 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.WindowManager;
 import android.widget.Toast;
-
+import androidx.annotation.OptIn;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.app.NotificationChannelCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
-import androidx.multidex.MultiDexApplication;
-
-import androidx.annotation.OptIn;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.database.DatabaseProvider;
 import androidx.media3.database.ExoDatabaseProvider;
@@ -39,31 +34,6 @@ import androidx.media3.datasource.cache.SimpleCache;
 import com.jakewharton.processphoenix.ProcessPhoenix;
 import com.lusfold.androidkeyvaluestore.KVStore;
 import com.nostra13.universalimageloader.core.ImageLoader;
-
-import me.edgan.redditslide.Activities.MainActivity;
-import me.edgan.redditslide.Autocache.AutoCacheScheduler;
-import me.edgan.redditslide.ImgurAlbum.AlbumUtils;
-import me.edgan.redditslide.Notifications.NotificationJobScheduler;
-import me.edgan.redditslide.Notifications.NotificationPiggyback;
-import me.edgan.redditslide.Tumblr.TumblrUtils;
-import me.edgan.redditslide.Visuals.Palette;
-import me.edgan.redditslide.util.AdBlocker;
-import me.edgan.redditslide.util.CompatUtil;
-import me.edgan.redditslide.util.GifCache;
-import me.edgan.redditslide.util.ImageLoaderUtils;
-import me.edgan.redditslide.util.LogUtil;
-import me.edgan.redditslide.util.NetworkUtil;
-import me.edgan.redditslide.util.SortingUtil;
-import me.edgan.redditslide.util.UpgradeUtil;
-
-import net.dean.jraw.http.NetworkException;
-
-import okhttp3.Dns;
-import okhttp3.OkHttpClient;
-
-import org.apache.commons.lang3.tuple.Triple;
-import org.apache.commons.text.StringEscapeUtils;
-
 import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -77,10 +47,32 @@ import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import me.edgan.redditslide.Activities.MainActivity;
+import me.edgan.redditslide.Autocache.AutoCacheScheduler;
+import me.edgan.redditslide.ImgurAlbum.AlbumUtils;
+import me.edgan.redditslide.Notifications.NotificationJobScheduler;
+import me.edgan.redditslide.Notifications.NotificationPiggyback;
+import me.edgan.redditslide.Tumblr.TumblrUtils;
+import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.util.AdBlocker;
+import me.edgan.redditslide.util.CompatUtil;
+import me.edgan.redditslide.util.DialogUtil;
+import me.edgan.redditslide.util.GifCache;
+import me.edgan.redditslide.util.ImageLoaderUtils;
+import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.NetworkUtil;
+import me.edgan.redditslide.util.ReauthNotifier;
+import me.edgan.redditslide.util.SortingUtil;
+import me.edgan.redditslide.util.UpgradeUtil;
+import net.dean.jraw.http.NetworkException;
+import okhttp3.Dns;
+import okhttp3.OkHttpClient;
+import org.apache.commons.lang3.tuple.Triple;
+import org.apache.commons.text.StringEscapeUtils;
 
 /** Created by ccrama on 9/17/2015. */
 @OptIn(markerClass = UnstableApi.class)
-public class Reddit extends MultiDexApplication implements Application.ActivityLifecycleCallbacks {
+public class Reddit extends Application implements Application.ActivityLifecycleCallbacks {
     private static Application mApplication;
 
     public static final String EMPTY_STRING = "NOTHING";
@@ -158,10 +150,7 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
     }
 
     public static HashMap<String, String> getInstalledBrowsers() {
-        int packageMatcher =
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                        ? PackageManager.MATCH_ALL
-                        : PackageManager.GET_DISABLED_COMPONENTS;
+        int packageMatcher = PackageManager.MATCH_ALL;
 
         HashMap<String, String> browserMap = new HashMap<>();
 
@@ -205,6 +194,7 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
 
     @Override
     public void onActivityResumed(Activity activity) {
+        ReauthNotifier.attach(activity);
         doLanguages();
         if (client == null) {
             OkHttpClient.Builder builder = new OkHttpClient.Builder();
@@ -222,7 +212,9 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
     }
 
     @Override
-    public void onActivityPaused(Activity activity) {}
+    public void onActivityPaused(Activity activity) {
+        ReauthNotifier.detach(activity);
+    }
 
     public static void setDefaultErrorHandler(Context base) {
         // START code adapted from https://github.com/QuantumBadger/RedReader/
@@ -249,7 +241,7 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
                                             @Override
                                             public void run() {
                                                 try {
-                                                    new AlertDialog.Builder(c)
+                                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(c)
                                                             .setTitle(R.string.err_title)
                                                             .setMessage(
                                                                     R.string
@@ -275,7 +267,7 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
                                                                         Reddit.forceRestart(
                                                                                 c, false);
                                                                     })
-                                                            .show();
+                                                            );
                                                 } catch (Exception ignored) {
 
                                                 }
@@ -290,7 +282,7 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
                                             @Override
                                             public void run() {
                                                 try {
-                                                    new AlertDialog.Builder(c)
+                                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(c)
                                                             .setTitle(R.string.err_title)
                                                             .setMessage(
                                                                     R.string
@@ -309,7 +301,7 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
                                                                     (dialog, which) ->
                                                                             authentication
                                                                                     .updateToken(c))
-                                                            .show();
+                                                            );
                                                 } catch (Exception ignored) {
 
                                                 }
@@ -324,7 +316,7 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
                                             @Override
                                             public void run() {
                                                 try {
-                                                    new AlertDialog.Builder(c)
+                                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(c)
                                                             .setTitle(R.string.err_title)
                                                             .setMessage(
                                                                     R.string
@@ -338,7 +330,7 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
                                                                             ((Activity) c).finish();
                                                                         }
                                                                     })
-                                                            .show();
+                                                            );
                                                 } catch (Exception ignored) {
 
                                                 }
@@ -443,9 +435,7 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
             client = new OkHttpClient();
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            setCanUseNightModeAuto();
-        }
+        setCanUseNightModeAuto();
 
         overrideLanguage =
                 getSharedPreferences("SETTINGS", 0)
@@ -464,14 +454,6 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
         Authentication.authentication = getSharedPreferences("AUTH", 0);
         UserSubscriptions.subscriptions = getSharedPreferences("SUBSNEW", 0);
         UserSubscriptions.multiNameToSubs = getSharedPreferences("MULTITONAME", 0);
-        UserSubscriptions.newsNameToSubs = getSharedPreferences("NEWSMULTITONAME", 0);
-        UserSubscriptions.news = getSharedPreferences("NEWS", 0);
-
-        UserSubscriptions.newsNameToSubs
-                .edit()
-                .putString("android", "android+androidapps+googlepixel")
-                .putString("news", "worldnews+news+politics")
-                .apply();
 
         UserSubscriptions.pinned = getSharedPreferences("PINNED", 0);
         PostMatch.filters = getSharedPreferences("FILTERS", 0);
@@ -503,16 +485,10 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
 
         fabClear = colors.getBoolean(SettingValues.PREF_FAB_CLEAR, false);
 
-        int widthDp = this.getResources().getConfiguration().screenWidthDp;
-        int heightDp = this.getResources().getConfiguration().screenHeightDp;
-
-        int fina = Math.max(widthDp, heightDp);
-        fina += 99;
-
         if (colors.contains("tabletOVERRIDE")) {
-            dpWidth = colors.getInt("tabletOVERRIDE", fina / 300);
+            dpWidth = colors.getInt("tabletOVERRIDE", 1);
         } else {
-            dpWidth = fina / 300;
+            dpWidth = 1;
         }
 
         if (colors.contains("notificationOverride")) {
@@ -645,7 +621,6 @@ public class Reddit extends MultiDexApplication implements Application.ActivityL
         return mApplication.getApplicationContext();
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     private static void setCanUseNightModeAuto() {
         UiModeManager uiModeManager = getAppContext().getSystemService(UiModeManager.class);
         canUseNightModeAuto = uiModeManager != null;

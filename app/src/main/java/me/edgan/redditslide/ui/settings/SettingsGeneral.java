@@ -3,20 +3,17 @@ package me.edgan.redditslide.ui.settings;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.ViewGroup;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
-
 import androidx.appcompat.widget.SwitchCompat;
-
 import me.edgan.redditslide.Activities.BaseActivityAnim;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.util.LogUtil;
-import me.edgan.redditslide.util.StorageUtil;
 import me.edgan.redditslide.util.MiscUtil;
+import me.edgan.redditslide.util.StorageUtil;
 
 /** Created by ccrama on 3/5/2015. */
 public class SettingsGeneral extends BaseActivityAnim implements StorageUtil.DirectoryChooserHost {
@@ -108,22 +105,20 @@ public class SettingsGeneral extends BaseActivityAnim implements StorageUtil.Dir
         if (requestCode == StorageUtil.REQUEST_STORAGE_ACCESS && resultCode == Activity.RESULT_OK) {
             Uri uri = data.getData();
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                try {
-                    final int dataFlags = data.getFlags();
-                    int takeFlags = 0;
-                    if ((dataFlags & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
-                        takeFlags |= Intent.FLAG_GRANT_READ_URI_PERMISSION;
-                    }
-                    if ((dataFlags & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0) {
-                        takeFlags |= Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
-                    }
-                    getContentResolver().takePersistableUriPermission(uri, takeFlags);
-                } catch (Exception e) {
-                    LogUtil.e(
-                            e,
-                            "SlideStorage Error taking persistent permission: " + e.getMessage());
+            try {
+                final int dataFlags = data.getFlags();
+                int takeFlags = 0;
+                if ((dataFlags & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
+                    takeFlags |= Intent.FLAG_GRANT_READ_URI_PERMISSION;
                 }
+                if ((dataFlags & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0) {
+                    takeFlags |= Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+                }
+                getContentResolver().takePersistableUriPermission(uri, takeFlags);
+            } catch (Exception e) {
+                LogUtil.e(
+                        e,
+                        "SlideStorage Error taking persistent permission: " + e.getMessage());
             }
 
             StorageUtil.saveStorageUri(this, uri);

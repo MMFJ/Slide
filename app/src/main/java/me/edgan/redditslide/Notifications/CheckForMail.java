@@ -11,13 +11,15 @@ import android.content.Intent;
 import android.content.res.Resources;
 import android.net.Uri;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.text.Html;
-
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
-
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Activities.CancelSubNotifs;
 import me.edgan.redditslide.Activities.Inbox;
 import me.edgan.redditslide.Activities.ModQueue;
@@ -29,22 +31,14 @@ import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.StringUtil;
-
 import net.dean.jraw.models.Message;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.paginators.InboxPaginator;
 import net.dean.jraw.paginators.Sorting;
 import net.dean.jraw.paginators.SubredditPaginator;
-
 import org.apache.commons.text.StringEscapeUtils;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import me.edgan.redditslide.util.LogUtil;
 
 public class CheckForMail extends BroadcastReceiver {
 
@@ -166,91 +160,89 @@ public class CheckForMail extends BroadcastReceiver {
                     notificationManager.notify(0, notification);
                 }
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    for (Message m : messages) {
-                        NotificationCompat.BigTextStyle notiStyle =
-                                new NotificationCompat.BigTextStyle();
-                        String contentTitle;
-                        if (m.getAuthor() != null) {
-                            notiStyle.setBigContentTitle(
-                                    c.getString(
-                                            R.string.mail_notification_msg_from, m.getAuthor()));
-                            contentTitle =
-                                    c.getString(
-                                            R.string.mail_notification_author,
-                                            m.getSubject(),
-                                            m.getAuthor());
-                        } else {
-                            notiStyle.setBigContentTitle(
-                                    c.getString(
-                                            R.string.mail_notification_msg_via, m.getSubreddit()));
-                            contentTitle =
-                                    c.getString(
-                                            R.string.mail_notification_subreddit,
-                                            m.getSubject(),
-                                            m.getSubreddit());
-                        }
-                        Intent openPIBase;
-                        if (m.isComment()) {
-                            openPIBase = new Intent(c, OpenContent.class);
-                            String context = m.getDataNode().get("context").asText();
-                            openPIBase.putExtra(
-                                    OpenContent.EXTRA_URL,
-                                    "https://reddit.com"
-                                            + context.substring(0, context.lastIndexOf("/")));
-                            openPIBase.setAction(m.getSubject());
-
-                        } else {
-                            openPIBase = new Intent(c, Inbox.class);
-                            openPIBase.putExtra(Inbox.EXTRA_UNREAD, true);
-                        }
-                        //  openPIBase.setFlags(
-                        //        Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-
-                        PendingIntent openPi =
-                                PendingIntent.getActivity(
-                                        c,
-                                        3 + (int) m.getCreated().getTime(),
-                                        openPIBase,
-                                        PendingIntent.FLAG_IMMUTABLE);
-
-                        String unescape =
-                                StringEscapeUtils.unescapeHtml4(
-                                        m.getDataNode().get("body_html").asText());
-                        notiStyle.bigText(Html.fromHtml(unescape, Html.FROM_HTML_MODE_LEGACY));
-
-                        PendingIntent readPISingle =
-                                MarkAsReadService.getMarkAsReadIntent(
-                                        2 + (int) m.getCreated().getTime(),
-                                        c,
-                                        new String[] {m.getFullName()});
-
-                        NotificationCompat.Builder builder =
-                                new NotificationCompat.Builder(c, Reddit.CHANNEL_MAIL)
-                                        .setContentIntent(openPi)
-                                        .setSmallIcon(R.drawable.notif)
-                                        .setTicker(
-                                                res.getQuantityString(
-                                                        R.plurals.mail_notification_title, 1, 1))
-                                        .setWhen(System.currentTimeMillis())
-                                        .setAutoCancel(true)
-                                        .setContentTitle(contentTitle)
-                                        .setContentText(
-                                                Html.fromHtml(unescape, Html.FROM_HTML_MODE_LEGACY))
-                                        .setStyle(notiStyle)
-                                        .setGroup("MESSAGES")
-                                        .setGroupAlertBehavior(
-                                                NotificationCompat.GROUP_ALERT_SUMMARY)
-                                        .addAction(
-                                                R.drawable.ic_done_all,
-                                                c.getString(R.string.mail_mark_read),
-                                                readPISingle);
-                        if (!SettingValues.notifSound) {
-                            builder.setSound(null);
-                        }
-                        Notification notification = builder.build();
-                        notificationManager.notify((int) m.getCreated().getTime(), notification);
+                for (Message m : messages) {
+                    NotificationCompat.BigTextStyle notiStyle =
+                            new NotificationCompat.BigTextStyle();
+                    String contentTitle;
+                    if (m.getAuthor() != null) {
+                        notiStyle.setBigContentTitle(
+                                c.getString(
+                                        R.string.mail_notification_msg_from, m.getAuthor()));
+                        contentTitle =
+                                c.getString(
+                                        R.string.mail_notification_author,
+                                        m.getSubject(),
+                                        m.getAuthor());
+                    } else {
+                        notiStyle.setBigContentTitle(
+                                c.getString(
+                                        R.string.mail_notification_msg_via, m.getSubreddit()));
+                        contentTitle =
+                                c.getString(
+                                        R.string.mail_notification_subreddit,
+                                        m.getSubject(),
+                                        m.getSubreddit());
                     }
+                    Intent openPIBase;
+                    if (m.isComment()) {
+                        openPIBase = new Intent(c, OpenContent.class);
+                        String context = m.getDataNode().get("context").asText();
+                        openPIBase.putExtra(
+                                OpenContent.EXTRA_URL,
+                                "https://reddit.com"
+                                        + context.substring(0, context.lastIndexOf("/")));
+                        openPIBase.setAction(m.getSubject());
+
+                    } else {
+                        openPIBase = new Intent(c, Inbox.class);
+                        openPIBase.putExtra(Inbox.EXTRA_UNREAD, true);
+                    }
+                    //  openPIBase.setFlags(
+                    //        Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+                    PendingIntent openPi =
+                            PendingIntent.getActivity(
+                                    c,
+                                    3 + (int) m.getCreated().getTime(),
+                                    openPIBase,
+                                    PendingIntent.FLAG_IMMUTABLE);
+
+                    String unescape =
+                            StringEscapeUtils.unescapeHtml4(
+                                    m.getDataNode().path("body_html").asText(""));
+                    notiStyle.bigText(Html.fromHtml(unescape, Html.FROM_HTML_MODE_LEGACY));
+
+                    PendingIntent readPISingle =
+                            MarkAsReadService.getMarkAsReadIntent(
+                                    2 + (int) m.getCreated().getTime(),
+                                    c,
+                                    new String[] {m.getFullName()});
+
+                    NotificationCompat.Builder builder =
+                            new NotificationCompat.Builder(c, Reddit.CHANNEL_MAIL)
+                                    .setContentIntent(openPi)
+                                    .setSmallIcon(R.drawable.notif)
+                                    .setTicker(
+                                            res.getQuantityString(
+                                                    R.plurals.mail_notification_title, 1, 1))
+                                    .setWhen(System.currentTimeMillis())
+                                    .setAutoCancel(true)
+                                    .setContentTitle(contentTitle)
+                                    .setContentText(
+                                            Html.fromHtml(unescape, Html.FROM_HTML_MODE_LEGACY))
+                                    .setStyle(notiStyle)
+                                    .setGroup("MESSAGES")
+                                    .setGroupAlertBehavior(
+                                            NotificationCompat.GROUP_ALERT_SUMMARY)
+                                    .addAction(
+                                            R.drawable.ic_done_all,
+                                            c.getString(R.string.mail_mark_read),
+                                            readPISingle);
+                    if (!SettingValues.notifSound) {
+                        builder.setSound(null);
+                    }
+                    Notification notification = builder.build();
+                    notificationManager.notify((int) m.getCreated().getTime(), notification);
                 }
             }
         }
@@ -337,49 +329,47 @@ public class CheckForMail extends BroadcastReceiver {
                     }
                 }
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    for (Message m : messages) {
-                        NotificationCompat.BigTextStyle notiStyle =
-                                new NotificationCompat.BigTextStyle();
-                        notiStyle.setBigContentTitle(
-                                c.getString(R.string.mod_mail_notification_msg, m.getAuthor()));
+                for (Message m : messages) {
+                    NotificationCompat.BigTextStyle notiStyle =
+                            new NotificationCompat.BigTextStyle();
+                    notiStyle.setBigContentTitle(
+                            c.getString(R.string.mod_mail_notification_msg, m.getAuthor()));
 
-                        String unescape =
-                                StringEscapeUtils.unescapeHtml4(
-                                        m.getDataNode().get("body_html").asText());
-                        notiStyle.bigText(Html.fromHtml(unescape, Html.FROM_HTML_MODE_LEGACY));
+                    String unescape =
+                            StringEscapeUtils.unescapeHtml4(
+                                    m.getDataNode().path("body_html").asText(""));
+                    notiStyle.bigText(Html.fromHtml(unescape, Html.FROM_HTML_MODE_LEGACY));
 
-                        NotificationCompat.Builder builder =
-                                new NotificationCompat.Builder(c, Reddit.CHANNEL_MODMAIL)
-                                        .setContentIntent(intent)
-                                        .setSmallIcon(R.drawable.ic_verified_user)
-                                        .setTicker(
-                                                res.getQuantityString(
-                                                        R.plurals.mod_mail_notification_title,
-                                                        1,
-                                                        1))
-                                        .setWhen(System.currentTimeMillis())
-                                        .setAutoCancel(true)
-                                        .setGroup("MODMAIL")
-                                        .setGroupAlertBehavior(
-                                                NotificationCompat.GROUP_ALERT_SUMMARY)
-                                        .setContentTitle(
-                                                c.getString(
-                                                        R.string.mail_notification_author,
-                                                        m.getSubject(),
-                                                        m.getAuthor()))
-                                        .setContentText(
-                                                Html.fromHtml(
-                                                        m.getBody(), Html.FROM_HTML_MODE_LEGACY))
-                                        .setStyle(notiStyle);
-                        if (!SettingValues.notifSound) {
-                            builder.setSound(null);
-                        }
-                        Notification notification = builder.build();
-                        if (notificationManager != null) {
-                            notificationManager.notify(
-                                    (int) m.getCreated().getTime(), notification);
-                        }
+                    NotificationCompat.Builder builder =
+                            new NotificationCompat.Builder(c, Reddit.CHANNEL_MODMAIL)
+                                    .setContentIntent(intent)
+                                    .setSmallIcon(R.drawable.ic_verified_user)
+                                    .setTicker(
+                                            res.getQuantityString(
+                                                    R.plurals.mod_mail_notification_title,
+                                                    1,
+                                                    1))
+                                    .setWhen(System.currentTimeMillis())
+                                    .setAutoCancel(true)
+                                    .setGroup("MODMAIL")
+                                    .setGroupAlertBehavior(
+                                            NotificationCompat.GROUP_ALERT_SUMMARY)
+                                    .setContentTitle(
+                                            c.getString(
+                                                    R.string.mail_notification_author,
+                                                    m.getSubject(),
+                                                    m.getAuthor()))
+                                    .setContentText(
+                                            Html.fromHtml(
+                                                    m.getBody(), Html.FROM_HTML_MODE_LEGACY))
+                                    .setStyle(notiStyle);
+                    if (!SettingValues.notifSound) {
+                        builder.setSound(null);
+                    }
+                    Notification notification = builder.build();
+                    if (notificationManager != null) {
+                        notificationManager.notify(
+                                (int) m.getCreated().getTime(), notification);
                     }
                 }
             }

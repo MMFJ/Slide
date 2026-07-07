@@ -10,6 +10,21 @@ public class Constants {
     /** Default paginator page size, matching JRAW's DEFAULT_LIMIT */
     public static final int DEFAULT_PAGINATOR_LIMIT = 25;
 
+    /** Number of new subreddits resolved per scroll batch for the Discover "Trending" list */
+    public static final int TRENDING_BATCH_SIZE = 10;
+
+    /**
+     * Thread pool size for the shared Universal Image Loader instances (used by feed, gallery,
+     * album, and flair image loading). This is the maximum number of concurrent image loads.
+     */
+    public static final int IMAGE_LOADER_THREAD_POOL_SIZE = 8;
+
+    /**
+     * Number of off-screen feed RecyclerView items kept bound (with their images attached) so a
+     * short scroll-back reuses them instead of rebinding/reloading. Larger than the default of 2.
+     */
+    public static final int FEED_VIEW_CACHE_SIZE = 16;
+
     /**
      * This is the estimated height of the Tabs view mode in dp. Use this for calculating the
      * SwipeToRefresh (PTR) progresses indicator offset when using "Tabs" view mode.

@@ -19,11 +19,10 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.RelativeLayout;
-import android.widget.LinearLayout;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-
+import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.view.ContextThemeWrapper;
@@ -33,14 +32,14 @@ import androidx.fragment.app.Fragment;
 import androidx.interpolator.view.animation.LinearOutSlowInInterpolator;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.snackbar.Snackbar;
+import com.google.android.material.textfield.TextInputLayout;
 import com.mikepenz.itemanimators.AlphaInAnimator;
 import com.mikepenz.itemanimators.SlideUpAlphaAnimator;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import com.google.android.material.textfield.TextInputLayout;
-
+import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Activities.BaseActivity;
 import me.edgan.redditslide.Activities.MainActivity;
 import me.edgan.redditslide.Activities.MultiredditOverview;
@@ -64,12 +63,8 @@ import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.handler.ToolbarScrollHideHandler;
 import me.edgan.redditslide.util.LayoutUtils;
-
 import net.dean.jraw.models.MultiReddit;
 import net.dean.jraw.models.Submission;
-
-import java.util.List;
-import java.util.Locale;
 
 public class SubmissionsView extends Fragment implements SubmissionDisplay {
     private static int adapterPosition;
@@ -204,6 +199,9 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
         rv = v.findViewById(R.id.vertical_content);
 
         rv.setHasFixedSize(true);
+        // Keep a few extra off-screen views bound so a short scroll-back reuses them
+        // (with their images already attached) instead of rebinding/reloading.
+        rv.setItemViewCacheSize(Constants.FEED_VIEW_CACHE_SIZE);
 
         final RecyclerView.LayoutManager mLayoutManager = createLayoutManager(
                 LayoutUtils.getNumColumns(
@@ -640,7 +638,6 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                     // Let the loop reset itself
                 }
             }
-            adapter.notifyItemRangeChanged(0, adapter.dataSet.posts.size());
             o.writeToMemoryNoStorage();
             rv.setItemAnimator(
                     new SlideUpAlphaAnimator().withInterpolator(new LinearOutSlowInInterpolator()));
@@ -726,15 +723,22 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                                         .getLayoutManager();
                                 layoutManager.invalidateSpanAssignments();
 
-                                if (startIndex != -1 && !forced) {
+                                final int insertCount = posts.posts.size() - startIndex;
+                                if (startIndex != -1 && !forced && insertCount > 0) {
+                                    // Normal pagination: animate only the appended
+                                    // items, no full-list redraw.
                                     adapter.notifyItemRangeInserted(
-                                            startIndex + 1, posts.posts.size());
-                                } else {
+                                            startIndex + 1, insertCount);
+                                } else if (forced || startIndex == -1) {
+                                    // Pull-to-refresh / reset: full list replaced.
                                     forced = false;
                                     rv.scrollToPosition(0);
+                                    adapter.notifyDataSetChanged();
+                                } else {
+                                    // No new items (end of feed, or all duplicates):
+                                    // refresh the footer only, do not scroll to top.
+                                    adapter.notifyItemChanged(posts.posts.size() + 1);
                                 }
-
-                                adapter.notifyDataSetChanged();
                             });
 
             if (MainActivity.isRestart) {
@@ -742,8 +746,10 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                 posts.offline = false;
                 rv.getLayoutManager().scrollToPosition(MainActivity.restartPage + 1);
             }
-            if (startIndex < 10)
-                resetScroll();
+            // startIndex is -1 on a reset/refresh (and 0 for a degenerate first append); reset the
+            // scroll/toolbar state on those, not on ordinary pagination. (Under the old start
+            // semantics this was `< 10`, which keyed off total post count.)
+            if (startIndex <= 0) resetScroll();
         }
     }
 
@@ -805,50 +811,52 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
 
     public void resetScroll() {
         if (toolbarScroll == null) {
-            toolbarScroll = new ToolbarScrollHideHandler(((BaseActivity) getActivity()).mToolbar, header) {
-                @Override
-                public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
-                    super.onScrolled(recyclerView, dx, dy);
+            toolbarScroll =
+                    new ToolbarScrollHideHandler(((BaseActivity) getActivity()).mToolbar, header) {
+                        @Override
+                        public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                            super.onScrolled(recyclerView, dx, dy);
 
-                    // Stabilize layout during scrolling
-                    if (Math.abs(dy) > 0
-                            && rv.getLayoutManager() instanceof CatchStaggeredGridLayoutManager) {
-                        ((CatchStaggeredGridLayoutManager) rv.getLayoutManager())
-                                .invalidateSpanAssignments();
-                    }
+                            // Stabilize layout during scrolling
+                            if (Math.abs(dy) > 0
+                                    && rv.getLayoutManager() instanceof CatchStaggeredGridLayoutManager) {
+                                ((CatchStaggeredGridLayoutManager) rv.getLayoutManager())
+                                        .invalidateSpanAssignments();
+                            }
 
-                    if (!posts.loading
-                            && !posts.nomore
-                            && !posts.offline
-                            && !adapter.isError) {
-                        visibleItemCount = rv.getLayoutManager().getChildCount();
-                        totalItemCount = rv.getLayoutManager().getItemCount();
+                            if (!posts.loading
+                                    && !posts.nomore
+                                    && !posts.offline
+                                    && !adapter.isError) {
+                                visibleItemCount = rv.getLayoutManager().getChildCount();
+                                totalItemCount = rv.getLayoutManager().getItemCount();
 
-                        int[] firstVisibleItems = ((CatchStaggeredGridLayoutManager) rv.getLayoutManager())
-                                .findFirstVisibleItemPositions(null);
-                        if (firstVisibleItems != null && firstVisibleItems.length > 0) {
-                            for (int firstVisibleItem : firstVisibleItems) {
-                                pastVisiblesItems = firstVisibleItem;
-                                if (SettingValues.scrollSeen
-                                        && pastVisiblesItems > 0
-                                        && SettingValues.storeHistory) {
-                                    HasSeen.addSeenScrolling(
-                                            posts.posts
-                                                    .get(pastVisiblesItems - 1)
-                                                    .getFullName());
+                                int[] firstVisibleItems =
+                                        ((CatchStaggeredGridLayoutManager) rv.getLayoutManager())
+                                                .findFirstVisibleItemPositions(null);
+                                if (firstVisibleItems != null && firstVisibleItems.length > 0) {
+                                    for (int firstVisibleItem : firstVisibleItems) {
+                                        pastVisiblesItems = firstVisibleItem;
+                                        if (SettingValues.scrollSeen
+                                                && pastVisiblesItems > 0
+                                                && SettingValues.storeHistory) {
+                                            HasSeen.addSeenScrolling(
+                                                    posts.posts
+                                                            .get(pastVisiblesItems - 1)
+                                                            .getFullName());
+                                        }
+                                    }
+                                }
+
+                                if ((visibleItemCount + pastVisiblesItems) + 5 >= totalItemCount) {
+                                    posts.loading = true;
+                                    posts.loadMore(
+                                            mSwipeRefreshLayout.getContext(),
+                                            SubmissionsView.this,
+                                            false,
+                                            posts.subreddit);
                                 }
                             }
-                        }
-
-                        if ((visibleItemCount + pastVisiblesItems) + 5 >= totalItemCount) {
-                            posts.loading = true;
-                            posts.loadMore(
-                                    mSwipeRefreshLayout.getContext(),
-                                    SubmissionsView.this,
-                                    false,
-                                    posts.subreddit);
-                        }
-                    }
 
                     /*
                      * if(dy <= 0 && !down){

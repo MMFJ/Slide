@@ -129,6 +129,135 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 ---
 
 ## Upstream (cygnusx-1-org/Slide) Changes
+7.7.8 / 2026-7-7
+===========
+* Improved "Recover Post"
+
+7.7.7 / 2026-7-2
+===========
+* Fixed Filter by subreddit not removing posts after a feed refresh
+* Fixed Hide post not removing the row after a feed refresh
+* Fixed Read Later removal not removing the row after a feed refresh
+
+7.7.6 / 2026-6-30
+============
+* Added Translate feature in the overflow menu for posts and comments via Google Translate
+* Added Read Aloud feature in the overflow menu for posts and comments
+
+7.7.5 / 2026-6-30
+============
+* Fixed reddit MP4-transcode GIFs opening as direct GIFs and closing instantly
+* Implemented Feature Request: Ability to follow/unfollow users #129
+* Allowed dashes in subreddit name for r/u_username subreddits
+* Added a Letterboxed big picture layout
+* Optimized main-feed redraws and image loading
+
+7.7.4 / 2026-6-29
+============
+* Added a "Wide color gamut" toggle in "Settings | General", on by default
+* Made the "High-Colorspace Images" now on by default
+
+7.7.3 / 2026-6-27
+============
+* Fixed internal browser opening over reddit-link posts in Shadowbox
+* Fixed blank reddit-link post previews by rewriting external-preview URLs to preview.redd.it
+* Fixed the display of clicked giphy gifs in comments
+* Fixed "Open Reddit link in clipboard" for v.redd.it links
+* Fixed "Open Reddit link in clipboard"for reddit.com/gallery links
+
+7.7.2 / 2026-6-27
+============
+* Added "Local Saved" to preserve saves Reddit drops from the saved API results
+* Added Read Later and Local Saved to backups
+* Added "Recover post" action in the post overflow menu to restore removed/deleted post title and body from the Arctic Shift archive
+
+7.7.1 / 2026-6-24
+============
+* Fixed App is unusable for some devices on Android 15+ due to get started button being underneath the nav bar #294
+
+7.7.0 / 2026-6-23
+============
+* Rendered legacy CSS spoiler links as spoilers in new-Reddit markdown
+* Restored comment-search term highlighting in new-Reddit markdown
+* Fixed blockquotes and spoilers showing as raw text in new-Reddit markdown
+* Made new-Reddit blockquotes one continuous bar in the theme color
+* Fixed new-Reddit spoilers breaking on backslashes and code blocks
+* Made new-Reddit spoilers to match the classic hidden/revealed look
+
+7.6.9 / 2026-6-22
+============
+* Improved the consistency of comment images and gifs
+* Fixed issue with animated gifs' animation being intermittent
+* Fixed issue with &amp;#x200B; with new-Reddit style enabled
+
+7.6.8 / 2026-6-21
+============
+* Resurrected a color flag/triangle feature from 2016, like Relay's and now Continuum's
+* Added "Settings | Post layout | Show colored corner flags on thumbnails" setting
+
+7.6.7 / 2026-6-21
+============
+* Implemented Feature Request: Open reddit.com links found in clipboard #250
+* Fixed issue with notification bar color inconsistency
+
+7.6.6 / 2026-6-20
+============
+* Added warning dialogs on important login errors
+* Improved inbox and unread tabs behavior
+* Added a new slide://localhost redirect URI for external browsers
+* Registered external browser login redirect URIs for BaconReader, Boost, Continuum, Infinity, Joey, RedReader, Relay, RIF, and Slide
+
+7.6.5 / 2026-6-20
+============
+* Fixed bug with giphy image only comments
+* Implemented respecting the new vs old Reddit style toggle for the preview when creating a comment
+
+7.6.4 / 2026-6-18
+============
+* Implemented Feature Request: Proper Formatting for Code Blocks #179
+* Added a "Settings | Markdown | New Reddit-style markdown", and made it the new default
+* Added a "Show other rendering" option to the overflow menu of a comment
+* Added a "Show other rendering" option to the overflow menu of self-text posts
+
+This is a big change to how self-text posts and comments work, and is the new
+default. Though there is a toggle to disable and go back to the way it was
+before. In addition, given old posts, and that some people will continue to
+use the old style, comments and self-text posts have a "Show other rendering"
+option in their overflow menu. This will show you the opposite of the toggle
+value. So if you have new enabled, you see old. If you have old enabled, you
+see new.
+
+7.6.3 / 2026-6-17
+============
+* Added Reddit Gallery caption support
+* Implemented Reddit Gallery support in Submit
+* Implemented Allow direct in post and in comment images #176
+* Implemented image posting directly to Reddit in addition to Imgur
+
+7.6.2 / 2026-6-15
+============
+* Fixed Thumbnails don't always work outside the main feed #274
+
+7.6.1 / 2026-6-15
+============
+* Created a "Comment image size" setting with a new default of medium/1.5x
+* Fixed Comment emote animation
+* Massive improvement to the loading of comment images
+* Fixed Multi-column borken on 7.5.9 #292
+
+7.6.0 / 2026-6-14
+============
+* Fixed jumpy content on scroll up
+* Fixed all dialogs to match the theming
+
+7.5.9 / 2026-6-13
+============
+* Implemented Feature Request: Update Discover Section #67
+* Fixed theme colors of various dialogs and snackbars
+* Fixed navigation bar scrim flickering/transparency under edge-to-edge
+* Enabled predictive back
+* Fixed Images continue to load when Data saving has been set to "Don't load any images" #287
+>>>>>>> 7.7.8
 
 7.5.8 / 2026-6-10
 ============
@@ -234,6 +363,9 @@ in Albums and Galleries
 * Switched to the stock image picker on Android 11+
 * Added two retries on 500 errors while trying to load posts from a subreddit
 
+7.3.9 / 2026-2-12
+============
+* Fixed giphy gifs marked invalid by Reddit when they are valid
 7.3.8 / 2025-12-31
 =============
 * Added a search button to You/Profile tabs

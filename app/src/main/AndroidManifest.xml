@@ -32,6 +32,9 @@
                 <intent>
                 <action android:name="android.support.customtabs.action.CustomTabsService" />
                 </intent>
+                <!-- Lets the Translate feature launch the Google Translate app (PROCESS_TEXT)
+                     instead of silently falling back to the web on Android 11+. -->
+                <package android:name="com.google.android.apps.translate" />
         </queries>
 
         <application
@@ -354,7 +357,6 @@
                         android:theme="@style/swipeable"/>
                 <activity
                         android:name=".Activities.Tumblr"
-                        android:colorMode="wideColorGamut"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
@@ -392,21 +394,22 @@
                 <activity
                         android:name=".Activities.MediaView"
                         android:alwaysRetainTaskState="true"
-                        android:colorMode="wideColorGamut"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
                         android:name=".Activities.AlbumPager"
-                        android:colorMode="wideColorGamut"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
                         android:name=".Activities.TumblrPager"
-                        android:colorMode="wideColorGamut"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
                         android:name=".Activities.PostReadLater"
+                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+                        android:theme="@style/swipeable"/>
+                <activity
+                        android:name=".Activities.PostLocalSaved"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
@@ -419,6 +422,10 @@
                         android:theme="@style/swipeable"/>
                 <activity
                         android:name=".ui.settings.SettingsFont"
+                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+                        android:theme="@style/swipeable"/>
+                <activity
+                        android:name=".ui.settings.SettingsMarkdown"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
@@ -591,6 +598,10 @@
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
+                        android:name=".ui.settings.SettingsDebug"
+                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+                        android:theme="@style/swipeable"/>
+                <activity
                         android:name=".ui.settings.SettingsLibs"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
@@ -626,6 +637,63 @@
                                 <category android:name="android.intent.category.DEFAULT"/>
                                 <category android:name="android.intent.category.BROWSABLE"/>
                                 <data android:scheme="http" android:host="www.ccrama.me"/>
+                        </intent-filter>
+                        <intent-filter>
+                                <action android:name="android.intent.action.VIEW"/>
+                                <category android:name="android.intent.category.DEFAULT"/>
+                                <category android:name="android.intent.category.BROWSABLE"/>
+                                <data android:scheme="redreader" android:host="rr_oauth_redir"/>
+                        </intent-filter>
+                        <intent-filter>
+                                <action android:name="android.intent.action.VIEW"/>
+                                <category android:name="android.intent.category.DEFAULT"/>
+                                <category android:name="android.intent.category.BROWSABLE"/>
+                                <data android:scheme="slide" android:host="localhost"/>
+                                <data android:scheme="slide" android:host="127.0.0.1"/>
+                        </intent-filter>
+                        <intent-filter>
+                                <action android:name="android.intent.action.VIEW"/>
+                                <category android:name="android.intent.category.DEFAULT"/>
+                                <category android:name="android.intent.category.BROWSABLE"/>
+                                <data android:scheme="continuum" android:host="localhost"/>
+                                <data android:scheme="continuum" android:host="127.0.0.1"/>
+                        </intent-filter>
+                        <intent-filter>
+                                <action android:name="android.intent.action.VIEW"/>
+                                <category android:name="android.intent.category.DEFAULT"/>
+                                <category android:name="android.intent.category.BROWSABLE"/>
+                                <data android:scheme="infinity" android:host="localhost"/>
+                                <data android:scheme="infinity" android:host="127.0.0.1"/>
+                        </intent-filter>
+                        <intent-filter>
+                                <action android:name="android.intent.action.VIEW"/>
+                                <category android:name="android.intent.category.DEFAULT"/>
+                                <category android:name="android.intent.category.BROWSABLE"/>
+                                <data android:scheme="redditisfun" android:host="auth"/>
+                        </intent-filter>
+                        <intent-filter>
+                                <action android:name="android.intent.action.VIEW"/>
+                                <category android:name="android.intent.category.DEFAULT"/>
+                                <category android:name="android.intent.category.BROWSABLE"/>
+                                <data android:scheme="dbrady" android:host="relay"/>
+                        </intent-filter>
+                        <intent-filter>
+                                <action android:name="android.intent.action.VIEW"/>
+                                <category android:name="android.intent.category.DEFAULT"/>
+                                <category android:name="android.intent.category.BROWSABLE"/>
+                                <data android:scheme="http" android:host="rubenmayayo.com"/>
+                        </intent-filter>
+                        <intent-filter>
+                                <action android:name="android.intent.action.VIEW"/>
+                                <category android:name="android.intent.category.DEFAULT"/>
+                                <category android:name="android.intent.category.BROWSABLE"/>
+                                <data android:scheme="http" android:host="baconreader.com" android:path="/auth"/>
+                        </intent-filter>
+                        <intent-filter>
+                                <action android:name="android.intent.action.VIEW"/>
+                                <category android:name="android.intent.category.DEFAULT"/>
+                                <category android:name="android.intent.category.BROWSABLE"/>
+                                <data android:scheme="https" android:host="127.0.0.1" android:port="65023" android:path="/authorize_callback"/>
                         </intent-filter>
                 </activity>
                 <activity

@@ -3,7 +3,6 @@ package me.edgan.redditslide.Activities;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -11,27 +10,23 @@ import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-
 import androidx.appcompat.app.AlertDialog;
-
-import com.afollestad.materialdialogs.MaterialDialog;
-
+import java.util.HashSet;
+import java.util.Set;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialProgressDialog;
 import me.edgan.redditslide.util.MiscUtil;
-
 import net.dean.jraw.http.NetworkException;
 import net.dean.jraw.http.oauth.Credentials;
 import net.dean.jraw.http.oauth.OAuthData;
 import net.dean.jraw.http.oauth.OAuthException;
 import net.dean.jraw.http.oauth.OAuthHelper;
 import net.dean.jraw.models.LoggedInAccount;
-
-import java.util.HashSet;
-import java.util.Set;
 
 /** Created by ccrama on 5/27/2015. */
 public class Reauthenticate extends BaseActivityAnim {
@@ -80,11 +75,7 @@ public class Reauthenticate extends BaseActivityAnim {
         authorizationUrl = authorizationUrl.replace("%3A%2F%2Fi", "://www");
         Log.v(LogUtil.getTag(), "Auth URL: " + authorizationUrl);
         final CookieManager cookieManager = CookieManager.getInstance();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            cookieManager.removeAllCookies(null);
-        } else {
-            cookieManager.removeAllCookie();
-        }
+        cookieManager.removeAllCookies(null);
         final WebView webView = (WebView) findViewById(R.id.web);
 
         webView.loadUrl(authorizationUrl);
@@ -116,7 +107,7 @@ public class Reauthenticate extends BaseActivityAnim {
     private final class UserChallengeTask extends AsyncTask<String, Void, OAuthData> {
         private final OAuthHelper mOAuthHelper;
         private final Credentials mCredentials;
-        private MaterialDialog mMaterialDialog;
+        private MaterialProgressDialog mMaterialDialog;
 
         public UserChallengeTask(OAuthHelper oAuthHelper, Credentials credentials) {
             Log.v(LogUtil.getTag(), "UserChallengeTask()");
@@ -127,8 +118,8 @@ public class Reauthenticate extends BaseActivityAnim {
         @Override
         protected void onPreExecute() {
             // Show a dialog to indicate progress
-            MaterialDialog.Builder builder =
-                    new MaterialDialog.Builder(Reauthenticate.this)
+            MaterialProgressDialog.Builder builder =
+                    new MaterialProgressDialog.Builder(Reauthenticate.this)
                             .title(R.string.login_authenticating)
                             .progress(true, 0)
                             .content(R.string.misc_please_wait)
@@ -188,12 +179,12 @@ public class Reauthenticate extends BaseActivityAnim {
             // Dismiss old progress dialog
             mMaterialDialog.dismiss();
 
-            new AlertDialog.Builder(Reauthenticate.this)
+            DialogUtil.showWithCardBackground(new AlertDialog.Builder(Reauthenticate.this)
                     .setTitle(R.string.reauth_complete)
                     .setPositiveButton(R.string.btn_ok, (dialog, which) -> finish())
                     .setCancelable(false)
                     .setOnCancelListener(dialog -> finish())
-                    .show();
+                    );
         }
     }
 }

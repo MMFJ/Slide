@@ -3,17 +3,14 @@ package me.edgan.redditslide.Activities;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
-
+import java.util.Locale;
 import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
-
-import java.util.Locale;
 
 /** Created by ccrama on 9/28/2015. */
 public class OpenContent extends Activity {
@@ -51,11 +48,7 @@ public class OpenContent extends Activity {
     public void onResume() {
         super.onResume();
         if (second) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                finishAndRemoveTask();
-            } else {
-                finish();
-            }
+            finishAndRemoveTask();
         } else {
             second = true;
         }

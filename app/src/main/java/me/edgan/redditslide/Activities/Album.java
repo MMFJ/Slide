@@ -14,7 +14,6 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
@@ -22,7 +21,8 @@ import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager.widget.ViewPager;
-
+import java.util.ArrayList;
+import java.util.List;
 import me.edgan.redditslide.Adapters.AlbumView;
 import me.edgan.redditslide.Fragments.BlankFragment;
 import me.edgan.redditslide.Fragments.SubmissionsView;
@@ -39,9 +39,6 @@ import me.edgan.redditslide.util.ImageSaveUtils;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Created by ccrama on 3/5/2015.
@@ -261,7 +258,7 @@ public class Album extends BaseSaveActivity {
                             @Override
                             public void run() {
                                 try {
-                                    new AlertDialog.Builder(getActivity())
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
                                         .setTitle(R.string.error_album_not_found)
                                         .setMessage(R.string.error_album_not_found_text)
                                         .setNegativeButton(R.string.btn_no, (dialog, which) -> getActivity().finish())
@@ -274,7 +271,7 @@ public class Album extends BaseSaveActivity {
                                                 startActivity(i);
                                                 getActivity().finish();
                                             })
-                                        .show();
+                                        );
                                 } catch (Exception e) {
                                     LogUtil.e(e, "Failed to show album-not-found dialog");
                                 }

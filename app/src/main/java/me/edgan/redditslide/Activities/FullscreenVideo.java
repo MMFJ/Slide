@@ -1,18 +1,16 @@
 package me.edgan.redditslide.Activities;
 
 import android.graphics.Color;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
-
 import androidx.appcompat.app.AlertDialog;
-
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
@@ -41,12 +39,10 @@ public class FullscreenVideo extends FullScreenActivity {
         String data = getIntent().getExtras().getString(EXTRA_HTML);
         v = (WebView) findViewById(R.id.webgif);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            Window window = this.getWindow();
-            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
-            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-            window.setStatusBarColor(Color.BLACK);
-        }
+        Window window = this.getWindow();
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        window.setStatusBarColor(Color.BLACK);
 
         String dat = data;
         final WebSettings settings = v.getSettings();
@@ -68,7 +64,7 @@ public class FullscreenVideo extends FullScreenActivity {
             v.loadUrl(dat);
             if ((dat.contains("youtube.co") || dat.contains("youtu.be"))
                     && !Reddit.appRestart.contains("showYouTubePopup")) {
-                new AlertDialog.Builder(FullscreenVideo.this)
+                DialogUtil.showWithCardBackground(new AlertDialog.Builder(FullscreenVideo.this)
                         .setTitle(R.string.load_videos_internally)
                         .setMessage(R.string.load_videos_internally_content)
                         .setPositiveButton(
@@ -85,7 +81,7 @@ public class FullscreenVideo extends FullScreenActivity {
                                                 .edit()
                                                 .putBoolean("showYouTubePopup", false)
                                                 .apply())
-                        .show();
+                        );
             }
         } else {
             LogUtil.v(dat);

@@ -15,17 +15,18 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
-
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
-
 import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.Visuals.ColorPreferences;
@@ -39,9 +40,10 @@ import me.edgan.redditslide.databinding.FragmentPersonalizeBinding;
 import me.edgan.redditslide.databinding.FragmentWelcomeBinding;
 import me.edgan.redditslide.ui.settings.SettingsBackup;
 import me.edgan.redditslide.util.BlendModeUtil;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LogUtil;
-import me.edgan.redditslide.util.QrCodeScannerHelper;
 import me.edgan.redditslide.util.MiscUtil;
+import me.edgan.redditslide.util.QrCodeScannerHelper;
 
 /** Created by ccrama on 3/5/2015. */
 public class Tutorial extends AppCompatActivity {
@@ -77,12 +79,10 @@ public class Tutorial extends AppCompatActivity {
             binding.tutorialViewPager.setCurrentItem(1);
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            final Window window = this.getWindow();
-            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
-            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-            window.setStatusBarColor(Palette.getDarkerColor(Color.parseColor("#FF5252")));
-        }
+        final Window window = this.getWindow();
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        window.setStatusBarColor(Palette.getDarkerColor(Color.parseColor("#FF5252")));
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             LogUtil.v("Checking notification permission on Android 13+");
@@ -104,6 +104,33 @@ public class Tutorial extends AppCompatActivity {
                 }, 500); // Half second delay
             }
         }
+    }
+
+    /**
+     * Pads {@code view} for the system bars (navigation bar / display cutout) so its content is
+     * not drawn underneath them. The view's backgrounds stay full-bleed; only the inner content is
+     * inset. The original padding is preserved and the insets are added on top of it.
+     */
+    private static void applySystemBarInsets(final View view) {
+        final int baseLeft = view.getPaddingLeft();
+        final int baseTop = view.getPaddingTop();
+        final int baseRight = view.getPaddingRight();
+        final int baseBottom = view.getPaddingBottom();
+        ViewCompat.setOnApplyWindowInsetsListener(
+                view,
+                (v, windowInsets) -> {
+                    Insets bars =
+                            windowInsets.getInsets(
+                                    WindowInsetsCompat.Type.systemBars()
+                                            | WindowInsetsCompat.Type.displayCutout());
+                    v.setPadding(
+                            baseLeft + bars.left,
+                            baseTop,
+                            baseRight + bars.right,
+                            baseBottom + bars.bottom);
+                    return windowInsets;
+                });
+        ViewCompat.requestApplyInsets(view);
     }
 
     // Intercepts Back to step the tutorial pager backwards rather than finishing
@@ -153,6 +180,9 @@ public class Tutorial extends AppCompatActivity {
                 getActivity().finish();
             });
 
+            // Keep the bottom buttons above the navigation bar under edge-to-edge (Android 15+).
+            applySystemBarInsets(welcomeBinding.bottomButtons);
+
             return welcomeBinding.getRoot();
         }
 
@@ -185,10 +215,8 @@ public class Tutorial extends AppCompatActivity {
             BlendModeUtil.tintImageViewAsSrcAtop(
                     personalizeBinding.primaryColorPreview, Palette.getDefaultColor());
             personalizeBinding.header.setBackgroundColor(Palette.getDefaultColor());
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                final Window window = getActivity().getWindow();
-                window.setStatusBarColor(Palette.getDarkerColor(Palette.getDefaultColor()));
-            }
+            final Window window = getActivity().getWindow();
+            window.setStatusBarColor(Palette.getDarkerColor(Palette.getDefaultColor()));
 
             personalizeBinding.primaryColor.setOnClickListener(
                     v -> {
@@ -225,12 +253,11 @@ public class Tutorial extends AppCompatActivity {
                                     personalizeBinding.header.setBackgroundColor(
                                             choosemainBinding.picker2.getColor());
 
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                                        final Window window = getActivity().getWindow();
-                                        window.setStatusBarColor(
-                                                Palette.getDarkerColor(
-                                                        choosemainBinding.picker2.getColor()));
-                                    }
+                                    getActivity()
+                                            .getWindow()
+                                            .setStatusBarColor(
+                                                    Palette.getDarkerColor(
+                                                            choosemainBinding.picker2.getColor()));
                                 });
 
                         choosemainBinding.ok.setOnClickListener(
@@ -244,9 +271,9 @@ public class Tutorial extends AppCompatActivity {
                                     finishDialogLayout();
                                 });
 
-                        new AlertDialog.Builder(getContext())
+                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(getContext())
                                 .setView(choosemainBinding.getRoot())
-                                .show();
+                                );
                     });
 
             personalizeBinding.secondaryColor.setOnClickListener(
@@ -292,9 +319,9 @@ public class Tutorial extends AppCompatActivity {
                                     finishDialogLayout();
                                 });
 
-                        new AlertDialog.Builder(getActivity())
+                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
                                 .setView(accentBinding.getRoot())
-                                .show();
+                                );
                     });
 
             personalizeBinding.baseColor.setOnClickListener(
@@ -334,9 +361,9 @@ public class Tutorial extends AppCompatActivity {
                                             });
                         }
 
-                        new AlertDialog.Builder(getActivity())
+                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
                                 .setView(themesmallBindingRoot)
-                                .show();
+                                );
                     });
 
             personalizeBinding.done.setOnClickListener(v1 -> {
@@ -357,6 +384,11 @@ public class Tutorial extends AppCompatActivity {
                 Reddit.appRestart.edit().apply();
                 Reddit.forceRestart(getActivity(), false);
             });
+
+            // Keep the Done button and scrolling content above the navigation bar under
+            // edge-to-edge (Android 15+).
+            applySystemBarInsets(personalizeBinding.done);
+            applySystemBarInsets(personalizeBinding.personalizeScroll);
 
             return personalizeBinding.getRoot();
         }

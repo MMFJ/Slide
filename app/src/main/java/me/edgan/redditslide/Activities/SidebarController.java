@@ -12,39 +12,18 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
-
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.view.ContextThemeWrapper;
 import androidx.appcompat.widget.AppCompatCheckBox;
 import androidx.core.view.GravityCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
-
-import net.dean.jraw.ApiException;
-import net.dean.jraw.http.MultiRedditUpdateRequest;
-import net.dean.jraw.http.NetworkException;
-import net.dean.jraw.managers.AccountManager;
-import net.dean.jraw.managers.ModerationManager;
-import net.dean.jraw.managers.MultiRedditManager;
-import net.dean.jraw.models.FlairTemplate;
-import net.dean.jraw.models.MultiReddit;
-import net.dean.jraw.models.MultiSubreddit;
-import net.dean.jraw.models.Subreddit;
-import net.dean.jraw.models.UserRecord;
-import net.dean.jraw.paginators.Sorting;
-import net.dean.jraw.paginators.TimePeriod;
-import net.dean.jraw.paginators.UserRecordPaginator;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.ImageFlairs;
@@ -59,13 +38,30 @@ import me.edgan.redditslide.Views.SidebarLayout;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.ui.settings.SettingsSubAdapter;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LayoutUtils;
+import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialInputDialog;
+import me.edgan.redditslide.util.MaterialProgressDialog;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
 import me.edgan.redditslide.util.SortingUtil;
 import me.edgan.redditslide.util.StringUtil;
 import me.edgan.redditslide.util.SubmissionParser;
-import me.edgan.redditslide.util.LogUtil;
+import net.dean.jraw.ApiException;
+import net.dean.jraw.http.MultiRedditUpdateRequest;
+import net.dean.jraw.http.NetworkException;
+import net.dean.jraw.managers.AccountManager;
+import net.dean.jraw.managers.ModerationManager;
+import net.dean.jraw.managers.MultiRedditManager;
+import net.dean.jraw.models.FlairTemplate;
+import net.dean.jraw.models.MultiReddit;
+import net.dean.jraw.models.MultiSubreddit;
+import net.dean.jraw.models.Subreddit;
+import net.dean.jraw.models.UserRecord;
+import net.dean.jraw.paginators.Sorting;
+import net.dean.jraw.paginators.TimePeriod;
+import net.dean.jraw.paginators.UserRecordPaginator;
 
 public class SidebarController {
 
@@ -226,7 +222,7 @@ public class SidebarController {
                                     }
                                 };
 
-                            new AlertDialog.Builder(mainActivity)
+                            DialogUtil.showWithCardBackground(new AlertDialog.Builder(mainActivity)
                                 .setTitle(R.string.sorting_choose)
                                 .setSingleChoiceItems(SortingUtil.getSortingStrings(), sortid, l2)
                                 .setNegativeButton(
@@ -247,7 +243,7 @@ public class SidebarController {
 
                                         mainActivity.reloadSubs();
                                     })
-                                .show();
+                                );
                         }
                     }
                 );
@@ -274,12 +270,13 @@ public class SidebarController {
                             @Override
                             public void onClick(View v) {
                                 final Dialog d =
-                                    new MaterialDialog.Builder(mainActivity)
+                                    new MaterialProgressDialog.Builder(mainActivity)
                                         .title(R.string.sidebar_findingmods)
                                         .cancelable(true)
                                         .content(R.string.misc_please_wait)
                                         .progress(true, 100)
-                                        .show();
+                                        .show()
+                                        .getDialog();
                                 new AsyncTask<Void, Void, Void>() {
                                     ArrayList<UserRecord> mods;
 
@@ -308,27 +305,26 @@ public class SidebarController {
                                             names.add(rec.getFullName());
                                         }
                                         d.dismiss();
-                                        new MaterialDialog.Builder(mainActivity)
-                                            .title(mainActivity.getString(R.string.sidebar_submods, subreddit))
-                                            .items(names)
-                                            .itemsCallback(
-                                                new MaterialDialog.ListCallback() {
-                                                    @Override
-                                                    public void onSelection(MaterialDialog dialog, View itemView, int which, CharSequence text) {
-                                                        Intent i = new Intent(mainActivity, Profile.class);
-                                                        i.putExtra(Profile.EXTRA_PROFILE, names.get(which));
-                                                        mainActivity.startActivity(i);
-                                                    }
+                                        new MaterialAlertDialogBuilder(
+                                                        new ContextThemeWrapper(
+                                                                mainActivity,
+                                                                new ColorPreferences(mainActivity)
+                                                                        .getFontStyle()
+                                                                        .getBaseId()))
+                                            .setTitle(mainActivity.getString(R.string.sidebar_submods, subreddit))
+                                            .setItems(
+                                                names.toArray(new CharSequence[0]),
+                                                (dialog, which) -> {
+                                                    Intent i = new Intent(mainActivity, Profile.class);
+                                                    i.putExtra(Profile.EXTRA_PROFILE, names.get(which));
+                                                    mainActivity.startActivity(i);
                                                 })
-                                            .positiveText(R.string.btn_message)
-                                            .onPositive(
-                                                new MaterialDialog.SingleButtonCallback() {
-                                                    @Override
-                                                    public void onClick(@NonNull MaterialDialog  dialog, @NonNull DialogAction which) {
-                                                        Intent i = new Intent(mainActivity, SendMessage.class);
-                                                        i.putExtra(SendMessage.EXTRA_NAME, "/r/" + subreddit);
-                                                        mainActivity.startActivity(i);
-                                                    }
+                                            .setPositiveButton(
+                                                R.string.btn_message,
+                                                (dialog, which) -> {
+                                                    Intent i = new Intent(mainActivity, SendMessage.class);
+                                                    i.putExtra(SendMessage.EXTRA_NAME, "/r/" + subreddit);
+                                                    mainActivity.startActivity(i);
                                                 })
                                             .show();
                                     }
@@ -394,25 +390,28 @@ public class SidebarController {
                                         new View.OnClickListener() {
                                             @Override
                                             public void onClick(View v) {
-                                                new MaterialDialog.Builder(mainActivity)
-                                                    .items(flairText)
-                                                    .title(R.string.sidebar_select_flair)
-                                                    .itemsCallback(
-                                                        new MaterialDialog.ListCallback() {
+                                                new MaterialAlertDialogBuilder(
+                                                        new ContextThemeWrapper(
+                                                                mainActivity,
+                                                                new ColorPreferences(mainActivity).getFontStyle().getBaseId()))
+                                                    .setTitle(R.string.sidebar_select_flair)
+                                                    .setItems(
+                                                        flairText.toArray(new CharSequence[0]),
+                                                        new DialogInterface.OnClickListener() {
                                                             @Override
-                                                            public void onSelection(
-                                                                    MaterialDialog dialog, View itemView, int which, CharSequence text) {
+                                                            public void onClick(
+                                                                    DialogInterface listDialog, int which) {
                                                                 final FlairTemplate t = flairs.get(which);
                                                                 if (t.isTextEditable()) {
-                                                                    new MaterialDialog.Builder(mainActivity)
+                                                                    new MaterialInputDialog.Builder(mainActivity)
                                                                         .title(R.string.sidebar_select_flair_text)
-                                                                        .input(mainActivity.getString(R.string.mod_flair_hint), t.getText(), true, (dialog1, input) -> {})
+                                                                        .input(mainActivity.getString(R.string.mod_flair_hint), t.getText(), null)
                                                                         .positiveText(R.string.btn_set)
                                                                         .onPositive(
-                                                                            new MaterialDialog.SingleButtonCallback() {
+                                                                            new MaterialInputDialog.ButtonCallback() {
                                                                                 @Override
                                                                                 public
-                                                                                void onClick(MaterialDialog dialog, DialogAction which) {
+                                                                                void onClick(MaterialInputDialog dialog) {
                                                                                     final String flair = dialog.getInputEditText().getText().toString();
                                                                                     new AsyncTask<Void, Void, Boolean>() {
                                                                                         @Override
@@ -574,10 +573,10 @@ public class SidebarController {
                 }
             };
 
-        new AlertDialog.Builder(mainActivity)
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(mainActivity)
             .setTitle(R.string.sorting_choose)
             .setSingleChoiceItems(SortingUtil.getSortingTimesStrings(), SortingUtil.getSortingTimeId(""), l2)
-            .show();
+            );
     }
 
     public void doSubSidebarNoLoad(final String subreddit) {
@@ -681,13 +680,16 @@ public class SidebarController {
 
                                 @Override
                                 protected void onPostExecute(Void aVoid) {
-                                    new MaterialDialog.Builder(mainActivity)
-                                        .title(mainActivity.getString(R.string.multi_add_to, subreddit.getDisplayName()))
-                                        .items(multis.keySet())
-                                        .itemsCallback(
-                                            new MaterialDialog.ListCallback() {
+                                    new MaterialAlertDialogBuilder(
+                                            new ContextThemeWrapper(
+                                                    mainActivity,
+                                                    new ColorPreferences(mainActivity).getFontStyle().getBaseId()))
+                                        .setTitle(mainActivity.getString(R.string.multi_add_to, subreddit.getDisplayName()))
+                                        .setItems(
+                                            multis.keySet().toArray(new CharSequence[0]),
+                                            new DialogInterface.OnClickListener() {
                                                 @Override
-                                                public void onSelection(MaterialDialog dialog, View itemView, final int which, CharSequence text) {
+                                                public void onClick(DialogInterface dialog, final int which) {
                                                     new AsyncTask<Void, Void, Void>() {
                                                         @Override
                                                         protected Void doInBackground(Void... params) {
@@ -781,36 +783,26 @@ public class SidebarController {
                                         && !sub.contains("+")
                                         && !sub.contains(".")
                                         && !sub.contains("/m/")) {
-                                    new AlertDialog.Builder(mainActivity)
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mainActivity)
                                         .setTitle(mainActivity.getString(R.string.sub_post_notifs_title, sub))
                                         .setMessage(R.string.sub_post_notifs_msg)
                                         .setPositiveButton(
                                             R.string.btn_ok,
                                             (dialog, which) -> {
                                                 final int[] selectedThreshold = {0}; // Default to index 0 ("1")
-                                                new MaterialDialog.Builder(mainActivity)
-                                                    .title(R.string.sub_post_notifs_threshold)
-                                                    .items(
+                                                new MaterialAlertDialogBuilder(
+                                                        new ContextThemeWrapper(
+                                                                mainActivity,
+                                                                new ColorPreferences(mainActivity).getFontStyle().getBaseId()))
+                                                    .setTitle(R.string.sub_post_notifs_threshold)
+                                                    .setSingleChoiceItems(
                                                         new String[] {
                                                             "1", "5", "10",
                                                             "20", "40", "50"
-                                                        }
-                                                    )
-                                                    .alwaysCallSingleChoiceCallback()
-                                                    .itemsCallbackSingleChoice(
+                                                        },
                                                         0,
-                                                        new MaterialDialog
-                                                                .ListCallbackSingleChoice() {
-                                                            @Override
-                                                            public boolean onSelection(MaterialDialog dialog, View itemView, int which, CharSequence text) {
-                                                                selectedThreshold[0] = which;
-                                                                return true;
-                                                            }
-                                                        }
-                                                    )
-                                                    .positiveText(R.string.btn_ok)
-                                                    .negativeText(R.string.btn_cancel)
-                                                    .onPositive((dialog1, which1) -> {
+                                                        (selDialog, selWhich) -> selectedThreshold[0] = selWhich)
+                                                    .setPositiveButton(R.string.btn_ok, (dialog1, which1) -> {
                                                         String[] thresholds = new String[] {
                                                             "1", "5", "10",
                                                             "20", "40", "50"
@@ -824,10 +816,10 @@ public class SidebarController {
                                                             StringUtil.arrayToString(subs)
                                                         ).commit();
                                                     })
-                                                    .onNegative((dialog1, which1) -> {
+                                                    .setNegativeButton(R.string.btn_cancel, (dialog1, which1) -> {
                                                         notifyStateCheckBox.setChecked(false);
                                                     })
-                                                    .cancelable(true)
+                                                    .setCancelable(true)
                                                     .show();
                                             })
                                         .setNegativeButton(R.string.btn_cancel, null)
@@ -836,7 +828,7 @@ public class SidebarController {
                                             (dialog, which) -> notifyStateCheckBox.setChecked(false)
                                         )
                                         .setOnCancelListener(dialog -> notifyStateCheckBox.setChecked(false))
-                                        .show();
+                                        );
                                 } else {
                                     notifyStateCheckBox.setChecked(false);
                                     Toast.makeText(mainActivity, R.string.sub_post_notifs_err, Toast.LENGTH_SHORT).show();
@@ -862,7 +854,7 @@ public class SidebarController {
                 new View.OnClickListener() {
                     private void doSubscribe() {
                         if (Authentication.isLoggedIn) {
-                            new AlertDialog.Builder(mainActivity)
+                            DialogUtil.showWithCardBackground(new AlertDialog.Builder(mainActivity)
                                 .setTitle(mainActivity.getString(R.string.subscribe_to, subreddit.getDisplayName()))
                                 .setPositiveButton(
                                     R.string.reorder_add_subscribe,
@@ -871,7 +863,7 @@ public class SidebarController {
                                         public void onPostExecute(
                                                 Boolean success) {
                                             if (!success) { // If subreddit was removed from account or not
-                                                new AlertDialog.Builder(mainActivity)
+                                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(mainActivity)
                                                     .setTitle(R.string.force_change_subscription)
                                                     .setMessage(R.string.force_change_subscription_desc)
                                                     .setPositiveButton(
@@ -885,8 +877,7 @@ public class SidebarController {
                                                             LayoutUtils.showSnackbar(s);
                                                         })
                                                     .setNegativeButton(R.string.btn_no, null)
-                                                    .setCancelable(false)
-                                                    .show();
+                                                    .setCancelable(false));
                                             } else {
                                                 mainActivity.sidebarActions.changeSubscription(
                                                         subreddit, true);
@@ -912,7 +903,7 @@ public class SidebarController {
                                             LayoutUtils.showSnackbar(s);
                                         })
                                 .setNegativeButton(R.string.btn_cancel, null)
-                                .show();
+                                );
                         } else {
                             mainActivity.sidebarActions.changeSubscription(subreddit, true);
                         }
@@ -920,7 +911,7 @@ public class SidebarController {
 
                     private void doUnsubscribe() {
                         if (Authentication.didOnline) {
-                            new AlertDialog.Builder(mainActivity)
+                            DialogUtil.showWithCardBackground(new AlertDialog.Builder(mainActivity)
                                 .setTitle(mainActivity.getString(R.string.unsubscribe_from, subreddit.getDisplayName()))
                                 .setPositiveButton(
                                     R.string.reorder_remove_unsubscribe,
@@ -928,7 +919,7 @@ public class SidebarController {
                                         @Override
                                         public void onPostExecute(Boolean success) {
                                             if (!success) { // If subreddit was remove from account or not
-                                                new AlertDialog.Builder(mainActivity)
+                                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(mainActivity)
                                                     .setTitle(R.string.force_change_subscription)
                                                     .setMessage(R.string.force_change_subscription_desc)
                                                     .setPositiveButton(R.string.btn_yes,
@@ -943,8 +934,7 @@ public class SidebarController {
                                                         }
                                                     )
                                                     .setNegativeButton(R.string.btn_no, null)
-                                                    .setCancelable(false)
-                                                    .show();
+                                                    .setCancelable(false));
                                             } else {
                                                 mainActivity.sidebarActions.changeSubscription(subreddit, false);
                                             }
@@ -969,7 +959,7 @@ public class SidebarController {
                                     }
                                 )
                                 .setNegativeButton(R.string.btn_cancel, null)
-                                .show();
+                                );
                         } else {
                             mainActivity.sidebarActions.changeSubscription(subreddit, false);
                         }

@@ -7,18 +7,9 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.util.Log;
-
 import androidx.appcompat.app.AlertDialog;
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.google.android.material.snackbar.Snackbar;
 import com.jakewharton.processphoenix.ProcessPhoenix;
-
-import me.edgan.redditslide.Activities.BaseActivityAnim;
-import me.edgan.redditslide.R;
-import me.edgan.redditslide.util.LayoutUtils;
-import me.edgan.redditslide.util.StorageUtil;
-import me.edgan.redditslide.util.MiscUtil;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -31,6 +22,14 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import me.edgan.redditslide.Activities.BaseActivityAnim;
+import me.edgan.redditslide.R;
+import me.edgan.redditslide.util.DialogUtil;
+import me.edgan.redditslide.util.KVStoreBackup;
+import me.edgan.redditslide.util.LayoutUtils;
+import me.edgan.redditslide.util.MaterialProgressDialog;
+import me.edgan.redditslide.util.MiscUtil;
+import me.edgan.redditslide.util.StorageUtil;
 
 /**
  * Handles local (SAF-based) backup and restore of app settings, and stripped of all Google Drive
@@ -45,7 +44,7 @@ public class SettingsBackup extends BaseActivityAnim {
     private static final int RC_CREATE_DOCUMENT = 103;
 
     // Progress dialog
-    private MaterialDialog progress;
+    private MaterialProgressDialog progress;
 
     // We’ll store the final URI of the newly created local backup file so we can offer to "View" it.
     private Uri localBackupFileUri = null;
@@ -75,12 +74,12 @@ public class SettingsBackup extends BaseActivityAnim {
 
     /** Ask user for confirmation, then launch SAF file picker to create backup file. */
     private void showBackupToDirDialog() {
-        new AlertDialog.Builder(this)
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(this)
                 .setTitle(R.string.backup_question)
                 .setPositiveButton(R.string.btn_ok, (dialog, which) -> launchCreateBackupFile())
                 .setNeutralButton(R.string.btn_cancel, null)
                 .setCancelable(false)
-                .show();
+                );
     }
 
     /** Launch SAF ACTION_CREATE_DOCUMENT to let the user choose where to save the backup. */
@@ -105,7 +104,7 @@ public class SettingsBackup extends BaseActivityAnim {
     /** Performs the actual local backup writing to the user-chosen file URI. */
     private void backupToFile(Uri fileUri) {
         progress =
-                new MaterialDialog.Builder(SettingsBackup.this)
+                new MaterialProgressDialog.Builder(SettingsBackup.this)
                         .title(R.string.backup_backing_up)
                         .content(R.string.misc_please_wait)
                         .cancelable(false)
@@ -172,6 +171,16 @@ public class SettingsBackup extends BaseActivityAnim {
                         }
                     }
 
+                    // KVStore-backed collections (Read Later, Local Saved) live outside
+                    // shared_prefs, so back them up as an extra tagged entry.
+                    String kvData = KVStoreBackup.export();
+                    if (!kvData.isEmpty()) {
+                        bw.write("<START" + KVStoreBackup.SENTINEL + ">");
+                        bw.write(kvData);
+                        bw.write("END>");
+                        Log.d(TAG, "Backed up KVStore collections locally.");
+                    }
+
                     bw.close();
                     return true;
 
@@ -194,7 +203,7 @@ public class SettingsBackup extends BaseActivityAnim {
                 }
 
                 // Show success dialog with a "View" button
-                new AlertDialog.Builder(SettingsBackup.this)
+                DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsBackup.this)
                         .setTitle(R.string.backup_complete)
                         .setMessage(R.string.backup_saved_downloads)
                         .setPositiveButton(
@@ -228,8 +237,7 @@ public class SettingsBackup extends BaseActivityAnim {
                                     }
                                 })
                         .setNegativeButton(R.string.btn_close, null)
-                        .setCancelable(false)
-                        .show();
+                        .setCancelable(false));
             }
         }.execute();
     }
@@ -285,7 +293,7 @@ public class SettingsBackup extends BaseActivityAnim {
 
             // Start async restore
             progress =
-                    new MaterialDialog.Builder(this)
+                    new MaterialProgressDialog.Builder(this)
                             .title(R.string.backup_restoring)
                             .content(R.string.misc_please_wait)
                             .cancelable(false)
@@ -345,7 +353,7 @@ public class SettingsBackup extends BaseActivityAnim {
                 progress.dismiss();
             }
             if (success) {
-                new AlertDialog.Builder(SettingsBackup.this)
+                DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsBackup.this)
                         .setTitle(R.string.backup_restore_settings)
                         .setMessage(R.string.backup_restarting)
                         .setOnDismissListener(
@@ -366,7 +374,7 @@ public class SettingsBackup extends BaseActivityAnim {
                                     ProcessPhoenix.triggerRebirth(SettingsBackup.this);
                                 })
                         .setCancelable(false)
-                        .show();
+                        );
             } else {
                 Log.w(TAG, "Restore from local file failed or invalid file.");
                 showErrorDialog(R.string.err_not_valid_backup, R.string.err_not_valid_backup_msg);
@@ -405,6 +413,12 @@ public class SettingsBackup extends BaseActivityAnim {
                 // Extract file content
                 String fileContent = innerFile.substring(innerFile.indexOf(">", startIndex) + 1);
 
+                if (KVStoreBackup.SENTINEL.equals(name)) {
+                    KVStoreBackup.restore(fileContent);
+                    Log.d(TAG, "Restored KVStore collections from backup.");
+                    continue;
+                }
+
                 File newF = new File(getApplicationInfo().dataDir + "/shared_prefs/" + name);
                 Log.d(
                         TAG,
@@ -423,11 +437,11 @@ public class SettingsBackup extends BaseActivityAnim {
 
     /** Show an error dialog with the specified title and message. */
     private void showErrorDialog(int titleResId, int messageResId) {
-        new AlertDialog.Builder(this)
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(this)
                 .setTitle(titleResId)
                 .setMessage(messageResId)
                 .setPositiveButton(R.string.btn_ok, null)
                 .setCancelable(false)
-                .show();
+                );
     }
 }

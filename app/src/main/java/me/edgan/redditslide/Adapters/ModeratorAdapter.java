@@ -1,8 +1,6 @@
 package me.edgan.redditslide.Adapters;
 
-/** Created by ccrama on 3/22/2015. */
 import android.app.Activity;
-import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -23,56 +21,45 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
-import com.cocosw.bottomsheet.BottomSheet;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.android.material.snackbar.Snackbar;
-
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.Activities.Profile;
-import me.edgan.redditslide.Activities.SubredditView;
-import me.edgan.redditslide.Activities.Website;
 import me.edgan.redditslide.Authentication;
-import me.edgan.redditslide.Hidden;
 import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.R;
-import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SubmissionViews.PopulateSubmissionViewHolder;
 import me.edgan.redditslide.Toolbox.ToolboxUI;
 import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.Views.CreateCardView;
-import me.edgan.redditslide.Views.RoundedBackgroundSpan;
 import me.edgan.redditslide.Visuals.FontPreferences;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.markdown.MarkdownImages;
 import me.edgan.redditslide.util.BlendModeUtil;
+import me.edgan.redditslide.util.BottomSheet;
 import me.edgan.redditslide.util.CompatUtil;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LayoutUtils;
-import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialInputDialog;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
 import me.edgan.redditslide.util.SubmissionParser;
 import me.edgan.redditslide.util.TimeUtils;
-
 import net.dean.jraw.ApiException;
 import net.dean.jraw.managers.AccountManager;
 import net.dean.jraw.managers.ModerationManager;
 import net.dean.jraw.models.Comment;
 import net.dean.jraw.models.DistinguishedStatus;
-import net.dean.jraw.models.PublicContribution;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.VoteDirection;
-
-import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 
 public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
         implements BaseAdapter {
@@ -166,218 +153,14 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
                     new View.OnLongClickListener() {
                         @Override
                         public boolean onLongClick(View v) {
-                            LayoutInflater inflater = mContext.getLayoutInflater();
-                            final View dialoglayout = inflater.inflate(R.layout.postmenu, null);
-                            final TextView title = dialoglayout.findViewById(R.id.title);
-                            title.setText(CompatUtil.fromHtml(submission.getTitle()));
-
-                            ((TextView) dialoglayout.findViewById(R.id.userpopup))
-                                    .setText("/u/" + submission.getAuthor());
-                            ((TextView) dialoglayout.findViewById(R.id.subpopup))
-                                    .setText("/r/" + submission.getSubredditName());
-                            dialoglayout
-                                    .findViewById(R.id.sidebar)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    Intent i = new Intent(mContext, Profile.class);
-                                                    i.putExtra(
-                                                            Profile.EXTRA_PROFILE,
-                                                            submission.getAuthor());
-                                                    mContext.startActivity(i);
-                                                }
-                                            });
-
-                            dialoglayout
-                                    .findViewById(R.id.wiki)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    Intent i =
-                                                            new Intent(
-                                                                    mContext, SubredditView.class);
-                                                    i.putExtra(
-                                                            SubredditView.EXTRA_SUBREDDIT,
-                                                            submission.getSubredditName());
-                                                    mContext.startActivity(i);
-                                                }
-                                            });
-
-                            dialoglayout
-                                    .findViewById(R.id.save)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    if (submission.isSaved()) {
-                                                        ((TextView)
-                                                                        dialoglayout.findViewById(
-                                                                                R.id.savedtext))
-                                                                .setText(R.string.submission_save);
-                                                    } else {
-                                                        ((TextView)
-                                                                        dialoglayout.findViewById(
-                                                                                R.id.savedtext))
-                                                                .setText(
-                                                                        R.string
-                                                                                .submission_post_saved);
-                                                    }
-                                                    new AsyncSave(mContext, firstHold.itemView)
-                                                            .execute(submission);
-                                                }
-                                            });
-                            dialoglayout.findViewById(R.id.copy).setVisibility(View.GONE);
-                            if (submission.isSaved()) {
-                                ((TextView) dialoglayout.findViewById(R.id.savedtext))
-                                        .setText(R.string.submission_post_saved);
-                            }
-                            dialoglayout
-                                    .findViewById(R.id.gild)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    String urlString =
-                                                            "https://reddit.com"
-                                                                    + submission.getPermalink();
-                                                    Intent i = new Intent(mContext, Website.class);
-                                                    i.putExtra(LinkUtil.EXTRA_URL, urlString);
-                                                    mContext.startActivity(i);
-                                                }
-                                            });
-                            dialoglayout
-                                    .findViewById(R.id.share)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    if (submission.isSelfPost()) {
-                                                        if (SettingValues.shareLongLink) {
-                                                            Reddit.defaultShareText(
-                                                                    "",
-                                                                    "https://reddit.com"
-                                                                            + submission
-                                                                                    .getPermalink(),
-                                                                    mContext);
-                                                        } else {
-                                                            Reddit.defaultShareText(
-                                                                    "",
-                                                                    "https://reddit.com/comments/"
-                                                                            + submission.getId(),
-                                                                    mContext);
-                                                        }
-                                                    } else {
-                                                        new BottomSheet.Builder(mContext)
-                                                                .title(
-                                                                        R.string
-                                                                                .submission_share_title)
-                                                                .grid()
-                                                                .sheet(R.menu.share_menu)
-                                                                .listener(
-                                                                        new DialogInterface
-                                                                                .OnClickListener() {
-                                                                            @Override
-                                                                            public void onClick(
-                                                                                    DialogInterface
-                                                                                            dialog,
-                                                                                    int which) {
-                                                                                switch (which) {
-                                                                                    case R.id
-                                                                                            .reddit_url:
-                                                                                        if (SettingValues
-                                                                                                .shareLongLink) {
-                                                                                            Reddit
-                                                                                                    .defaultShareText(
-                                                                                                            submission
-                                                                                                                    .getTitle(),
-                                                                                                            "https://reddit.com"
-                                                                                                                    + submission
-                                                                                                                            .getPermalink(),
-                                                                                                            mContext);
-                                                                                        } else {
-                                                                                            Reddit
-                                                                                                    .defaultShareText(
-                                                                                                            submission
-                                                                                                                    .getTitle(),
-                                                                                                            "https://reddit.com/comments/"
-                                                                                                                    + submission
-                                                                                                                            .getId(),
-                                                                                                            mContext);
-                                                                                        }
-                                                                                        break;
-                                                                                    case R.id
-                                                                                            .link_url:
-                                                                                        Reddit
-                                                                                                .defaultShareText(
-                                                                                                        submission
-                                                                                                                .getTitle(),
-                                                                                                        submission
-                                                                                                                .getUrl(),
-                                                                                                        mContext);
-                                                                                        break;
-                                                                                }
-                                                                            }
-                                                                        })
-                                                                .show();
-                                                    }
-                                                }
-                                            });
-                            if (!Authentication.isLoggedIn || !Authentication.didOnline) {
-                                dialoglayout.findViewById(R.id.save).setVisibility(View.GONE);
-                                dialoglayout.findViewById(R.id.gild).setVisibility(View.GONE);
-                            }
-                            title.setBackgroundColor(
-                                    Palette.getColor(submission.getSubredditName()));
-
-                            final AlertDialog.Builder builder =
-                                    new AlertDialog.Builder(mContext).setView(dialoglayout);
-                            final Dialog d = builder.show();
-                            dialoglayout
-                                    .findViewById(R.id.hide)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    final int pos =
-                                                            dataSet.posts.indexOf(submission);
-                                                    final PublicContribution old =
-                                                            dataSet.posts.get(pos);
-                                                    dataSet.posts.remove(submission);
-                                                    notifyItemRemoved(pos + 1);
-                                                    d.dismiss();
-
-                                                    Hidden.setHidden(old);
-
-                                                    Snackbar s =
-                                                            Snackbar.make(
-                                                                            listView,
-                                                                            R.string
-                                                                                    .submission_info_hidden,
-                                                                            Snackbar.LENGTH_LONG)
-                                                                    .setAction(
-                                                                            R.string.btn_undo,
-                                                                            new View
-                                                                                    .OnClickListener() {
-                                                                                @Override
-                                                                                public void onClick(
-                                                                                        View v) {
-                                                                                    dataSet.posts
-                                                                                            .add(
-                                                                                                    pos,
-                                                                                                    old);
-                                                                                    notifyItemInserted(
-                                                                                            pos
-                                                                                                    + 1);
-                                                                                    Hidden
-                                                                                            .undoHidden(
-                                                                                                    old);
-                                                                                }
-                                                                            });
-                                                    LayoutUtils.showSnackbar(s);
-                                                }
-                                            });
+                            SubmissionAdapterHelper.showSubmissionLongPressDialog(
+                                    mContext,
+                                    submission,
+                                    CompatUtil.fromHtml(submission.getTitle()),
+                                    firstHold.itemView,
+                                    ModeratorAdapter.this,
+                                    dataSet.posts,
+                                    listView);
                             return true;
                         }
                     });
@@ -415,50 +198,8 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
             final Comment comment = (Comment) dataSet.posts.get(i);
 
             SpannableStringBuilder author = new SpannableStringBuilder(comment.getAuthor());
-            final int authorcolor = Palette.getFontColorUser(comment.getAuthor());
 
-            if (comment.getDistinguishedStatus() == DistinguishedStatus.ADMIN) {
-                author.replace(0, author.length(), " " + comment.getAuthor() + " ");
-                author.setSpan(
-                        new RoundedBackgroundSpan(
-                                mContext, android.R.color.white, R.color.md_red_300, false),
-                        0,
-                        author.length(),
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            } else if (comment.getDistinguishedStatus() == DistinguishedStatus.SPECIAL) {
-                author.replace(0, author.length(), " " + comment.getAuthor() + " ");
-                author.setSpan(
-                        new RoundedBackgroundSpan(
-                                mContext, android.R.color.white, R.color.md_red_500, false),
-                        0,
-                        author.length(),
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            } else if (comment.getDistinguishedStatus() == DistinguishedStatus.MODERATOR) {
-                author.replace(0, author.length(), " " + comment.getAuthor() + " ");
-                author.setSpan(
-                        new RoundedBackgroundSpan(
-                                mContext, android.R.color.white, R.color.md_green_300, false),
-                        0,
-                        author.length(),
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            } else if (Authentication.name != null
-                    && comment.getAuthor()
-                            .toLowerCase(Locale.ENGLISH)
-                            .equals(Authentication.name.toLowerCase(Locale.ENGLISH))) {
-                author.replace(0, author.length(), " " + comment.getAuthor() + " ");
-                author.setSpan(
-                        new RoundedBackgroundSpan(
-                                mContext, android.R.color.white, R.color.md_deep_orange_300, false),
-                        0,
-                        author.length(),
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            } else if (authorcolor != 0) {
-                author.setSpan(
-                        new ForegroundColorSpan(authorcolor),
-                        0,
-                        author.length(),
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
+            CommentAdapterHelper.styleAuthorBadge(mContext, author, comment, null);
 
             ToolboxUI.appendToolboxNote(
                     mContext, author, comment.getSubredditName(), comment.getAuthor());
@@ -563,12 +304,21 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
             }
 
             holder.time.setText(titleString);
-            setViews(
-                    SubmissionParser.replaceProcessingImgPlaceholders(
-                            comment.getDataNode().get("body_html").asText(),
-                            comment.getDataNode()),
-                    comment.getSubredditName(),
-                    holder);
+            if (SettingValues.markdownNewReddit) {
+                setViewsMarkdown(
+                        comment.getDataNode().get("body").asText(),
+                        comment.getDataNode().path("body_html").asText(""),
+                        comment.getDataNode(),
+                        comment.getSubredditName(),
+                        holder);
+            } else {
+                setViews(
+                        SubmissionParser.replaceProcessingImgPlaceholders(
+                                comment.getDataNode().path("body_html").asText(""),
+                                comment.getDataNode()),
+                        comment.getSubredditName(),
+                        holder);
+            }
 
             ((TextView) holder.gild).setText("");
             if (!SettingValues.hideCommentAwards
@@ -637,6 +387,17 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
         }
     }
 
+    /** New Reddit-style rendering of a mod-queue comment body via Markwon. Issue #179. */
+    private void setViewsMarkdown(
+            String rawMarkdown,
+            String bodyHtml,
+            JsonNode dataNode,
+            String subredditName,
+            ProfileCommentViewHolder holder) {
+        MarkdownImages.renderInto(
+                holder.content, holder.overflow, subredditName, rawMarkdown, bodyHtml, dataNode);
+    }
+
     private void setViews(String rawHTML, String subredditName, ProfileCommentViewHolder holder) {
         if (rawHTML.isEmpty()) {
             return;
@@ -687,36 +448,18 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
 
         // Initialize drawables
         int color = ta.getColor(0, Color.WHITE);
-        final Drawable profile = mContext.getResources().getDrawable(R.drawable.ic_account_circle);
-        final Drawable report = mContext.getResources().getDrawable(R.drawable.ic_report);
-        final Drawable approve = mContext.getResources().getDrawable(R.drawable.ic_thumb_up);
-        final Drawable nsfw = mContext.getResources().getDrawable(R.drawable.ic_visibility_off);
-        final Drawable pin = mContext.getResources().getDrawable(R.drawable.ic_bookmark_border);
-        final Drawable distinguish = mContext.getResources().getDrawable(R.drawable.ic_star);
-        final Drawable remove = mContext.getResources().getDrawable(R.drawable.ic_close);
-        final Drawable ban = mContext.getResources().getDrawable(R.drawable.ic_gavel);
-        final Drawable spam = mContext.getResources().getDrawable(R.drawable.ic_flag);
-        final Drawable note = mContext.getResources().getDrawable(R.drawable.ic_note);
-        final Drawable removeReason =
-                mContext.getResources().getDrawable(R.drawable.ic_announcement);
-        final Drawable lock = mContext.getResources().getDrawable(R.drawable.ic_lock);
-
-        // Tint drawables
-        final List<Drawable> drawableSet =
-                Arrays.asList(
-                        profile,
-                        report,
-                        approve,
-                        nsfw,
-                        distinguish,
-                        remove,
-                        pin,
-                        ban,
-                        spam,
-                        note,
-                        removeReason,
-                        lock);
-        BlendModeUtil.tintDrawablesAsSrcAtop(drawableSet, color);
+        final Drawable profile = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_account_circle, color);
+        final Drawable report = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_report, color);
+        final Drawable approve = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_thumb_up, color);
+        final Drawable nsfw = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_visibility_off, color);
+        final Drawable pin = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_bookmark_border, color);
+        final Drawable distinguish = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_star, color);
+        final Drawable remove = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_close, color);
+        final Drawable ban = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_gavel, color);
+        final Drawable spam = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_flag, color);
+        final Drawable note = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_note, color);
+        final Drawable removeReason = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_announcement, color);
+        final Drawable lock = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_lock, color);
 
         ta.recycle();
 
@@ -808,11 +551,11 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
                                                         LayoutUtils.showSnackbar(s);
 
                                                     } else {
-                                                        new AlertDialog.Builder(mContext)
+                                                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                                                                 .setTitle(R.string.err_general)
                                                                 .setMessage(
                                                                         R.string.err_retry_later)
-                                                                .show();
+                                                                );
                                                     }
                                                 }
                                             });
@@ -860,10 +603,10 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
                             .show();
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                             .setTitle(R.string.err_general)
                             .setMessage(R.string.err_retry_later)
-                            .show();
+                            );
                 }
             }
 
@@ -894,10 +637,10 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
                                     Snackbar.LENGTH_LONG);
                     LayoutUtils.showSnackbar(s);
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                             .setTitle(R.string.err_general)
                             .setMessage(R.string.err_retry_later)
-                            .show();
+                            );
                 }
             }
 
@@ -929,10 +672,10 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
                                     Snackbar.LENGTH_LONG);
                     LayoutUtils.showSnackbar(s);
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                             .setTitle(R.string.err_general)
                             .setMessage(R.string.err_retry_later)
-                            .show();
+                            );
                 }
             }
 
@@ -968,10 +711,10 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
                     LayoutUtils.showSnackbar(s);
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                             .setTitle(R.string.err_general)
                             .setMessage(R.string.err_retry_later)
-                            .show();
+                            );
                 }
             }
 
@@ -997,28 +740,22 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
      */
     public static void doRemoveCommentReason(
             final Context mContext, final ProfileCommentViewHolder holder, final Comment comment) {
-        new MaterialDialog.Builder(mContext)
+        new MaterialInputDialog.Builder(mContext)
                 .title(R.string.mod_remove_title)
                 .positiveText(R.string.btn_remove)
-                .alwaysCallInputCallback()
+                .inputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
                 .input(
                         mContext.getString(R.string.mod_remove_hint),
                         mContext.getString(R.string.mod_remove_template),
-                        false,
-                        (dialog, input) -> {})
-                .inputType(InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+                        null)
                 .neutralText(R.string.mod_remove_insert_draft)
                 .onPositive(
-                        new MaterialDialog.SingleButtonCallback() {
-                            @Override
-                            public void onClick(final MaterialDialog dialog, DialogAction which) {
+                        dialog ->
                                 removeCommentReason(
                                         comment,
                                         mContext,
                                         holder,
-                                        dialog.getInputEditText().getText().toString());
-                            }
-                        })
+                                        dialog.getInputEditText().getText().toString()))
                 .negativeText(R.string.btn_cancel)
                 .show();
     }
@@ -1049,10 +786,10 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
                     LayoutUtils.showSnackbar(s);
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                             .setTitle(R.string.err_general)
                             .setMessage(R.string.err_retry_later)
-                            .show();
+                            );
                 }
             }
 
@@ -1091,10 +828,10 @@ public class ModeratorAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
                                     Snackbar.LENGTH_LONG);
                     LayoutUtils.showSnackbar(s);
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                             .setTitle(R.string.err_general)
                             .setMessage(R.string.err_retry_later)
-                            .show();
+                            );
                 }
             }
 

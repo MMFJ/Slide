@@ -1,16 +1,23 @@
 package me.edgan.redditslide.Adapters;
 
 import android.os.AsyncTask;
-
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-
 import com.fasterxml.jackson.databind.JsonNode;
-
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Fragments.CommentPage;
 import me.edgan.redditslide.LastComments;
+import me.edgan.redditslide.Reddit;
+import me.edgan.redditslide.util.CommentImageUtil;
 import me.edgan.redditslide.util.NetworkUtil;
-
+import me.edgan.redditslide.util.SubmissionParser;
 import net.dean.jraw.http.RestResponse;
 import net.dean.jraw.http.SubmissionRequest;
 import net.dean.jraw.models.CommentNode;
@@ -18,14 +25,6 @@ import net.dean.jraw.models.CommentSort;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.meta.SubmissionSerializer;
 import net.dean.jraw.util.JrawUtils;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.TreeMap;
 
 /** Created by ccrama on 9/17/2015. */
 public class SubmissionComments {
@@ -271,11 +270,39 @@ public class SubmissionComments {
                     comments.add(new MoreChildItem(baseComment, baseComment.getMoreChildren()));
                 }
 
+                // Download every inline comment image into the shared cache BEFORE the comments are
+                // shown (we're on a background thread), so each image is already cached and renders
+                // in place with its comment instead of popping in afterward.
+                preloadCommentImages(comments);
+
                 return comments;
             } catch (Exception e) {
                 // Todo reauthenticate
             }
             return null;
+        }
+
+        private void preloadCommentImages(List<CommentObject> built) {
+            try {
+                LinkedHashSet<String> urls = new LinkedHashSet<>();
+                for (CommentObject o : built) {
+                    if (o == null || !o.isComment() || o.comment == null) {
+                        continue;
+                    }
+                    try {
+                        JsonNode dataNode = o.comment.getComment().getDataNode();
+                        String html =
+                                SubmissionParser.replaceProcessingImgPlaceholders(
+                                        dataNode.path("body_html").asText(""), dataNode);
+                        // Use the SAME extractor the renderer uses so the cache keys match exactly.
+                        urls.addAll(SubmissionParser.imageUrlsFor(html));
+                    } catch (Exception ignored) {
+                        // Skip comments we can't parse; they'll still load on bind.
+                    }
+                }
+                CommentImageUtil.preloadBlocking(Reddit.getAppContext(), urls);
+            } catch (Exception ignored) {
+            }
         }
     }
 }

@@ -3,34 +3,28 @@ package me.edgan.redditslide.ImgurAlbum;
 import android.content.Context;
 import android.net.Uri;
 import android.os.AsyncTask;
-
-import com.afollestad.materialdialogs.MaterialDialog;
-
+import java.io.File;
+import java.io.IOException;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.util.ImgurUtils;
+import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialProgressDialog;
 import me.edgan.redditslide.util.ProgressRequestBody;
-
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-
 import okio.BufferedSink;
-
 import org.json.JSONObject;
-
-import java.io.File;
-import java.io.IOException;
-import me.edgan.redditslide.util.LogUtil;
 
 public class UploadImgurAlbum extends AsyncTask<Uri, Integer, String> {
     public String finalUrl;
     public Context c;
     public int totalCount;
     public int uploadCount;
-    public MaterialDialog dialog;
+    public MaterialProgressDialog dialog;
 
     @Override
     protected String doInBackground(Uri... sub) {
@@ -79,7 +73,7 @@ public class UploadImgurAlbum extends AsyncTask<Uri, Integer, String> {
                 formBodyBuilder.addFormDataPart(
                         "image",
                         bitmap.getName(),
-                        RequestBody.create(MediaType.parse("image/*"), bitmap));
+                        RequestBody.create(bitmap, MediaType.parse("image/*")));
                 formBodyBuilder.addFormDataPart("album", albumurl);
                 MultipartBody formBody = formBodyBuilder.build();
 

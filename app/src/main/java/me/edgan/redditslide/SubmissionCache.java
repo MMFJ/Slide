@@ -9,9 +9,11 @@ import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 import android.util.TypedValue;
-
 import com.fasterxml.jackson.databind.JsonNode;
-
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.WeakHashMap;
 import me.edgan.redditslide.Adapters.CommentAdapterHelper;
 import me.edgan.redditslide.Toolbox.ToolboxUI;
 import me.edgan.redditslide.Views.RoundedBackgroundSpan;
@@ -19,15 +21,10 @@ import me.edgan.redditslide.Visuals.FontPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.CompatUtil;
 import me.edgan.redditslide.util.MiscUtil;
+import me.edgan.redditslide.util.PostRecovery;
 import me.edgan.redditslide.util.TimeUtils;
-
 import net.dean.jraw.models.DistinguishedStatus;
 import net.dean.jraw.models.Submission;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.WeakHashMap;
 
 /** Created by carlo_000 on 4/22/2016. */
 public class SubmissionCache {
@@ -55,6 +52,9 @@ public class SubmissionCache {
         if (crosspost == null) crosspost = new WeakHashMap<>();
 
         for (Submission submission : submissions) {
+            // Re-apply any recovered link before building the spannables so the cached info line
+            // (domain, content-type) reflects the recovery rather than the removed-state node.
+            PostRecovery.reapplyRecoveredLink(submission);
             titles.put(submission.getFullName(), getTitleSpannable(submission, mContext));
             info.put(submission.getFullName(), getInfoSpannable(submission, mContext, baseSub));
             crosspost.put(submission.getFullName(), getCrosspostLine(submission, mContext));
@@ -69,6 +69,12 @@ public class SubmissionCache {
     public static void updateTitleFlair(Submission s, String flair, Context c) {
         if (titles == null) titles = new WeakHashMap<>();
         titles.put(s.getFullName(), getTitleSpannable(s, flair, c));
+    }
+
+    /** Re-render the cached title (e.g. after recovering the original from the archive). */
+    public static void updateTitle(Submission s, Context c) {
+        if (titles == null) titles = new WeakHashMap<>();
+        titles.put(s.getFullName(), getTitleSpannable(s, c));
     }
 
     public static SpannableStringBuilder getTitleLine(Submission s, Context mContext) {
@@ -488,7 +494,10 @@ public class SubmissionCache {
     private static SpannableStringBuilder getTitleSpannable(
             Submission submission, String flairOverride, Context mContext) {
         SpannableStringBuilder titleString = new SpannableStringBuilder();
-        titleString.append(CompatUtil.fromHtml(submission.getTitle()));
+        String recoveredTitle = PostRecovery.getRecoveredTitle(submission.getFullName());
+        titleString.append(
+                CompatUtil.fromHtml(
+                        recoveredTitle != null ? recoveredTitle : submission.getTitle()));
 
         if (submission.isStickied()) {
             SpannableStringBuilder pinned =

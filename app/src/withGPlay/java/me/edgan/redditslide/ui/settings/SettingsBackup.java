@@ -7,10 +7,8 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.google.android.gms.auth.api.signin.GoogleSignIn;
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
 import com.google.android.gms.auth.api.signin.GoogleSignInClient;
@@ -29,13 +27,6 @@ import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.DriveScopes;
 import com.google.api.services.drive.model.FileList;
 import com.jakewharton.processphoenix.ProcessPhoenix;
-
-import me.edgan.redditslide.Activities.BaseActivityAnim;
-import me.edgan.redditslide.R;
-import me.edgan.redditslide.util.LayoutUtils;
-import me.edgan.redditslide.util.StorageUtil;
-import me.edgan.redditslide.util.MiscUtil;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
@@ -50,6 +41,14 @@ import java.io.OutputStreamWriter;
 import java.text.SimpleDateFormat;
 import java.util.Collections;
 import java.util.Date;
+import me.edgan.redditslide.Activities.BaseActivityAnim;
+import me.edgan.redditslide.R;
+import me.edgan.redditslide.util.DialogUtil;
+import me.edgan.redditslide.util.KVStoreBackup;
+import me.edgan.redditslide.util.LayoutUtils;
+import me.edgan.redditslide.util.MaterialProgressDialog;
+import me.edgan.redditslide.util.MiscUtil;
+import me.edgan.redditslide.util.StorageUtil;
 
 /**
  * Created by ccrama on 3/5/2015 and updated by edgan on 1/21/2025.
@@ -72,7 +71,7 @@ public class SettingsBackup extends BaseActivityAnim {
     private Drive mDriveService;
 
     // Progress dialog
-    private MaterialDialog progress;
+    private MaterialProgressDialog progress;
 
     // For counting errors during tasks
     private int errors = 0;
@@ -186,15 +185,15 @@ public class SettingsBackup extends BaseActivityAnim {
             initializeDriveService(account);
         }
 
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.general_confirm)
-                .setMessage(R.string.backup_confirm)
-                .setPositiveButton(
-                        R.string.btn_ok,
-                        (dialog, whichButton) -> new BackupToDriveAsyncTask().execute())
-                .setNegativeButton(R.string.btn_no, null)
-                .setCancelable(false)
-                .show();
+        showThemedDialog(
+                new AlertDialog.Builder(this)
+                        .setTitle(R.string.general_confirm)
+                        .setMessage(R.string.backup_confirm)
+                        .setPositiveButton(
+                                R.string.btn_ok,
+                                (dialog, whichButton) -> new BackupToDriveAsyncTask().execute())
+                        .setNegativeButton(R.string.btn_no, null)
+                        .setCancelable(false));
     }
 
     /** Handle the Restore-from-Google-Drive button click */
@@ -212,26 +211,27 @@ public class SettingsBackup extends BaseActivityAnim {
             initializeDriveService(account);
         }
 
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.general_confirm)
-                .setMessage(R.string.backup_restore_confirm)
-                .setPositiveButton(
-                        R.string.btn_ok,
-                        (dialog, whichButton) -> new RestoreFromDriveAsyncTask().execute())
-                .setNegativeButton(R.string.btn_no, null)
-                .setCancelable(false)
-                .show();
+        showThemedDialog(
+                new AlertDialog.Builder(this)
+                        .setTitle(R.string.general_confirm)
+                        .setMessage(R.string.backup_restore_confirm)
+                        .setPositiveButton(
+                                R.string.btn_ok,
+                                (dialog, whichButton) -> new RestoreFromDriveAsyncTask().execute())
+                        .setNegativeButton(R.string.btn_no, null)
+                        .setCancelable(false));
     }
 
     /** Show dialog to choose backup-to-directory options */
     private void showBackupToDirDialog() {
         Log.d(TAG, "showBackupToDirDialog() called.");
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.backup_question)
-                .setPositiveButton(R.string.btn_ok, (dialog, which) -> launchCreateBackupFile())
-                .setNeutralButton(R.string.btn_cancel, null)
-                .setCancelable(false)
-                .show();
+        showThemedDialog(
+                new AlertDialog.Builder(this)
+                        .setTitle(R.string.backup_question)
+                        .setPositiveButton(
+                                R.string.btn_ok, (dialog, which) -> launchCreateBackupFile())
+                        .setNeutralButton(R.string.btn_cancel, null)
+                        .setCancelable(false));
     }
 
     /** Launch SAF ACTION_CREATE_DOCUMENT to let the user choose where to save the backup. */
@@ -368,7 +368,7 @@ public class SettingsBackup extends BaseActivityAnim {
 
             // Start async restore
             progress =
-                    new MaterialDialog.Builder(this)
+                    new MaterialProgressDialog.Builder(this)
                             .title(R.string.backup_restoring)
                             .content(R.string.misc_please_wait)
                             .cancelable(false)
@@ -386,7 +386,7 @@ public class SettingsBackup extends BaseActivityAnim {
     /** Performs the actual local backup writing to the user-chosen file URI. */
     private void backupToFile(Uri fileUri) {
         progress =
-                new MaterialDialog.Builder(SettingsBackup.this)
+                new MaterialProgressDialog.Builder(SettingsBackup.this)
                         .title(R.string.backup_backing_up)
                         .content(R.string.misc_please_wait)
                         .cancelable(false)
@@ -452,6 +452,16 @@ public class SettingsBackup extends BaseActivityAnim {
                         }
                     }
 
+                    // KVStore-backed collections (Read Later, Local Saved) live outside
+                    // shared_prefs, so back them up as an extra tagged entry.
+                    String kvData = KVStoreBackup.export();
+                    if (!kvData.isEmpty()) {
+                        bw.write("<START" + KVStoreBackup.SENTINEL + ">");
+                        bw.write(kvData);
+                        bw.write("END>");
+                        Log.d(TAG, "Backed up KVStore collections locally.");
+                    }
+
                     bw.close();
                     return true;
 
@@ -473,7 +483,8 @@ public class SettingsBackup extends BaseActivityAnim {
                     return;
                 }
                 // Show success dialog with a "View" button
-                new AlertDialog.Builder(SettingsBackup.this)
+                showThemedDialog(
+                        new AlertDialog.Builder(SettingsBackup.this)
                         .setTitle(R.string.backup_complete)
                         .setMessage(R.string.backup_saved_downloads)
                         .setPositiveButton(
@@ -507,8 +518,7 @@ public class SettingsBackup extends BaseActivityAnim {
                                     }
                                 })
                         .setNegativeButton(R.string.btn_close, null)
-                        .setCancelable(false)
-                        .show();
+                        .setCancelable(false));
             }
         }.execute();
     }
@@ -560,7 +570,8 @@ public class SettingsBackup extends BaseActivityAnim {
             }
             if (success) {
                 // Show final restart dialog
-                new AlertDialog.Builder(SettingsBackup.this)
+                showThemedDialog(
+                        new AlertDialog.Builder(SettingsBackup.this)
                         .setTitle(R.string.backup_restore_settings)
                         .setMessage(R.string.backup_restarting)
                         .setOnDismissListener(
@@ -580,8 +591,7 @@ public class SettingsBackup extends BaseActivityAnim {
                                                     + " local file restore.");
                                     ProcessPhoenix.triggerRebirth(SettingsBackup.this);
                                 })
-                        .setCancelable(false)
-                        .show();
+                        .setCancelable(false));
             } else {
                 Log.w(TAG, "Restore from local file failed or invalid file.");
                 showErrorDialog(R.string.err_not_valid_backup, R.string.err_not_valid_backup_msg);
@@ -596,7 +606,7 @@ public class SettingsBackup extends BaseActivityAnim {
         protected void onPreExecute() {
             Log.d(TAG, "BackupToDriveAsyncTask: started");
             progress =
-                    new MaterialDialog.Builder(SettingsBackup.this)
+                    new MaterialProgressDialog.Builder(SettingsBackup.this)
                             .title(R.string.backup_backing_up)
                             .content(R.string.misc_please_wait)
                             .cancelable(false)
@@ -646,6 +656,19 @@ public class SettingsBackup extends BaseActivityAnim {
                 }
             }
 
+            // KVStore-backed collections (Read Later, Local Saved) live outside shared_prefs, so
+            // back them up as an extra tagged entry.
+            String kvData = KVStoreBackup.export();
+            if (!kvData.isEmpty()) {
+                backupBuilder
+                        .append("<START")
+                        .append(KVStoreBackup.SENTINEL)
+                        .append(">")
+                        .append(kvData)
+                        .append("END>");
+                Log.d(TAG, "Adding KVStore collections to single backup.");
+            }
+
             // Convert entire backup string to bytes for upload
             byte[] backupData = backupBuilder.toString().getBytes();
 
@@ -693,11 +716,11 @@ public class SettingsBackup extends BaseActivityAnim {
                 progress.dismiss();
             }
             if (success) {
-                new AlertDialog.Builder(SettingsBackup.this)
-                        .setTitle(R.string.backup_success)
-                        .setPositiveButton(R.string.btn_close, (dialog, which) -> finish())
-                        .setCancelable(false)
-                        .show();
+                showThemedDialog(
+                        new AlertDialog.Builder(SettingsBackup.this)
+                                .setTitle(R.string.backup_success)
+                                .setPositiveButton(R.string.btn_close, (dialog, which) -> finish())
+                                .setCancelable(false));
             } else {
                 showErrorDialog(R.string.err_general, R.string.backup_failed_msg);
             }
@@ -731,7 +754,7 @@ public class SettingsBackup extends BaseActivityAnim {
         protected void onPreExecute() {
             Log.d(TAG, "RestoreFromDriveAsyncTask: started");
             progress =
-                    new MaterialDialog.Builder(SettingsBackup.this)
+                    new MaterialProgressDialog.Builder(SettingsBackup.this)
                             .title(R.string.backup_restoring)
                             .content(R.string.misc_please_wait)
                             .cancelable(false)
@@ -804,7 +827,8 @@ public class SettingsBackup extends BaseActivityAnim {
                 return;
             }
 
-            new AlertDialog.Builder(SettingsBackup.this)
+            showThemedDialog(
+                    new AlertDialog.Builder(SettingsBackup.this)
                     .setTitle(R.string.backup_restore_settings)
                     .setMessage(R.string.backup_restarting)
                     .setOnDismissListener(
@@ -824,8 +848,7 @@ public class SettingsBackup extends BaseActivityAnim {
                                                 + " (Drive restore).");
                                 ProcessPhoenix.triggerRebirth(SettingsBackup.this);
                             })
-                    .setCancelable(false)
-                    .show();
+                    .setCancelable(false));
         }
     }
 
@@ -857,6 +880,12 @@ public class SettingsBackup extends BaseActivityAnim {
                 String name =
                         innerFile.substring(startIndex + 6, innerFile.indexOf(">", startIndex));
                 String fileContent = innerFile.substring(innerFile.indexOf(">", startIndex) + 1);
+
+                if (KVStoreBackup.SENTINEL.equals(name)) {
+                    KVStoreBackup.restore(fileContent);
+                    Log.d(TAG, "Restored KVStore collections from backup.");
+                    continue;
+                }
 
                 File newF = new File(getApplicationInfo().dataDir + "/shared_prefs/" + name);
                 Log.d(
@@ -896,11 +925,21 @@ public class SettingsBackup extends BaseActivityAnim {
     /** Show an error dialog with the specified title and message. */
     private void showErrorDialog(int titleResId, int messageResId) {
         Log.d(TAG, "showErrorDialog: title=" + titleResId + ", message=" + messageResId);
-        new AlertDialog.Builder(this)
-                .setTitle(titleResId)
-                .setMessage(messageResId)
-                .setPositiveButton(R.string.btn_ok, null)
-                .setCancelable(false)
-                .show();
+        showThemedDialog(
+                new AlertDialog.Builder(this)
+                        .setTitle(titleResId)
+                        .setMessage(messageResId)
+                        .setPositiveButton(R.string.btn_ok, null)
+                        .setCancelable(false));
+    }
+
+    /**
+     * Creates the dialog from the builder, matches its window to the app's themed card_background
+     * (AppCompat dialogs otherwise show a gray panel), and shows it.
+     */
+    private void showThemedDialog(AlertDialog.Builder builder) {
+        AlertDialog dialog = builder.create();
+        DialogUtil.matchDialogToCardBackground(this, dialog);
+        dialog.show();
     }
 }

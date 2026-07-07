@@ -9,15 +9,14 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
-
 import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
 import androidx.viewpager.widget.ViewPager;
-
 import com.google.android.material.tabs.TabLayout;
-
+import java.util.HashSet;
+import java.util.Set;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Autocache.AutoCacheScheduler;
 import me.edgan.redditslide.ContentGrabber;
@@ -34,16 +33,22 @@ import me.edgan.redditslide.util.KeyboardUtil;
 import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
-
 import net.dean.jraw.managers.InboxManager;
-
-import java.util.HashSet;
-import java.util.Set;
 
 /** Created by ccrama on 9/17/2015. */
 public class Inbox extends BaseActivityAnim {
 
     public static final String EXTRA_UNREAD = "unread";
+
+    /**
+     * Bumped whenever a single message's read state is toggled in any tab. Each
+     * {@link me.edgan.redditslide.Fragments.InboxPage} records the value it last loaded at and only
+     * re-fetches when it becomes visible again if this has advanced, so sibling tabs (e.g. "unread")
+     * reflect reads made elsewhere without reloading every tab on every resume. ("Mark all read"
+     * recreates the pager's fragments, so it forces a reload without needing this counter.)
+     */
+    public static int readGeneration;
+
     public InboxPagerAdapter adapter;
     private TabLayout tabs;
     private ViewPager pager;
@@ -64,53 +69,49 @@ public class Inbox extends BaseActivityAnim {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case (android.R.id.home):
-                getOnBackPressedDispatcher().onBackPressed();
-                break;
-            case (R.id.notifs):
-                LayoutInflater inflater = getLayoutInflater();
-                final View dialoglayout = inflater.inflate(R.layout.inboxfrequency, null);
-                SettingsGeneralFragment.setupNotificationSettings(dialoglayout, Inbox.this);
-                break;
-            case (R.id.compose):
-                Intent i = new Intent(Inbox.this, SendMessage.class);
-                startActivity(i);
-                break;
-            case (R.id.read):
-                changed = false;
-                new AsyncTask<Void, Void, Void>() {
-                    @Override
-                    protected Void doInBackground(Void... params) {
+        int itemId = item.getItemId();
+        if (itemId == android.R.id.home) {
+            getOnBackPressedDispatcher().onBackPressed();
+        } else if (itemId == R.id.notifs) {
+            LayoutInflater inflater = getLayoutInflater();
+            final View dialoglayout = inflater.inflate(R.layout.inboxfrequency, null);
+            SettingsGeneralFragment.setupNotificationSettings(dialoglayout, Inbox.this);
+        } else if (itemId == R.id.compose) {
+            Intent i = new Intent(Inbox.this, SendMessage.class);
+            startActivity(i);
+        } else if (itemId == R.id.read) {
+            changed = false;
+            new AsyncTask<Void, Void, Void>() {
+                @Override
+                protected Void doInBackground(Void... params) {
+                    try {
+                        new InboxManager(Authentication.reddit).setAllRead();
+                        changed = true;
+                    } catch (Exception ignored) {
+                        LogUtil.e(ignored, "Inbox.doInBackground failed");
+                    }
+                    return null;
+                }
+
+                @Override
+                protected void onPostExecute(Void aVoid) {
+                    if (changed) { // restart the fragment
+                        adapter.notifyDataSetChanged();
+
                         try {
-                            new InboxManager(Authentication.reddit).setAllRead();
-                            changed = true;
-                        } catch (Exception ignored) {
-                            LogUtil.e(ignored, "Inbox.doInBackground failed");
-                        }
-                        return null;
-                    }
+                            final int CURRENT_TAB = tabs.getSelectedTabPosition();
+                            adapter = new InboxPagerAdapter(getSupportFragmentManager());
+                            pager.setAdapter(adapter);
+                            tabs.setupWithViewPager(pager);
 
-                    @Override
-                    protected void onPostExecute(Void aVoid) {
-                        if (changed) { // restart the fragment
-                            adapter.notifyDataSetChanged();
+                            LayoutUtils.scrollToTabAfterLayout(tabs, CURRENT_TAB);
+                            pager.setCurrentItem(CURRENT_TAB);
+                        } catch (Exception e) {
 
-                            try {
-                                final int CURRENT_TAB = tabs.getSelectedTabPosition();
-                                adapter = new InboxPagerAdapter(getSupportFragmentManager());
-                                pager.setAdapter(adapter);
-                                tabs.setupWithViewPager(pager);
-
-                                LayoutUtils.scrollToTabAfterLayout(tabs, CURRENT_TAB);
-                                pager.setCurrentItem(CURRENT_TAB);
-                            } catch (Exception e) {
-
-                            }
                         }
                     }
-                }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-                break;
+                }
+            }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
         }
         return super.onOptionsItemSelected(item);
     }

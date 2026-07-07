@@ -23,7 +23,6 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
@@ -31,11 +30,16 @@ import androidx.appcompat.widget.AppCompatCheckBox;
 import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
 import com.nambimobile.widgets.efab.FabOption;
-
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 import me.edgan.redditslide.Activities.BaseActivityAnim;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.CaseInsensitiveArrayList;
@@ -48,27 +52,18 @@ import me.edgan.redditslide.ui.settings.SettingsThemeFragment;
 import me.edgan.redditslide.util.BlendModeUtil;
 import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.DisplayUtil;
+import me.edgan.redditslide.util.LayoutUtils;
+import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
-
 import net.dean.jraw.http.MultiRedditUpdateRequest;
 import net.dean.jraw.managers.MultiRedditManager;
 import net.dean.jraw.models.MultiReddit;
 import net.dean.jraw.models.Subreddit;
 import net.dean.jraw.paginators.SubredditSearchPaginator;
 import net.dean.jraw.paginators.UserSubredditsPaginator;
-
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.lang.ref.WeakReference;
-import java.util.stream.Collectors;
-import me.edgan.redditslide.util.LogUtil;
 
 public class ReorderSubreddits extends BaseActivityAnim {
 
@@ -92,12 +87,12 @@ public class ReorderSubreddits extends BaseActivityAnim {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case android.R.id.home:
-                finish();
-                return true;
-            case R.id.refresh:
-                done = 0;
+        int itemId = item.getItemId();
+        if (itemId == android.R.id.home) {
+            finish();
+            return true;
+        } else if (itemId == R.id.refresh) {
+            done = 0;
                 // Inflate the custom progress layout
                 View progressView = getLayoutInflater().inflate(R.layout.dialog_progress, null);
                 TextView progressText = progressView.findViewById(R.id.progress_text);
@@ -162,32 +157,34 @@ public class ReorderSubreddits extends BaseActivityAnim {
                         dialog.show();
                     }
                 }.execute();
-                return true;
-            case R.id.alphabetize:
-                subs = UserSubscriptions.sortNoExtras(subs);
-                adapter = new CustomAdapter(subs);
-                //  adapter.setHasStableIds(true);
-                recyclerView.setAdapter(adapter);
-                return true;
-            case R.id.alphabetize_subscribe:
-                SettingValues.prefs
-                        .edit()
-                    .putBoolean(SettingValues.PREF_ALPHABETIZE_SUBSCRIBE, !SettingValues.alphabetizeOnSubscribe)
-                        .apply();
-                SettingValues.alphabetizeOnSubscribe = !SettingValues.alphabetizeOnSubscribe;
-                if (subscribe != null) subscribe.setChecked(SettingValues.alphabetizeOnSubscribe);
-                return true;
-            case R.id.info:
-                AlertDialog faqDialog = new MaterialAlertDialogBuilder(ReorderSubreddits.this)
-                        .setTitle(R.string.reorder_subs_FAQ)
-                        .setMessage(R.string.sorting_faq)
-                        .setPositiveButton(R.string.btn_ok, null)
-                        .create();
+            return true;
+        } else if (itemId == R.id.alphabetize) {
+            subs = UserSubscriptions.sortNoExtras(subs);
+            adapter = new CustomAdapter(subs);
+            //  adapter.setHasStableIds(true);
+            recyclerView.setAdapter(adapter);
+            return true;
+        } else if (itemId == R.id.alphabetize_subscribe) {
+            SettingValues.prefs
+                    .edit()
+                    .putBoolean(
+                            SettingValues.PREF_ALPHABETIZE_SUBSCRIBE,
+                            !SettingValues.alphabetizeOnSubscribe)
+                    .apply();
+            SettingValues.alphabetizeOnSubscribe = !SettingValues.alphabetizeOnSubscribe;
+            if (subscribe != null) subscribe.setChecked(SettingValues.alphabetizeOnSubscribe);
+            return true;
+        } else if (itemId == R.id.info) {
+            AlertDialog faqDialog = new MaterialAlertDialogBuilder(ReorderSubreddits.this)
+                    .setTitle(R.string.reorder_subs_FAQ)
+                    .setMessage(R.string.sorting_faq)
+                    .setPositiveButton(R.string.btn_ok, null)
+                    .create();
 
-                // Apply custom border
-                DialogUtil.applyCustomBorderToAlertDialog(ReorderSubreddits.this, faqDialog);
-                faqDialog.show();
-                return true;
+            // Apply custom border
+            DialogUtil.applyCustomBorderToAlertDialog(ReorderSubreddits.this, faqDialog);
+            faqDialog.show();
+            return true;
         }
         return false;
     }
@@ -1122,10 +1119,10 @@ public class ReorderSubreddits extends BaseActivityAnim {
                                     CompoundButton buttonView, boolean isChecked) {
                                 if (!isChecked) {
                                     new UserSubscriptions.UnsubscribeTask().execute(origPos);
-                                    Snackbar.make(mToolbar, getString(R.string.reorder_unsubscribed_toast, origPos), Snackbar.LENGTH_SHORT).show();
+                                    LayoutUtils.showSnackbar(Snackbar.make(mToolbar, getString(R.string.reorder_unsubscribed_toast, origPos), Snackbar.LENGTH_SHORT));
                                 } else {
                                     new UserSubscriptions.SubscribeTask(ReorderSubreddits.this).execute(origPos);
-                                    Snackbar.make(mToolbar, getString(R.string.reorder_subscribed_toast, origPos), Snackbar.LENGTH_SHORT).show();
+                                    LayoutUtils.showSnackbar(Snackbar.make(mToolbar, getString(R.string.reorder_subscribed_toast, origPos), Snackbar.LENGTH_SHORT));
                                 }
                                 isSubscribed.put(origPos.toLowerCase(Locale.ENGLISH), isChecked);
                             }

@@ -5,20 +5,17 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.EditText;
-
 import androidx.appcompat.app.AlertDialog;
-
-import com.afollestad.materialdialogs.MaterialDialog;
-
+import java.util.Collections;
 import me.edgan.redditslide.Activities.BaseActivityAnim;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Synccit.MySynccitReadTask;
 import me.edgan.redditslide.Synccit.MySynccitUpdateTask;
 import me.edgan.redditslide.Synccit.SynccitRead;
+import me.edgan.redditslide.util.DialogUtil;
+import me.edgan.redditslide.util.MaterialProgressDialog;
 import me.edgan.redditslide.util.MiscUtil;
-
-import java.util.Collections;
 
 /** Created by ccrama on 2/16/2015. */
 public class SettingsSynccit extends BaseActivityAnim {
@@ -51,7 +48,7 @@ public class SettingsSynccit extends BaseActivityAnim {
                             public void onClick(View v) {
                                 if (!SettingValues.synccitAuth.isEmpty()) {
 
-                                    new AlertDialog.Builder(SettingsSynccit.this)
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsSynccit.this)
                                             .setTitle(R.string.settings_synccit_delete)
                                             .setPositiveButton(
                                                     R.string.btn_yes,
@@ -74,7 +71,7 @@ public class SettingsSynccit extends BaseActivityAnim {
                                                                 Collections.singleton("16noez"));
                                                     })
                                             .setNegativeButton(R.string.btn_no, null)
-                                            .show();
+                                            );
                                 }
                             }
                         });
@@ -85,12 +82,13 @@ public class SettingsSynccit extends BaseActivityAnim {
                             @Override
                             public void onClick(View v) {
                                 final Dialog d =
-                                        new MaterialDialog.Builder(SettingsSynccit.this)
+                                        new MaterialProgressDialog.Builder(SettingsSynccit.this)
                                                 .title(R.string.settings_synccit_authenticate)
                                                 .progress(true, 100)
                                                 .content(R.string.misc_please_wait)
                                                 .cancelable(false)
-                                                .show();
+                                                .show()
+                                                .getDialog();
                                 new MySynccitUpdateTask().execute("16noez");
                                 SettingValues.synccitName = name.getText().toString();
                                 SettingValues.synccitAuth = auth.getText().toString();
@@ -110,31 +108,31 @@ public class SettingsSynccit extends BaseActivityAnim {
                                         e.apply();
                                         (findViewById(R.id.remove)).setEnabled(true);
 
-                                        new AlertDialog.Builder(SettingsSynccit.this)
+                                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsSynccit.this)
                                                 .setTitle(R.string.settings_synccit_connected)
                                                 .setMessage(R.string.settings_synccit_active)
                                                 .setPositiveButton(
                                                         R.string.btn_ok,
                                                         (dialog, which) -> finish())
                                                 .setOnDismissListener(dialog -> finish())
-                                                .show();
+                                                );
                                     } else {
                                         d.dismiss();
 
-                                        new AlertDialog.Builder(SettingsSynccit.this)
+                                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsSynccit.this)
                                                 .setTitle(R.string.settings_synccit_failed)
                                                 .setMessage(R.string.settings_synccit_failed_msg)
                                                 .setPositiveButton(R.string.btn_ok, null)
-                                                .show();
+                                                );
                                     }
                                 } catch (Exception e) {
                                     d.dismiss();
 
-                                    new AlertDialog.Builder(SettingsSynccit.this)
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsSynccit.this)
                                             .setTitle(R.string.settings_synccit_failed)
                                             .setMessage(R.string.settings_synccit_failed_msg)
                                             .setPositiveButton(R.string.btn_ok, null)
-                                            .show();
+                                            );
                                 }
                             }
                         });

@@ -1,7 +1,6 @@
 package me.edgan.redditslide.ui.settings;
 
 import android.app.Activity;
-import android.os.Build;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -12,22 +11,18 @@ import android.widget.LinearLayout;
 import android.widget.RadioGroup;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
-
 import androidx.annotation.IdRes;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.SwitchCompat;
-
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
-
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.util.LinkUtil;
-
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
 
 public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeListener {
 
@@ -164,9 +159,7 @@ public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeL
 
                         for (Map.Entry<String, String> entry : installedBrowsers.entrySet()) {
                             final MenuItem menuItem = popupMenu.getMenu().add(entry.getValue());
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                menuItem.setTooltipText(entry.getKey());
-                            }
+                            menuItem.setTooltipText(entry.getKey());
 
                             packageNames.put(menuItem, entry.getKey());
                         }
@@ -190,38 +183,32 @@ public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeL
 
     @Override
     public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-        switch (buttonView.getId()) {
-            case R.id.settings_handling_shortlink:
-                SettingValues.shareLongLink = !isChecked;
-                editSharedBooleanPreference(SettingValues.PREF_LONG_LINK, !isChecked);
-                break;
-            case R.id.settings_handling_gif:
-                SettingValues.gif = isChecked;
-                editSharedBooleanPreference(SettingValues.PREF_GIF, isChecked);
-                break;
-            case R.id.settings_handling_hqgif:
-                SettingValues.hqgif = isChecked;
-                editSharedBooleanPreference(SettingValues.PREF_HQGIF, isChecked);
-                break;
-            case R.id.settings_handling_image:
-                SettingValues.image = isChecked;
-                editSharedBooleanPreference(SettingValues.PREF_IMAGE, isChecked);
-                break;
-            case R.id.settings_handling_album:
-                SettingValues.album = isChecked;
-                editSharedBooleanPreference(SettingValues.PREF_ALBUM, isChecked);
-                break;
-            case R.id.settings_handling_peek:
-                SettingValues.peek = isChecked;
-                if (isChecked) {
-                    SettingValues.noPreviewImageLongClick = false;
-                    SettingValues.prefs
-                            .edit()
-                            .putBoolean(SettingValues.PREF_NO_PREVIEW_IMAGE_LONGCLICK, false)
-                            .apply();
-                }
-                editSharedBooleanPreference(SettingValues.PREF_PEEK, isChecked);
-                break;
+        int buttonId = buttonView.getId();
+        if (buttonId == R.id.settings_handling_shortlink) {
+            SettingValues.shareLongLink = !isChecked;
+            editSharedBooleanPreference(SettingValues.PREF_LONG_LINK, !isChecked);
+        } else if (buttonId == R.id.settings_handling_gif) {
+            SettingValues.gif = isChecked;
+            editSharedBooleanPreference(SettingValues.PREF_GIF, isChecked);
+        } else if (buttonId == R.id.settings_handling_hqgif) {
+            SettingValues.hqgif = isChecked;
+            editSharedBooleanPreference(SettingValues.PREF_HQGIF, isChecked);
+        } else if (buttonId == R.id.settings_handling_image) {
+            SettingValues.image = isChecked;
+            editSharedBooleanPreference(SettingValues.PREF_IMAGE, isChecked);
+        } else if (buttonId == R.id.settings_handling_album) {
+            SettingValues.album = isChecked;
+            editSharedBooleanPreference(SettingValues.PREF_ALBUM, isChecked);
+        } else if (buttonId == R.id.settings_handling_peek) {
+            SettingValues.peek = isChecked;
+            if (isChecked) {
+                SettingValues.noPreviewImageLongClick = false;
+                SettingValues.prefs
+                        .edit()
+                        .putBoolean(SettingValues.PREF_NO_PREVIEW_IMAGE_LONGCLICK, false)
+                        .apply();
+            }
+            editSharedBooleanPreference(SettingValues.PREF_PEEK, isChecked);
         }
     }
 

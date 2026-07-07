@@ -3,12 +3,10 @@ package me.edgan.redditslide.Activities;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.MenuItem;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-
 import me.edgan.redditslide.Adapters.ContributionAdapter;
 import me.edgan.redditslide.Adapters.SubredditSearchPosts;
 import me.edgan.redditslide.Constants;
@@ -18,6 +16,7 @@ import me.edgan.redditslide.Views.PreCachingLayoutManager;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.handler.ToolbarScrollHideHandler;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.MiscUtil;
 
 public class Related extends BaseActivityAnim {
@@ -61,12 +60,12 @@ public class Related extends BaseActivityAnim {
             url = intent.getStringExtra(EXTRA_URL);
         }
         if (url == null || url.isEmpty()) {
-            new AlertDialog.Builder(this)
+            DialogUtil.showWithCardBackground(new AlertDialog.Builder(this)
                     .setTitle("URL is empty")
                     .setMessage("Try again with a different link!")
                     .setCancelable(false)
                     .setPositiveButton(R.string.btn_ok, (dialogInterface, i) -> finish())
-                    .show();
+                    );
         }
 
         setupAppBar(R.id.toolbar, "Related links", true, true);

@@ -5,10 +5,8 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertNull;
 
 import android.net.Uri;
-
 import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.OpenRedditLink.RedditLinkType;
-
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -44,6 +42,11 @@ public class OpenRedditLinkTest {
                 is(RedditLinkType.COMMENT_PERMALINK));
         assertThat(
                 getType("https://www.reddit.com/r/announcements/comments/eorhm//c19qk6j/"),
+                is(RedditLinkType.COMMENT_PERMALINK));
+        // Newer Reddit permalink form: /comments/$post/comment/$comment (no title slug)
+        assertThat(
+                getType(
+                        "https://www.reddit.com/r/oddlysatisfying/comments/1k1hl95/comment/mnn7j9x/?context=3"),
                 is(RedditLinkType.COMMENT_PERMALINK));
     }
 
@@ -112,6 +115,14 @@ public class OpenRedditLinkTest {
     public void detectsSubmissionWithoutSub() {
         assertThat(
                 getType("https://www.reddit.com/comments/eorhm/reddit_30_less_typing/"),
+                is(RedditLinkType.SUBMISSION_WITHOUT_SUB));
+    }
+
+    @Test
+    public void detectsGallery() {
+        // Gallery links carry the submission id and must open in-app, not fall through to a browser
+        assertThat(
+                getType("https://www.reddit.com/gallery/1ufupl8"),
                 is(RedditLinkType.SUBMISSION_WITHOUT_SUB));
     }
 

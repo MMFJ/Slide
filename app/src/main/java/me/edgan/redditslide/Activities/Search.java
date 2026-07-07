@@ -8,15 +8,11 @@ import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
-
+import java.util.Locale;
 import me.edgan.redditslide.Adapters.ContributionAdapter;
 import me.edgan.redditslide.Adapters.SubredditSearchPosts;
 import me.edgan.redditslide.Constants;
@@ -27,18 +23,16 @@ import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.handler.ToolbarScrollHideHandler;
 import me.edgan.redditslide.util.CompatUtil;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LayoutUtils;
+import me.edgan.redditslide.util.MaterialInputDialog;
+import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.SortingUtil;
 import me.edgan.redditslide.util.TimeUtils;
-import me.edgan.redditslide.util.MiscUtil;
-
 import net.dean.jraw.paginators.SubmissionSearchPaginator;
 import net.dean.jraw.paginators.TimePeriod;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringEscapeUtils;
-
-import java.util.Locale;
 
 public class Search extends BaseActivityAnim {
 
@@ -124,13 +118,13 @@ public class Search extends BaseActivityAnim {
                                                         time.name().toLowerCase(Locale.ENGLISH)));
                     }
                 };
-        new AlertDialog.Builder(Search.this)
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(Search.this)
                 .setTitle(R.string.sorting_time_choose)
                 .setSingleChoiceItems(
                         SortingUtil.getSortingTimesStrings(),
                         SortingUtil.getSortingSearchId(this),
                         l2)
-                .show();
+                );
     }
 
     public void openSearchTypePopup() {
@@ -169,66 +163,53 @@ public class Search extends BaseActivityAnim {
                                                         time.name().toLowerCase(Locale.ENGLISH)));
                     }
                 };
-        new AlertDialog.Builder(Search.this)
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(Search.this)
                 .setTitle(R.string.sorting_choose)
                 .setSingleChoiceItems(SortingUtil.getSearch(), SortingUtil.getSearchType(), l2)
-                .show();
+                );
     }
 
     public TimePeriod time;
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case android.R.id.home:
-                getOnBackPressedDispatcher().onBackPressed();
-                return true;
-            case R.id.time:
-                openTimeFramePopup();
-                return true;
-            case R.id.edit:
-                MaterialDialog.Builder builder =
-                        new MaterialDialog.Builder(this)
-                                .title(R.string.search_title)
-                                .alwaysCallInputCallback()
-                                .input(
-                                        getString(R.string.search_msg),
-                                        where,
-                                        new MaterialDialog.InputCallback() {
-                                            @Override
-                                            public void onInput(
-                                                    MaterialDialog materialDialog,
-                                                    CharSequence charSequence) {
-                                                where = charSequence.toString();
-                                            }
-                                        });
+        int itemId = item.getItemId();
+        if (itemId == android.R.id.home) {
+            getOnBackPressedDispatcher().onBackPressed();
+            return true;
+        } else if (itemId == R.id.time) {
+            openTimeFramePopup();
+            return true;
+        } else if (itemId == R.id.edit) {
+            MaterialInputDialog.Builder builder =
+                    new MaterialInputDialog.Builder(this)
+                            .title(R.string.search_title)
+                            .input(
+                                    getString(R.string.search_msg),
+                                    where,
+                                    (dialog, charSequence) -> where = charSequence.toString());
 
-                // Add "search current sub" if it is not frontpage/all/random
-                builder.positiveText("Search")
-                        .onPositive(
-                                new MaterialDialog.SingleButtonCallback() {
-                                    @Override
-                                    public void onClick(
-                                            @NonNull MaterialDialog materialDialog,
-                                            @NonNull DialogAction dialogAction) {
-                                        Intent i = new Intent(Search.this, Search.class);
-                                        i.putExtra(Search.EXTRA_TERM, where);
-                                        if (multireddit) {
-                                            i.putExtra(Search.EXTRA_MULTIREDDIT, subreddit);
-                                        } else {
-                                            i.putExtra(Search.EXTRA_SUBREDDIT, subreddit);
-                                        }
-                                        startActivity(i);
-                                        overridePendingTransition(0, 0);
-                                        finish();
-                                        overridePendingTransition(0, 0);
-                                    }
-                                });
-                builder.show();
-                return true;
-            case R.id.sort:
-                openSearchTypePopup();
-                return true;
+            // Add "search current sub" if it is not frontpage/all/random
+            builder.positiveText("Search")
+                    .onPositive(
+                            dialog -> {
+                                Intent i = new Intent(Search.this, Search.class);
+                                i.putExtra(Search.EXTRA_TERM, where);
+                                if (multireddit) {
+                                    i.putExtra(Search.EXTRA_MULTIREDDIT, subreddit);
+                                } else {
+                                    i.putExtra(Search.EXTRA_SUBREDDIT, subreddit);
+                                }
+                                startActivity(i);
+                                overridePendingTransition(0, 0);
+                                finish();
+                                overridePendingTransition(0, 0);
+                            });
+            builder.show();
+            return true;
+        } else if (itemId == R.id.sort) {
+            openSearchTypePopup();
+            return true;
         }
         return false;
     }
@@ -246,7 +227,12 @@ public class Search extends BaseActivityAnim {
 
         MiscUtil.setupOldSwipeModeBackground(this, getWindow().getDecorView());
 
-        where = getIntent().getExtras().getString(EXTRA_TERM, "");
+        Bundle extras = getIntent().getExtras();
+        if (extras == null) {
+            finish();
+            return;
+        }
+        where = extras.getString(EXTRA_TERM, "");
 
         time = TimePeriod.ALL;
 
@@ -290,8 +276,10 @@ public class Search extends BaseActivityAnim {
 
         setupSubredditAppBar(R.id.toolbar, "Search", true, subreddit.toLowerCase(Locale.ENGLISH));
 
-        getSupportActionBar().setTitle(CompatUtil.fromHtml(where));
-        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle(CompatUtil.fromHtml(where));
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        }
         assert mToolbar != null; // it won't be, trust me
         mToolbar.setNavigationOnClickListener(
                 new View.OnClickListener() {

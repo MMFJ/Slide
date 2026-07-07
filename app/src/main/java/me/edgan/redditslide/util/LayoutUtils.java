@@ -3,7 +3,7 @@ package me.edgan.redditslide.util;
 import android.app.Activity;
 import android.content.res.Configuration;
 import android.graphics.Color;
-import android.os.Build;
+import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import android.widget.TextView;
@@ -11,6 +11,7 @@ import android.widget.TextView;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.tabs.TabLayout;
 
+import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 
@@ -45,6 +46,11 @@ public class LayoutUtils {
 
     public static void showSnackbar(final Snackbar s) {
         final View view = s.getView();
+        // Theme the snackbar background to match the rest of the UI instead of the gray default.
+        final TypedValue cardBg = new TypedValue();
+        if (view.getContext().getTheme().resolveAttribute(R.attr.card_background, cardBg, true)) {
+            view.setBackgroundColor(cardBg.data);
+        }
         final TextView tv = view.findViewById(com.google.android.material.R.id.snackbar_text);
         tv.setTextColor(Color.WHITE);
         s.show();
@@ -54,15 +60,12 @@ public class LayoutUtils {
     public static int getNumColumns(final int orientation, final Activity activity) {
         final int numColumns;
         boolean singleColumnMultiWindow = false;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            singleColumnMultiWindow =
-                    activity.isInMultiWindowMode() && SettingValues.singleColumnMultiWindow;
-        }
+        singleColumnMultiWindow =
+                activity.isInMultiWindowMode() && SettingValues.singleColumnMultiWindow;
         if (orientation == Configuration.ORIENTATION_LANDSCAPE && !singleColumnMultiWindow) {
             numColumns = Reddit.dpWidth;
-        } else if (orientation == Configuration.ORIENTATION_PORTRAIT
-                && SettingValues.dualPortrait) {
-            numColumns = 2;
+        } else if (orientation == Configuration.ORIENTATION_PORTRAIT) {
+            numColumns = SettingValues.portraitColumns;
         } else {
             numColumns = 1;
         }

@@ -2,17 +2,18 @@ package me.edgan.redditslide.ui.settings;
 
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.drawable.ColorDrawable;
+import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
-
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.view.ContextThemeWrapper;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
-
+import java.util.ArrayList;
 import me.edgan.redditslide.Activities.MainActivity;
 import me.edgan.redditslide.Activities.SubredditView;
 import me.edgan.redditslide.Constants;
@@ -22,12 +23,10 @@ import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.BlendModeUtil;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LogUtil;
-
 import uz.shift.colorpicker.LineColorPicker;
 import uz.shift.colorpicker.OnColorChangedListener;
-
-import java.util.ArrayList;
 
 /** Created by ccrama on 8/17/2015. */
 public class SettingsSubAdapter extends RecyclerView.Adapter<SettingsSubAdapter.ViewHolder> {
@@ -68,7 +67,7 @@ public class SettingsSubAdapter extends RecyclerView.Adapter<SettingsSubAdapter.
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
-                                new AlertDialog.Builder(context)
+                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(context)
                                         .setTitle(
                                                 context.getString(
                                                         R.string.settings_delete_sub_settings,
@@ -96,7 +95,7 @@ public class SettingsSubAdapter extends RecyclerView.Adapter<SettingsSubAdapter.
                                         .setNegativeButton(
                                                 R.string.btn_no,
                                                 (dialog, which) -> dialog.dismiss())
-                                        .show();
+                                        );
                             }
                         });
         convertView
@@ -290,7 +289,10 @@ public class SettingsSubAdapter extends RecyclerView.Adapter<SettingsSubAdapter.
                 }
             }
 
-            new AlertDialog.Builder(context)
+            // Build from the dialoglayout's context (the subreddit-themed ContextThemeWrapper for
+            // a single sub) so the RESET/CANCEL/OK buttons inherit the same colorAccent as the
+            // toggles inside the dialog, instead of the Activity theme's default amber accent.
+            final AlertDialog themeDialog = new AlertDialog.Builder(dialoglayout.getContext())
                     .setView(dialoglayout)
                     .setCancelable(false)
                     .setNegativeButton(
@@ -335,7 +337,7 @@ public class SettingsSubAdapter extends RecyclerView.Adapter<SettingsSubAdapter.
                                     titleStart = titleStart.replace("/r/frontpage", "frontpage");
                                 }
 
-                                new AlertDialog.Builder(context)
+                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(context)
                                         .setTitle(titleStart)
                                         .setPositiveButton(
                                                 R.string.btn_yes,
@@ -366,7 +368,7 @@ public class SettingsSubAdapter extends RecyclerView.Adapter<SettingsSubAdapter.
                                                     }
                                                 })
                                         .setNegativeButton(R.string.btn_no, null)
-                                        .show();
+                                        );
                             })
                     .setPositiveButton(
                             R.string.btn_ok,
@@ -456,7 +458,26 @@ public class SettingsSubAdapter extends RecyclerView.Adapter<SettingsSubAdapter.
                                     }
                                 }
                             })
-                    .show();
+                    .create();
+
+            DialogUtil.matchDialogToCardBackground(themeDialog);
+            themeDialog.show();
+
+            // The dialog content is a CardView using ?attr/card_background from the subreddit
+            // theme, but the AlertDialog's window (and its button panel) keeps the default
+            // gray dialog background. Match the window to the themed card color so the
+            // RESET/CANCEL/OK bar blends with the rest of the dialog.
+            if (themeDialog.getWindow() != null) {
+                TypedValue cardBackground = new TypedValue();
+                if (dialoglayout
+                        .getContext()
+                        .getTheme()
+                        .resolveAttribute(R.attr.card_background, cardBackground, true)) {
+                    themeDialog
+                            .getWindow()
+                            .setBackgroundDrawable(new ColorDrawable(cardBackground.data));
+                }
+            }
         }
     }
 

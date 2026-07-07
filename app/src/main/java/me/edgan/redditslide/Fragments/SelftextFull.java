@@ -5,20 +5,18 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-
 import androidx.fragment.app.Fragment;
-
+import java.util.List;
 import me.edgan.redditslide.Activities.CommentsScreen;
 import me.edgan.redditslide.Activities.Shadowbox;
 import me.edgan.redditslide.R;
+import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SpoilerRobotoTextView;
 import me.edgan.redditslide.SubmissionViews.PopulateShadowboxInfo;
 import me.edgan.redditslide.Views.CommentOverflow;
+import me.edgan.redditslide.markdown.MarkdownImages;
 import me.edgan.redditslide.util.SubmissionParser;
-
 import net.dean.jraw.models.Submission;
-
-import java.util.List;
 
 /** Created by ccrama on 6/2/2015. */
 public class SelftextFull extends Fragment {
@@ -35,8 +33,20 @@ public class SelftextFull extends Fragment {
         PopulateShadowboxInfo.doActionbar(s, rootView, getActivity(), true);
 
         if (!s.getSelftext().isEmpty()) {
-
-            setViews(s.getDataNode().get("selftext_html").asText(), s.getSubredditName(), rootView);
+            if (SettingValues.markdownNewReddit) {
+                MarkdownImages.renderInto(
+                        rootView.findViewById(R.id.firstTextView),
+                        rootView.findViewById(R.id.commentOverflow),
+                        s.getSubredditName(),
+                        s.getSelftext(),
+                        s.getDataNode().path("selftext_html").asText(""),
+                        s.getDataNode());
+            } else {
+                setViews(
+                        s.getDataNode().path("selftext_html").asText(""),
+                        s.getSubredditName(),
+                        rootView);
+            }
         }
         rootView.findViewById(R.id.desc)
                 .setOnClickListener(

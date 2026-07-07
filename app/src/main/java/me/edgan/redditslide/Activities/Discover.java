@@ -15,14 +15,13 @@ import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
 import androidx.viewpager.widget.ViewPager;
 
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.google.android.material.tabs.TabLayout;
 
 import me.edgan.redditslide.Fragments.SubredditListView;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.util.MaterialInputDialog;
 import me.edgan.redditslide.util.MiscUtil;
 
 /** Created by ccrama on 9/17/2015. */
@@ -39,49 +38,30 @@ public class Discover extends BaseActivityAnim {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case android.R.id.home:
-                getOnBackPressedDispatcher().onBackPressed();
-                return true;
-            case R.id.search:
-                {
-                    new MaterialDialog.Builder(Discover.this)
-                            .alwaysCallInputCallback()
-                            .inputType(InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
-                            .inputRange(3, 100)
-                            .input(
-                                    getString(R.string.discover_search),
-                                    null,
-                                    new MaterialDialog.InputCallback() {
-                                        @Override
-                                        public void onInput(
-                                                MaterialDialog dialog, CharSequence input) {
-                                            dialog.getActionButton(DialogAction.POSITIVE)
-                                                    .setEnabled(input.length() >= 3);
-                                        }
-                                    })
-                            .positiveText(R.string.search_all)
-                            .onPositive(
-                                    new MaterialDialog.SingleButtonCallback() {
-                                        @Override
-                                        public void onClick(
-                                                @NonNull MaterialDialog dialog,
-                                                @NonNull DialogAction which) {
-                                            Intent inte =
-                                                    new Intent(
-                                                            Discover.this, SubredditSearch.class);
-                                            inte.putExtra(
-                                                    "term",
-                                                    dialog.getInputEditText().getText().toString());
-                                            Discover.this.startActivity(inte);
-                                        }
-                                    })
-                            .negativeText(R.string.btn_cancel)
-                            .show();
-                }
-                return true;
-            default:
-                return false;
+        int itemId = item.getItemId();
+        if (itemId == android.R.id.home) {
+            getOnBackPressedDispatcher().onBackPressed();
+            return true;
+        } else if (itemId == R.id.search) {
+            new MaterialInputDialog.Builder(Discover.this)
+                    .inputType(
+                            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
+                    .inputRange(3, 100)
+                    .input(getString(R.string.discover_search), null, null)
+                    .positiveText(R.string.search_all)
+                    .onPositive(
+                            dialog -> {
+                                Intent inte = new Intent(Discover.this, SubredditSearch.class);
+                                inte.putExtra(
+                                        "term",
+                                        dialog.getInputEditText().getText().toString());
+                                Discover.this.startActivity(inte);
+                            })
+                    .negativeText(R.string.btn_cancel)
+                    .show();
+            return true;
+        } else {
+            return false;
         }
     }
 

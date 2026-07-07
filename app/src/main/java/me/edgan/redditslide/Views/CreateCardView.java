@@ -1,7 +1,6 @@
 package me.edgan.redditslide.Views;
 
 import android.animation.ValueAnimator;
-import android.os.Build;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -9,9 +8,8 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
-
 import androidx.cardview.widget.CardView;
-
+import java.util.ArrayList;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Visuals.Palette;
@@ -19,15 +17,8 @@ import me.edgan.redditslide.util.AnimatorUtil;
 import me.edgan.redditslide.util.BlendModeUtil;
 import me.edgan.redditslide.util.DisplayUtil;
 
-import java.util.ArrayList;
-
 /** Created by ccrama on 9/18/2015. */
 public class CreateCardView {
-
-    public static View CreateViewNews(ViewGroup viewGroup) {
-        return LayoutInflater.from(viewGroup.getContext())
-                .inflate(R.layout.submission_news, viewGroup, false);
-    }
 
     public static View CreateView(ViewGroup viewGroup) {
         CardEnum cardEnum = SettingValues.defaultCardView;
@@ -51,9 +42,7 @@ public class CreateCardView {
                                 .inflate(R.layout.submission_list, viewGroup, false);
 
                 // if the radius is set to 0 on KitKat--it crashes.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    ((CardView) v.findViewById(R.id.card)).setRadius(0f);
-                }
+                ((CardView) v.findViewById(R.id.card)).setRadius(0f);
                 break;
             case DESKTOP:
                 v =
@@ -61,9 +50,7 @@ public class CreateCardView {
                                 .inflate(R.layout.submission_list_desktop, viewGroup, false);
 
                 // if the radius is set to 0 on KitKat--it crashes.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    ((CardView) v.findViewById(R.id.card)).setRadius(0f);
-                }
+                ((CardView) v.findViewById(R.id.card)).setRadius(0f);
                 break;
         }
 
@@ -230,6 +217,9 @@ public class CreateCardView {
         SettingValues.prefs.edit().putBoolean("bigPicCropped", false).apply();
         SettingValues.bigPicCropped = false;
 
+        SettingValues.prefs.edit().putBoolean("bigPicLetterboxed", false).apply();
+        SettingValues.bigPicLetterboxed = false;
+
         return CreateView(parent);
     }
 
@@ -237,8 +227,27 @@ public class CreateCardView {
         SettingValues.prefs.edit().putBoolean("noThumbnails", b).apply();
         SettingValues.noThumbnails = false;
 
+        SettingValues.prefs.edit().putBoolean("bigPicLetterboxed", false).apply();
+        SettingValues.bigPicLetterboxed = false;
+
         SettingValues.prefs.edit().putBoolean("bigPicCropped", b).apply();
         SettingValues.bigPicCropped = b;
+
+        SettingValues.prefs.edit().putBoolean("bigPicEnabled", b).apply();
+        SettingValues.bigPicEnabled = b;
+
+        return CreateView(parent);
+    }
+
+    public static View setBigPicLetterboxed(Boolean b, ViewGroup parent) {
+        SettingValues.prefs.edit().putBoolean("noThumbnails", b).apply();
+        SettingValues.noThumbnails = false;
+
+        SettingValues.prefs.edit().putBoolean("bigPicCropped", false).apply();
+        SettingValues.bigPicCropped = false;
+
+        SettingValues.prefs.edit().putBoolean("bigPicLetterboxed", b).apply();
+        SettingValues.bigPicLetterboxed = b;
 
         SettingValues.prefs.edit().putBoolean("bigPicEnabled", b).apply();
         SettingValues.bigPicEnabled = b;
@@ -252,6 +261,9 @@ public class CreateCardView {
 
         SettingValues.prefs.edit().putBoolean("bigPicCropped", false).apply();
         SettingValues.bigPicCropped = false;
+
+        SettingValues.prefs.edit().putBoolean("bigPicLetterboxed", false).apply();
+        SettingValues.bigPicLetterboxed = false;
 
         SettingValues.prefs.edit().putBoolean("noThumbnails", b).apply();
         SettingValues.noThumbnails = b;
@@ -338,7 +350,11 @@ public class CreateCardView {
         } else {
             v.findViewById(R.id.tag).setVisibility(View.GONE);
         }
-        if (SettingValues.bigPicCropped) {
+        if (SettingValues.bigPicLetterboxed) {
+            ((ImageView) v.findViewById(R.id.leadimage)).setMaxHeight(900);
+            ((ImageView) v.findViewById(R.id.leadimage))
+                    .setScaleType(ImageView.ScaleType.FIT_CENTER);
+        } else if (SettingValues.bigPicCropped) {
             ((ImageView) v.findViewById(R.id.leadimage)).setMaxHeight(900);
             ((ImageView) v.findViewById(R.id.leadimage))
                     .setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -391,11 +407,7 @@ public class CreateCardView {
                     picParams.bottomMargin);
 
             layoutParams.addRule(RelativeLayout.LEFT_OF, R.id.thumbimage2);
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.JELLY_BEAN) {
-                layoutParams.removeRule(RelativeLayout.RIGHT_OF);
-            } else {
-                layoutParams.addRule(RelativeLayout.RIGHT_OF, 0);
-            }
+            layoutParams.removeRule(RelativeLayout.RIGHT_OF);
         }
         if (!SettingValues.bigPicEnabled) {
             v.findViewById(R.id.thumbimage2).setVisibility(View.VISIBLE);

@@ -1,13 +1,11 @@
 package me.edgan.redditslide.util;
 
 import com.fasterxml.jackson.databind.JsonNode;
-
-import org.apache.commons.text.StringEscapeUtils;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.apache.commons.text.StringEscapeUtils;
 
 /**
  * Utility methods to transform html received from Reddit into a more parsable format.
@@ -344,6 +342,165 @@ public class SubmissionParser {
                     }
                 }
             }
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+
+    /**
+     * Marker for a block produced by {@link #extractImageBlocks(List)} that is a single inline
+     * comment image. The remainder of the block string is the image URL. Renderers detect this and
+     * draw a real (pre-sized) ImageView instead of inline text.
+     */
+    public static final String IMAGE_BLOCK_PREFIX = "img";
+
+    private static final Pattern GIPHY_ANCHOR_WITH_IMG_PATTERN =
+            Pattern.compile(
+                    "<a\\s+href=\"https://giphy\\.com/gifs/[^\"]+\"[^>]*>\\s*<img\\s+src=\""
+                            + "(https://(?:external-preview\\.redd\\.it|i\\.giphy\\.com)/[^\"]+)\""
+                            + "[^>]*>\\s*</a>");
+    private static final Pattern GIPHY_PLAIN_LINK_PATTERN =
+            Pattern.compile("<a\\s+href=\"https://giphy\\.com/gifs/([^\"]+)\"[^>]*>[^<]*</a>");
+    private static final Pattern GIPHY_BARE_IMG_PATTERN =
+            Pattern.compile(
+                    "<img\\s+src=\"(https://(?:external-preview\\.redd\\.it|i\\.giphy\\.com)/[^\"]+)\""
+                            + "[^>]*>");
+    private static final Pattern TAG_PATTERN = Pattern.compile("<[^>]*>");
+
+    /**
+     * Splits standalone inline comment images out of the text blocks so they can be rendered as
+     * real (pre-sized) ImageViews rather than inline spans. A block whose only visible content is a
+     * single image URL (preview.redd.it / i.redd.it / external-preview.redd.it / i.giphy.com — after
+     * rewriting giphy links) becomes {@link #IMAGE_BLOCK_PREFIX} + url. All other blocks (text,
+     * tables, code, and the rare text-with-embedded-image) pass through unchanged.
+     */
+    /**
+     * Returns the image URLs that {@link #extractImageBlocks} would render for this comment body, in
+     * the exact same string form, so a preloader warms the cache under the identical keys the
+     * renderer later requests.
+     */
+    public static List<String> imageUrlsFor(String rawHtml) {
+        List<String> urls = new ArrayList<>();
+        if (rawHtml == null || rawHtml.isEmpty()) {
+            return urls;
+        }
+        for (String block : extractImageBlocks(getBlocks(rawHtml))) {
+            if (block.startsWith(IMAGE_BLOCK_PREFIX)) {
+                urls.add(block.substring(IMAGE_BLOCK_PREFIX.length()));
+            }
+        }
+        return urls;
+    }
+
+    private static final Pattern IMAGE_ANCHOR_PATTERN =
+            Pattern.compile(
+                    "<a\\s+href=\""
+                            + "(https://(?:preview\\.redd\\.it|i\\.redd\\.it|external-preview\\.redd\\.it|i\\.giphy\\.com)/[^\"]+)\""
+                            + "[^>]*>[^<]*</a>");
+    private static final Pattern IMAGE_URL_PATTERN =
+            Pattern.compile(
+                    "https://(?:preview\\.redd\\.it|i\\.redd\\.it|external-preview\\.redd\\.it|i\\.giphy\\.com)/[^\\s\"<]+");
+
+    public static List<String> extractImageBlocks(List<String> blocks) {
+        List<String> out = new ArrayList<>(blocks.size());
+        for (String block : blocks) {
+            if (block.startsWith("<table>")
+                    || block.startsWith("<pre>")
+                    || block.equals("<hr/>")
+                    || block.equals("<div class=\"md\">")) {
+                out.add(block);
+            } else {
+                out.addAll(splitBlockImages(block));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Pulls every inline image out of a single text block into its own {@link #IMAGE_BLOCK_PREFIX}
+     * block, keeping the surrounding text as text blocks. This covers both whole-block images and
+     * images embedded in a paragraph of text, so they all render as pre-sized ImageViews instead of
+     * popping in via inline spans.
+     */
+    private static List<String> splitBlockImages(String block) {
+        List<String> result = new ArrayList<>();
+        // Rewrite giphy links and direct image anchors to bare URLs so they can be split out.
+        String normalized = imageAnchorsToUrls(convertGiphyToImageUrls(block));
+        Matcher matcher = IMAGE_URL_PATTERN.matcher(normalized);
+        int last = 0;
+        boolean found = false;
+        while (matcher.find()) {
+            String url = StringEscapeUtils.unescapeHtml4(matcher.group());
+            if (!isImageUrl(url)) {
+                continue;
+            }
+            found = true;
+            String before = normalized.substring(last, matcher.start());
+            if (hasRenderableText(before)) {
+                result.add(before);
+            }
+            result.add(IMAGE_BLOCK_PREFIX + url);
+            last = matcher.end();
+        }
+        if (!found) {
+            result.add(block); // no images: leave the original block untouched
+            return result;
+        }
+        String after = normalized.substring(last);
+        if (hasRenderableText(after)) {
+            result.add(after);
+        }
+        return result;
+    }
+
+    private static String imageAnchorsToUrls(String html) {
+        Matcher matcher = IMAGE_ANCHOR_PATTERN.matcher(html);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(" " + matcher.group(1) + " "));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+
+    private static boolean hasRenderableText(String fragment) {
+        return !TAG_PATTERN.matcher(fragment).replaceAll(" ").trim().isEmpty();
+    }
+
+    private static boolean isImageUrl(String url) {
+        boolean okDomain =
+                url.startsWith("https://preview.redd.it/")
+                        || url.startsWith("https://i.redd.it/")
+                        || url.startsWith("https://external-preview.redd.it/")
+                        || url.startsWith("https://i.giphy.com/");
+        return okDomain
+                && (url.endsWith(".jpeg")
+                        || url.endsWith(".jpg")
+                        || url.endsWith(".png")
+                        || url.contains(".gif")
+                        || url.contains("format=pjpg")
+                        || url.contains("format=png"));
+    }
+
+    private static String convertGiphyToImageUrls(String html) {
+        if (html == null || html.indexOf("giphy") < 0 && !html.contains("external-preview.redd.it")) {
+            return html;
+        }
+        html = replaceGiphyMatches(html, GIPHY_ANCHOR_WITH_IMG_PATTERN, false);
+        html = replaceGiphyMatches(html, GIPHY_PLAIN_LINK_PATTERN, true);
+        html = replaceGiphyMatches(html, GIPHY_BARE_IMG_PATTERN, false);
+        return html;
+    }
+
+    private static String replaceGiphyMatches(String html, Pattern pattern, boolean buildGiphyMedia) {
+        Matcher matcher = pattern.matcher(html);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String url =
+                    buildGiphyMedia
+                            ? "https://i.giphy.com/media/" + matcher.group(1) + "/giphy.gif"
+                            : matcher.group(1);
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(" " + url + " "));
         }
         matcher.appendTail(sb);
         return sb.toString();

@@ -1,6 +1,5 @@
 package me.edgan.redditslide.Adapters;
 
-/** Created by ccrama on 3/22/2015. */
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
@@ -13,7 +12,6 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Handler;
 import android.util.Log;
 import android.util.TypedValue;
@@ -25,19 +23,23 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
-
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.devspark.robototextview.RobotoTypefaces;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.lusfold.androidkeyvaluestore.KVStore;
 import com.mikepenz.itemanimators.AlphaInAnimator;
 import com.mikepenz.itemanimators.SlideRightAlphaAnimator;
 import com.nostra13.universalimageloader.utils.DiskCacheUtils;
-
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.Drafts;
@@ -55,16 +57,17 @@ import me.edgan.redditslide.Views.DoEditorActions;
 import me.edgan.redditslide.Views.PreCachingLayoutManagerComments;
 import me.edgan.redditslide.Visuals.FontPreferences;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.markdown.MarkdownImages;
 import me.edgan.redditslide.util.AnimatorUtil;
+import me.edgan.redditslide.util.AsyncLoadMoreTask;
+import me.edgan.redditslide.util.CommentStateUtil;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.DisplayUtil;
 import me.edgan.redditslide.util.FileUtil;
 import me.edgan.redditslide.util.KeyboardUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
 import me.edgan.redditslide.util.SubmissionParser;
-import me.edgan.redditslide.util.CommentStateUtil;
-import me.edgan.redditslide.util.AsyncLoadMoreTask;
-
 import net.dean.jraw.ApiException;
 import net.dean.jraw.RedditClient;
 import net.dean.jraw.http.UserAgent;
@@ -73,13 +76,6 @@ import net.dean.jraw.models.Comment;
 import net.dean.jraw.models.CommentNode;
 import net.dean.jraw.models.Contribution;
 import net.dean.jraw.models.Submission;
-
-import java.io.File;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
 
 public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
@@ -382,14 +378,24 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
             holder.itemView.setOnClickListener(singleClick);
             holder.commentOverflow.setOnClickListener(singleClick);
             if (!toCollapse.contains(comment.getFullName()) || !SettingValues.collapseComments) {
-                setViews(
-                        SubmissionParser.replaceProcessingImgPlaceholders(
-                                comment.getDataNode().get("body_html").asText(),
-                                comment.getDataNode()),
-                        submission.getSubredditName(),
-                        holder,
-                        singleClick,
-                        onLongClickListener);
+                if (SettingValues.markdownNewReddit) {
+                    // New Reddit-style: render the raw markdown body via Markwon (issue #179).
+                    setViewsMarkdown(
+                            comment.getBody(),
+                            comment.getDataNode().path("body_html").asText(""),
+                            comment.getDataNode(),
+                            submission.getSubredditName(),
+                            holder);
+                } else {
+                    setViews(
+                            SubmissionParser.replaceProcessingImgPlaceholders(
+                                    comment.getDataNode().path("body_html").asText(""),
+                                    comment.getDataNode()),
+                            submission.getSubredditName(),
+                            holder,
+                            singleClick,
+                            onLongClickListener);
+                }
 
                 // Name media saved from links in this comment after its source:
                 // title_postId_commentId.
@@ -775,7 +781,7 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                             final ArrayList<String> keys = new ArrayList<>(accounts.keySet());
                             final int i = keys.indexOf(changedProfile);
 
-                            new AlertDialog.Builder(mContext)
+                            DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                                     .setTitle(R.string.replies_switch_accounts)
                                     .setSingleChoiceItems(
                                             keys.toArray(new String[0]),
@@ -785,7 +791,7 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                                                 profile.setText("/u/" + changedProfile);
                                             })
                                     .setNegativeButton(R.string.btn_cancel, null)
-                                    .show();
+                                    );
                         }
                     });
             currentlyEditing.setOnFocusChangeListener(
@@ -804,18 +810,16 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                         }
                     });
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                replyLine.setOnFocusChangeListener(
-                        (v, b) -> {
-                            if (b) {
-                                v.postDelayed(
-                                        () -> {
-                                            if (!v.hasFocus()) v.requestFocus();
-                                        },
-                                        100);
-                            }
-                        });
-            }
+            replyLine.setOnFocusChangeListener(
+                    (v, b) -> {
+                        if (b) {
+                            v.postDelayed(
+                                    () -> {
+                                        if (!v.hasFocus()) v.requestFocus();
+                                    },
+                                    100);
+                        }
+                    });
             replyLine.requestFocus();
             KeyboardUtil.toggleKeyboard(
                     mContext,
@@ -840,8 +844,12 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                                     mPage.overrideFab = false;
                                     if (currentlyEditing != null) {
                                         String text = currentlyEditing.getText().toString();
-                                        new ReplyTaskComment(submission, changedProfile)
-                                                .execute(text);
+                                        ReplyTaskComment replyTask =
+                                                new ReplyTaskComment(submission, changedProfile);
+                                        replyTask.uploadedImages =
+                                                me.edgan.redditslide.util.RedditImageUploads
+                                                        .consume(currentlyEditing);
+                                        replyTask.execute(text);
                                         replyArea.setVisibility(View.GONE);
                                         currentlyEditing.setText("");
                                         currentlyEditing = null;
@@ -866,6 +874,26 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
         }
     }
 
+    /**
+     * New Reddit-style rendering: render the raw markdown {@code body} via Markwon into the
+     * single comment TextView (Markwon renders code/tables/blocks inline, so the
+     * {@link CommentOverflow} block list is cleared). See issue #179.
+     */
+    public void setViewsMarkdown(
+            String rawMarkdown,
+            String bodyHtml,
+            JsonNode dataNode,
+            String subredditName,
+            CommentViewHolder holder) {
+        MarkdownImages.renderInto(
+                holder.firstTextView,
+                holder.commentOverflow,
+                subredditName,
+                rawMarkdown,
+                bodyHtml,
+                dataNode);
+    }
+
     public void setViews(
             String rawHTML,
             String subredditName,
@@ -876,23 +904,35 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
         }
 
         List<String> blocks = SubmissionParser.getBlocks(rawHTML);
+        if (!SettingValues.shouldSkipImages(mContext)) {
+            blocks = SubmissionParser.extractImageBlocks(blocks);
+        }
 
-        int startIndex = 0;
+        if (blocks.isEmpty()) {
+            firstTextView.setText("");
+            firstTextView.setVisibility(View.GONE);
+            commentOverflow.removeAllViews();
+            return;
+        }
+
+        int startIndex;
+        String first = blocks.get(0);
+        boolean firstIsImage = first.startsWith(SubmissionParser.IMAGE_BLOCK_PREFIX);
         // the <div class="md"> case is when the body contains a table or code block first
-        if (!blocks.get(0).equals("<div class=\"md\">")) {
+        if (!firstIsImage && !first.equals("<div class=\"md\">")) {
             firstTextView.setVisibility(View.VISIBLE);
-            firstTextView.setTextHtml(blocks.get(0), subredditName);
+            firstTextView.setTextHtml(first, subredditName);
             startIndex = 1;
         } else {
             firstTextView.setText("");
+            firstTextView.setVisibility(firstIsImage ? View.GONE : View.VISIBLE);
+            startIndex = 0;
         }
 
-        if (blocks.size() > 1) {
-            if (startIndex == 0) {
-                commentOverflow.setViews(blocks, subredditName);
-            } else {
-                commentOverflow.setViews(blocks.subList(startIndex, blocks.size()), subredditName);
-            }
+        List<String> overflow =
+                startIndex == 0 ? blocks : blocks.subList(startIndex, blocks.size());
+        if (!overflow.isEmpty()) {
+            commentOverflow.setViews(overflow, subredditName);
         } else {
             commentOverflow.removeAllViews();
         }
@@ -910,27 +950,37 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
         }
 
         List<String> blocks = SubmissionParser.getBlocks(rawHTML);
-
-        int startIndex = 0;
-        // the <div class="md"> case is when the body contains a table or code block first
-        if (!blocks.get(0).equals("<div class=\"md\">")) {
-            firstTextView.setVisibility(View.VISIBLE);
-            firstTextView.setTextHtml(blocks.get(0) + " ", subredditName);
-            startIndex = 1;
-        } else {
-            firstTextView.setText("");
+        if (!SettingValues.shouldSkipImages(mContext)) {
+            // Split standalone images into their own blocks so they render as pre-sized ImageViews.
+            blocks = SubmissionParser.extractImageBlocks(blocks);
         }
 
-        if (blocks.size() > 1) {
-            if (startIndex == 0) {
-                commentOverflow.setViews(blocks, subredditName, click, onLongClickListener);
-            } else {
-                commentOverflow.setViews(
-                        blocks.subList(startIndex, blocks.size()),
-                        subredditName,
-                        click,
-                        onLongClickListener);
-            }
+        if (blocks.isEmpty()) {
+            firstTextView.setText("");
+            firstTextView.setVisibility(View.GONE);
+            commentOverflow.removeAllViews();
+            return;
+        }
+
+        int startIndex;
+        String first = blocks.get(0);
+        boolean firstIsImage = first.startsWith(SubmissionParser.IMAGE_BLOCK_PREFIX);
+        // the <div class="md"> case is when the body contains a table or code block first
+        if (!firstIsImage && !first.equals("<div class=\"md\">")) {
+            firstTextView.setVisibility(View.VISIBLE);
+            firstTextView.setTextHtml(first + " ", subredditName);
+            startIndex = 1;
+        } else {
+            // First block is an image (or table/code); render everything via CommentOverflow.
+            firstTextView.setText("");
+            firstTextView.setVisibility(firstIsImage ? View.GONE : View.VISIBLE);
+            startIndex = 0;
+        }
+
+        List<String> overflow =
+                startIndex == 0 ? blocks : blocks.subList(startIndex, blocks.size());
+        if (!overflow.isEmpty()) {
+            commentOverflow.setViews(overflow, subredditName, click, onLongClickListener);
         } else {
             commentOverflow.removeAllViews();
         }
@@ -1216,7 +1266,7 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
         if (currentlyEditing != null
                 && !currentlyEditing.getText().toString().isEmpty()
                 && holder.getBindingAdapterPosition() <= editingPosition) {
-            new AlertDialog.Builder(mContext)
+            DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                     .setTitle(R.string.discard_comment_title)
                     .setMessage(R.string.comment_discard_msg)
                     .setPositiveButton(
@@ -1240,7 +1290,7 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                                 setCommentStateUnhighlighted(holder, comment, baseNode, true);
                             })
                     .setNegativeButton(R.string.btn_no, null)
-                    .show();
+                    );
         } else {
             currentlySelected = null;
             currentSelectedItem = "";
@@ -1272,7 +1322,7 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
     public void doLongClick(
             final CommentViewHolder holder, final Comment comment, final CommentNode baseNode) {
         if (currentlyEditing != null && !currentlyEditing.getText().toString().isEmpty()) {
-            new AlertDialog.Builder(mContext)
+            DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                     .setTitle(R.string.discard_comment_title)
                     .setMessage(R.string.comment_discard_msg)
                     .setPositiveButton(
@@ -1296,7 +1346,7 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                                 doLongClick(holder, comment, baseNode);
                             })
                     .setNegativeButton(R.string.btn_no, null)
-                    .show();
+                    );
 
         } else {
             if (currentSelectedItem != null
@@ -1326,7 +1376,7 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
         if (currentlyEditing != null
                 && !currentlyEditing.getText().toString().isEmpty()
                 && holder.getBindingAdapterPosition() <= editingPosition) {
-            new AlertDialog.Builder(mContext)
+            DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                     .setTitle(R.string.discard_comment_title)
                     .setMessage(R.string.comment_discard_msg)
                     .setPositiveButton(
@@ -1350,7 +1400,7 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                                 doOnClick(holder, baseNode, comment);
                             })
                     .setNegativeButton(R.string.btn_no, null)
-                    .show();
+                    );
 
         } else {
             if (isClicking) {
@@ -1364,12 +1414,21 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
 
                     if (toCollapse.contains(comment.getFullName())
                             && SettingValues.collapseComments) {
-                        setViews(
-                                SubmissionParser.replaceProcessingImgPlaceholders(
-                                        comment.getDataNode().get("body_html").asText(),
-                                        comment.getDataNode()),
-                                submission.getSubredditName(),
-                                holder);
+                        if (SettingValues.markdownNewReddit) {
+                            setViewsMarkdown(
+                                    comment.getBody(),
+                                    comment.getDataNode().path("body_html").asText(""),
+                                    comment.getDataNode(),
+                                    submission.getSubredditName(),
+                                    holder);
+                        } else {
+                            setViews(
+                                    SubmissionParser.replaceProcessingImgPlaceholders(
+                                            comment.getDataNode().path("body_html").asText(""),
+                                            comment.getDataNode()),
+                                    submission.getSubredditName(),
+                                    holder);
+                        }
                     }
 
                     CommentAdapterHelper.hideChildrenObject(holder.childrenNumber);
@@ -1774,7 +1833,7 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                 if (commentBack != null && !commentBack.isEmpty()) {
                     Drafts.addDraft(commentBack);
                     try {
-                        new AlertDialog.Builder(mContext)
+                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                                 .setTitle(R.string.err_comment_post)
                                 .setMessage(
                                         ((why == null)
@@ -1785,13 +1844,13 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                                                 + mContext.getString(
                                                         R.string.err_comment_post_message))
                                 .setPositiveButton(R.string.btn_ok, null)
-                                .show();
+                                );
                     } catch (Exception ignored) {
 
                     }
                 } else {
                     try {
-                        new AlertDialog.Builder(mContext)
+                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                                 .setTitle(R.string.err_comment_post)
                                 .setMessage(
                                         ((why == null)
@@ -1802,7 +1861,7 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
                                                 + mContext.getString(
                                                         R.string.err_comment_post_nosave_message))
                                 .setPositiveButton(R.string.btn_ok, null)
-                                .show();
+                                );
                     } catch (Exception ignored) {
 
                     }
@@ -1822,22 +1881,33 @@ public class CommentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
 
         String why;
         String commentBack;
+        public java.util.List<me.edgan.redditslide.markdown.UploadedImage> uploadedImages;
 
         @Override
         protected String doInBackground(String... comment) {
             if (Authentication.me != null) {
                 try {
                     commentBack = comment[0];
-                    if (profileName.equals(Authentication.name)) {
-                        return new AccountManager(Authentication.reddit).reply(sub, comment[0]);
-                    } else {
-                        LogUtil.v("Switching to " + profileName);
-                        return new AccountManager(getAuthenticatedClient(profileName))
-                                .reply(sub, comment[0]);
+                    RedditClient client =
+                            profileName.equals(Authentication.name)
+                                    ? Authentication.reddit
+                                    : getAuthenticatedClient(profileName);
+
+                    if (uploadedImages != null && !uploadedImages.isEmpty()) {
+                        // Inline Reddit images require submitting the body as richtext_json, which
+                        // JRAW's reply() cannot do.
+                        return me.edgan.redditslide.util.RichtextSubmission.reply(
+                                client, (Contribution) sub, comment[0], uploadedImages);
                     }
+
+                    return new AccountManager(client).reply(sub, comment[0]);
                 } catch (Exception e) {
                     if (e instanceof ApiException) {
                         why = ((ApiException) e).getExplanation();
+                    } else if (e
+                            instanceof
+                            me.edgan.redditslide.util.RichtextSubmission.RedditApiError) {
+                        why = e.getMessage();
                     }
                     return null;
                 }

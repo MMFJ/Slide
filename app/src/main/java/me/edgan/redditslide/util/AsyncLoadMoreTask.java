@@ -9,25 +9,28 @@ import android.util.Log;
 import android.view.View;
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.RecyclerView;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.mikepenz.itemanimators.SlideRightAlphaAnimator;
-import me.edgan.redditslide.Adapters.CommentAdapter;
-import me.edgan.redditslide.Adapters.CommentObject;
-import me.edgan.redditslide.Adapters.CommentItem;
-import me.edgan.redditslide.Adapters.MoreChildItem;
-import me.edgan.redditslide.Adapters.MoreCommentViewHolder;
-import me.edgan.redditslide.Authentication;
-import me.edgan.redditslide.R;
-import net.dean.jraw.models.CommentNode;
-import net.dean.jraw.models.MoreChildren;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import me.edgan.redditslide.Adapters.CommentAdapter;
+import me.edgan.redditslide.Adapters.CommentItem;
+import me.edgan.redditslide.Adapters.CommentObject;
+import me.edgan.redditslide.Adapters.MoreChildItem;
+import me.edgan.redditslide.Adapters.MoreCommentViewHolder;
+import me.edgan.redditslide.Authentication;
+import me.edgan.redditslide.R;
+import me.edgan.redditslide.Reddit;
+import net.dean.jraw.models.CommentNode;
+import net.dean.jraw.models.MoreChildren;
 
 public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
     private final MoreCommentViewHolder holder;
@@ -264,7 +267,7 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
                                         .setNegativeButton(R.string.btn_close, null);
 
                                 builder.setPositiveButton(positiveButtonText, null);
-                                builder.show();
+                                DialogUtil.showWithCardBackground(builder);
                             } catch (Exception ignored) {
                                 Log.e(LogUtil.getTag(), "Exception showing error dialog", ignored);
                             }
@@ -338,6 +341,33 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
             itemsAddedCount++;
         }
 
+        // Download the newly fetched child comments' images before they're inserted/shown (we're on
+        // a background thread), so they render in place with their comment instead of popping in,
+        // matching SubmissionComments.LoadData.
+        preloadCommentImages(finalData);
+
         return itemsAddedCount;
+    }
+
+    private void preloadCommentImages(List<CommentObject> built) {
+        try {
+            LinkedHashSet<String> urls = new LinkedHashSet<>();
+            for (CommentObject o : built) {
+                if (o == null || !o.isComment() || o.comment == null) {
+                    continue;
+                }
+                try {
+                    JsonNode dataNode = o.comment.getComment().getDataNode();
+                    String html =
+                            SubmissionParser.replaceProcessingImgPlaceholders(
+                                    dataNode.path("body_html").asText(""), dataNode);
+                    urls.addAll(SubmissionParser.imageUrlsFor(html));
+                } catch (Exception ignored) {
+                    // Skip comments we can't parse; they'll still load on bind.
+                }
+            }
+            CommentImageUtil.preloadBlocking(Reddit.getAppContext(), urls);
+        } catch (Exception ignored) {
+        }
     }
 }

@@ -3,10 +3,10 @@ package me.edgan.redditslide.Activities;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.View;
-
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
-
+import java.util.ArrayList;
+import java.util.List;
 import me.edgan.redditslide.Adapters.GalleryView;
 import me.edgan.redditslide.Adapters.MultiredditPosts;
 import me.edgan.redditslide.Adapters.SubmissionDisplay;
@@ -19,11 +19,7 @@ import me.edgan.redditslide.R;
 import me.edgan.redditslide.Views.CatchStaggeredGridLayoutManager;
 import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.MiscUtil;
-
 import net.dean.jraw.models.Submission;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /** Created by ccrama on 9/17/2015. */
 public class Gallery extends FullScreenActivity implements SubmissionDisplay {
@@ -39,6 +35,12 @@ public class Gallery extends FullScreenActivity implements SubmissionDisplay {
     @Override
     public void onCreate(Bundle savedInstance) {
         overrideSwipeFromAnywhere();
+        Bundle extras = getIntent().getExtras();
+        if (extras == null) {
+            super.onCreate(savedInstance);
+            finish();
+            return;
+        }
         subreddit = getIntent().getExtras().getString(EXTRA_SUBREDDIT);
         String multireddit = getIntent().getExtras().getString(EXTRA_MULTIREDDIT);
         String profile = getIntent().getExtras().getString(EXTRA_PROFILE, "");

@@ -1,13 +1,14 @@
 package me.edgan.redditslide.Fragments;
 
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.RelativeLayout;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.view.MarginLayoutParamsCompat;
@@ -15,14 +16,14 @@ import androidx.fragment.app.Fragment;
 import androidx.interpolator.view.animation.LinearOutSlowInInterpolator;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.snackbar.Snackbar;
 import com.mikepenz.itemanimators.AlphaInAnimator;
 import com.mikepenz.itemanimators.SlideUpAlphaAnimator;
-
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Activities.MultiredditOverview;
 import me.edgan.redditslide.Activities.Search;
 import me.edgan.redditslide.Activities.Submit;
@@ -39,17 +40,15 @@ import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.Views.CatchStaggeredGridLayoutManager;
 import me.edgan.redditslide.Views.CreateCardView;
+import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.handler.ToolbarScrollHideHandler;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LayoutUtils;
-
+import me.edgan.redditslide.util.MaterialInputDialog;
 import net.dean.jraw.models.MultiReddit;
 import net.dean.jraw.models.MultiSubreddit;
 import net.dean.jraw.models.Submission;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
 
 public class MultiredditView extends Fragment implements SubmissionDisplay {
 
@@ -98,26 +97,23 @@ public class MultiredditView extends Fragment implements SubmissionDisplay {
                                 for (MultiSubreddit s : posts.multiReddit.getSubreddits()) {
                                     subs.add(s.getDisplayName());
                                 }
-                                new MaterialDialog.Builder(getActivity())
-                                        .title(R.string.multi_submit_which_sub)
-                                        .items(subs)
-                                        .itemsCallback(
-                                                new MaterialDialog.ListCallback() {
-                                                    @Override
-                                                    public void onSelection(
-                                                            MaterialDialog dialog,
-                                                            View itemView,
-                                                            int which,
-                                                            CharSequence text) {
-                                                        Intent i =
-                                                                new Intent(
-                                                                        getActivity(),
-                                                                        Submit.class);
-                                                        i.putExtra(
-                                                                Submit.EXTRA_SUBREDDIT,
-                                                                subs.get(which));
-                                                        startActivity(i);
-                                                    }
+                                final Context contextThemeWrapper =
+                                        new ContextThemeWrapper(
+                                                getActivity(),
+                                                new ColorPreferences(getActivity())
+                                                        .getFontStyle()
+                                                        .getBaseId());
+                                new MaterialAlertDialogBuilder(contextThemeWrapper)
+                                        .setTitle(R.string.multi_submit_which_sub)
+                                        .setItems(
+                                                subs.toArray(new CharSequence[0]),
+                                                (dialog, which) -> {
+                                                    Intent i =
+                                                            new Intent(getActivity(), Submit.class);
+                                                    i.putExtra(
+                                                            Submit.EXTRA_SUBREDDIT,
+                                                            subs.get(which));
+                                                    startActivity(i);
                                                 })
                                         .show();
                             }
@@ -133,35 +129,23 @@ public class MultiredditView extends Fragment implements SubmissionDisplay {
                                 // Set the searchMulti for multireddit search
                                 MultiredditOverview.searchMulti = posts.multiReddit;
 
-                                MaterialDialog.Builder builder =
-                                        new MaterialDialog.Builder(getActivity())
+                                MaterialInputDialog.Builder builder =
+                                        new MaterialInputDialog.Builder(getActivity())
                                                 .title(R.string.search_title)
-                                                .alwaysCallInputCallback()
                                                 .input(
                                                         getString(R.string.search_msg),
                                                         "",
-                                                        new MaterialDialog.InputCallback() {
-                                                            @Override
-                                                            public void onInput(
-                                                                    MaterialDialog materialDialog,
-                                                                    CharSequence charSequence) {
-                                                                term = charSequence.toString();
-                                                            }
-                                                        });
+                                                        (dialog, charSequence) ->
+                                                                term = charSequence.toString());
 
                                 // Only set search option for multireddit
                                 builder.positiveText(getString(R.string.search_subreddit, "/m/" + posts.multiReddit.getDisplayName()))
                                         .onPositive(
-                                                new MaterialDialog.SingleButtonCallback() {
-                                                    @Override
-                                                    public void onClick(
-                                                            @NonNull MaterialDialog materialDialog,
-                                                            @NonNull DialogAction dialogAction) {
-                                                        Intent i = new Intent(getActivity(), Search.class);
-                                                        i.putExtra(Search.EXTRA_TERM, term);
-                                                        i.putExtra(Search.EXTRA_MULTIREDDIT, posts.multiReddit.getDisplayName());
-                                                        startActivity(i);
-                                                    }
+                                                dialog -> {
+                                                    Intent i = new Intent(getActivity(), Search.class);
+                                                    i.putExtra(Search.EXTRA_TERM, term);
+                                                    i.putExtra(Search.EXTRA_MULTIREDDIT, posts.multiReddit.getDisplayName());
+                                                    startActivity(i);
                                                 });
 
                                 builder.show();
@@ -174,7 +158,7 @@ public class MultiredditView extends Fragment implements SubmissionDisplay {
                             @Override
                             public void onClick(View v) {
                                 if (!Reddit.fabClear) {
-                                    new AlertDialog.Builder(getActivity())
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
                                             .setTitle(R.string.settings_fabclear)
                                             .setMessage(R.string.settings_fabclear_msg)
                                             .setPositiveButton(
@@ -190,7 +174,7 @@ public class MultiredditView extends Fragment implements SubmissionDisplay {
                                                         Reddit.fabClear = true;
                                                         clearSeenPosts(false);
                                                     })
-                                            .show();
+                                            );
                                 } else {
                                     clearSeenPosts(false);
                                 }
@@ -201,7 +185,7 @@ public class MultiredditView extends Fragment implements SubmissionDisplay {
                             @Override
                             public boolean onLongClick(View v) {
                                 if (!Reddit.fabClear) {
-                                    new AlertDialog.Builder(getActivity())
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
                                             .setTitle(R.string.settings_fabclear)
                                             .setMessage(R.string.settings_fabclear_msg)
                                             .setPositiveButton(
@@ -217,7 +201,7 @@ public class MultiredditView extends Fragment implements SubmissionDisplay {
                                                         Reddit.fabClear = true;
                                                         clearSeenPosts(true);
                                                     })
-                                            .show();
+                                            );
                                 } else {
                                     clearSeenPosts(true);
                                 }
@@ -443,7 +427,8 @@ public class MultiredditView extends Fragment implements SubmissionDisplay {
                         refreshLayout.setRefreshing(false);
 
                         if (startIndex != -1) {
-                            adapter.notifyItemRangeInserted(startIndex + 1, posts.posts.size());
+                            adapter.notifyItemRangeInserted(
+                                    startIndex + 1, posts.posts.size() - startIndex);
                         } else {
                             adapter.notifyDataSetChanged();
                         }

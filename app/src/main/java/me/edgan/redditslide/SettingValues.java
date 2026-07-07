@@ -2,20 +2,17 @@ package me.edgan.redditslide;
 
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
-
-import me.edgan.redditslide.Views.CreateCardView;
-import me.edgan.redditslide.Visuals.Palette;
-import me.edgan.redditslide.ui.settings.SettingsHandlingFragment;
-import me.edgan.redditslide.util.SortingUtil;
-
-import net.dean.jraw.models.CommentSort;
-import net.dean.jraw.paginators.Sorting;
-import net.dean.jraw.paginators.TimePeriod;
-
 import java.util.Calendar;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
+import me.edgan.redditslide.Views.CreateCardView;
+import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.ui.settings.SettingsHandlingFragment;
+import me.edgan.redditslide.util.SortingUtil;
+import net.dean.jraw.models.CommentSort;
+import net.dean.jraw.paginators.Sorting;
+import net.dean.jraw.paginators.TimePeriod;
 
 /** Created by ccrama on 9/19/2015. */
 public class SettingValues {
@@ -51,6 +48,7 @@ public class SettingValues {
     public static final String PREF_STORE_HISTORY = "storehistory";
     public static final String PREF_STORE_NSFW_HISTORY = "storensfw";
     public static final String PREF_SCROLL_SEEN = "scrollSeen";
+    public static final String PREF_DEBUG_BREAK_REAUTH = "debugBreakReauth";
     public static final String PREF_TITLE_FILTERS = "titleFilters";
     public static final String PREF_TEXT_FILTERS = "textFilters";
     public static final String PREF_DOMAIN_FILTERS = "domainFilters";
@@ -70,7 +68,7 @@ public class SettingValues {
     public static final String PREF_COLLAPSE_DELETED_COMMENTS = "collapseDeletedComments";
     public static final String PREF_COLLAPSE_STICKY_COMMENT = "collapseStickyComment";
     public static final String PREF_RIGHT_HANDED_COMMENT_MENU = "rightHandedCommentMenu";
-    public static final String PREF_DUAL_PORTRAIT = "dualPortrait";
+    public static final String PREF_PORTRAIT_COLUMNS = "portraitColumns";
     public static final String PREF_SINGLE_COLUMN_MULTI = "singleColumnMultiWindow";
     public static final String PREF_CROP_IMAGE = "cropImage";
     public static final String PREF_COMMENT_FAB = "commentFab";
@@ -116,6 +114,7 @@ public class SettingValues {
     public static final String PREF_FAB_CLEAR = "fabClear";
     public static final String PREF_HIDEBUTTON = "Hidebutton";
     public static final String PREF_SAVE_BUTTON = "saveButton";
+    public static final String PREF_THUMBNAIL_FLAGS = "thumbnailFlags";
     public static final String PREF_IMAGE = "image";
     public static final String PREF_SELFTEXT_IMAGE_COMMENT = "selftextImageComment";
     public static final String SYNCCIT_AUTH = "SYNCCIT_AUTH";
@@ -124,6 +123,7 @@ public class SettingValues {
     public static final String PREF_ALBUM_SWIPE = "albumswipe";
     public static final String PREF_COMMENT_NAV = "commentVolumeNav";
     public static final String PREF_COLOR_COMMENT_DEPTH = "colorCommentDepth";
+    public static final String PREF_MARKDOWN_NEW_REDDIT = "markdownNewReddit";
     public static final String COMMENT_DEPTH = "commentDepth";
     public static final String COMMENT_COUNT = "commentcount";
     public static final String PREF_USER_FILTERS = "userFilters";
@@ -147,6 +147,8 @@ public class SettingValues {
     public static final String PREF_MOD_TOOLBOX_MODMAIL = "toolboxModmail";
     public static final String PREF_ALWAYS_SHOW_FAB = "alwaysShowFAB";
     public static final String PREF_HIGH_COLORSPACE_IMAGES = "highMemoryImages";
+    public static final String PREF_WIDE_COLOR_GAMUT = "wideColorGamut";
+    public static final String PREF_COMMENT_IMAGE_SIZE = "commentImageSize";
     public static final String PREF_ALWAYS_BLACK_STATUSBAR = "alwaysBlackStatusbar";
     public static final String PREF_SUBREDDIT_FILTERS_TILL_RESTART = "subredditFiltersTillRestart";
     public static final String PREF_SUBREDDIT_FILTER_PREFIX_MATCHING = "subredditFilterPrefixMatching";
@@ -170,6 +172,7 @@ public class SettingValues {
     public static boolean middleImage;
     public static boolean bigPicEnabled;
     public static boolean bigPicCropped;
+    public static boolean bigPicLetterboxed;
     public static ColorMatchingMode colorMatchingMode;
     public static ColorIndicator colorIndicator;
     public static Palette.ThemeEnum theme;
@@ -204,12 +207,15 @@ public class SettingValues {
     public static boolean showNSFWContent;
     public static boolean storeNSFWHistory;
     public static boolean scrollSeen;
+    public static boolean debugBreakReauth;
     public static boolean saveButton;
+    public static boolean thumbnailFlags;
     public static boolean voteGestures;
     public static boolean colorEverywhere;
     public static boolean gif;
     public static boolean hqgif;
     public static boolean colorCommentDepth;
+    public static boolean markdownNewReddit;
     public static boolean commentVolumeNav;
     public static boolean postNav;
     public static boolean cropImage;
@@ -251,6 +257,13 @@ public class SettingValues {
     public static boolean ignoreSubSetting;
     public static boolean hideNSFWCollection;
     public static boolean highColorspaceImages;
+    public static boolean wideColorGamut;
+
+    /** Comment image size: 0 = small, 1 = medium (default), 2 = large. */
+    public static final int COMMENT_IMAGE_SIZE_SMALL = 0;
+    public static final int COMMENT_IMAGE_SIZE_MEDIUM = 1;
+    public static final int COMMENT_IMAGE_SIZE_LARGE = 2;
+    public static int commentImageSize;
 
     public static boolean fastscroll;
     public static boolean fab = true;
@@ -258,7 +271,7 @@ public class SettingValues {
     public static boolean hideButton;
     public static boolean customtabs;
     public static boolean titleTop;
-    public static boolean dualPortrait;
+    public static int portraitColumns;
     public static boolean singleColumnMultiWindow;
     public static int nightModeState;
     public static boolean imageSubfolders;
@@ -327,6 +340,7 @@ public class SettingValues {
         middleImage = settings.getBoolean("middleCard", true);
 
         bigPicCropped = settings.getBoolean("bigPicCropped", false);
+        bigPicLetterboxed = settings.getBoolean("bigPicLetterboxed", false);
         bigPicEnabled = settings.getBoolean("bigPicEnabled", true);
 
         alwaysShowFAB = settings.getBoolean("alwaysShowFAB", false);
@@ -403,6 +417,7 @@ public class SettingValues {
         shareLongLink = prefs.getBoolean(PREF_LONG_LINK, false);
         colorEverywhere = prefs.getBoolean(PREF_COLOR_EVERYWHERE, true);
         colorCommentDepth = prefs.getBoolean(PREF_COLOR_COMMENT_DEPTH, true);
+        markdownNewReddit = prefs.getBoolean(PREF_MARKDOWN_NEW_REDDIT, true);
         alwaysZoom = prefs.getBoolean(PREF_ZOOM_DEFAULT, true);
         collapseComments = prefs.getBoolean(PREF_COLLAPSE_COMMENTS, false);
         collapseCommentsDefault = prefs.getBoolean(PREF_COLLAPSE_COMMENTS_DEFAULT, false);
@@ -421,7 +436,9 @@ public class SettingValues {
         lqMid = prefs.getBoolean(PREF_LQ_MID, true);
         lqHigh = prefs.getBoolean(PREF_LQ_HIGH, false);
         lqVideos = prefs.getBoolean(PREF_LQ_VIDEOS, true);
-        highColorspaceImages = prefs.getBoolean(PREF_HIGH_COLORSPACE_IMAGES, false);
+        highColorspaceImages = prefs.getBoolean(PREF_HIGH_COLORSPACE_IMAGES, true);
+        wideColorGamut = prefs.getBoolean(PREF_WIDE_COLOR_GAMUT, true);
+        commentImageSize = prefs.getInt(PREF_COMMENT_IMAGE_SIZE, COMMENT_IMAGE_SIZE_MEDIUM);
 
         noImages = prefs.getBoolean(PREF_NO_IMAGES, false);
 
@@ -456,6 +473,7 @@ public class SettingValues {
         upvotePercentage = prefs.getBoolean(PREF_UPVOTE_PERCENTAGE, false);
         storeNSFWHistory = prefs.getBoolean(PREF_STORE_NSFW_HISTORY, false);
         scrollSeen = prefs.getBoolean(PREF_SCROLL_SEEN, false);
+        debugBreakReauth = prefs.getBoolean(PREF_DEBUG_BREAK_REAUTH, false);
         synccitName = prefs.getString(SYNCCIT_NAME, "");
         synccitAuth = prefs.getString(SYNCCIT_AUTH, "");
         notifSound = prefs.getBoolean(PREF_SOUND_NOTIFS, false);
@@ -486,7 +504,7 @@ public class SettingValues {
         flairFilters = new HashSet<>(prefs.getStringSet(PREF_FLAIR_FILTERS, new HashSet<>()));
         userFilters = new HashSet<>(prefs.getStringSet(PREF_USER_FILTERS, new HashSet<>()));
 
-        dualPortrait = prefs.getBoolean(PREF_DUAL_PORTRAIT, false);
+        portraitColumns = prefs.getInt(PREF_PORTRAIT_COLUMNS, 1);
         singleColumnMultiWindow = prefs.getBoolean(PREF_SINGLE_COLUMN_MULTI, false);
         colorSubName = prefs.getBoolean(PREF_COLOR_SUB_NAME, false);
 
@@ -508,6 +526,7 @@ public class SettingValues {
 
         hideButton = prefs.getBoolean(PREF_HIDEBUTTON, false);
         saveButton = prefs.getBoolean(PREF_SAVE_BUTTON, false);
+        thumbnailFlags = prefs.getBoolean(PREF_THUMBNAIL_FLAGS, false);
         actionbarVisible = prefs.getBoolean(PREF_ACTIONBAR_VISIBLE, true);
         actionbarTap = prefs.getBoolean(PREF_ACTIONBAR_TAP, false);
         colorIcon = prefs.getBoolean(PREF_COLOR_ICON, false);

@@ -2,6 +2,8 @@ package me.edgan.redditslide.Activities;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -12,12 +14,10 @@ import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.PorterDuff;
 import android.net.Uri;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.text.Editable;
@@ -34,7 +34,6 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewStub;
 import android.view.ViewTreeObserver;
-import android.view.Window;
 import android.view.animation.LinearInterpolator;
 import android.widget.AutoCompleteTextView;
 import android.widget.EditText;
@@ -42,7 +41,6 @@ import android.widget.FrameLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
@@ -50,6 +48,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.view.ContextThemeWrapper;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.appcompat.widget.Toolbar;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.pm.ShortcutInfoCompat;
 import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.content.res.ResourcesCompat;
@@ -58,16 +57,21 @@ import androidx.core.view.GravityCompat;
 import androidx.customview.widget.ViewDragHelper;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.recyclerview.widget.LinearLayoutManager;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.tabs.TabLayout;
 import com.lusfold.androidkeyvaluestore.KVStore;
 import com.lusfold.androidkeyvaluestore.core.KVManger;
-
-
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import me.edgan.redditslide.Adapters.SideArrayAdapter;
 import me.edgan.redditslide.Adapters.SubredditPosts;
 import me.edgan.redditslide.Authentication;
@@ -75,9 +79,11 @@ import me.edgan.redditslide.BuildConfig;
 import me.edgan.redditslide.CaseInsensitiveArrayList;
 import me.edgan.redditslide.CommentCacheAsync;
 import me.edgan.redditslide.Constants;
+import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.ForceTouch.util.DensityUtils;
 import me.edgan.redditslide.Fragments.SubmissionsView;
 import me.edgan.redditslide.Notifications.CheckForMail;
+import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
@@ -89,36 +95,27 @@ import me.edgan.redditslide.Views.PreCachingLayoutManager;
 import me.edgan.redditslide.Views.ToggleSwipeViewPager;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.markdown.RedditMarkwon;
 import me.edgan.redditslide.ui.settings.SettingsActivity;
 import me.edgan.redditslide.ui.settings.SettingsGeneralFragment;
 import me.edgan.redditslide.ui.settings.SettingsSubAdapter;
 import me.edgan.redditslide.ui.settings.SettingsThemeFragment;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.DrawableUtil;
+import me.edgan.redditslide.util.FilterContentUtil;
 import me.edgan.redditslide.util.ImageUtil;
 import me.edgan.redditslide.util.KeyboardUtil;
 import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialProgressDialog;
 import me.edgan.redditslide.util.NetworkStateReceiver;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
 import me.edgan.redditslide.util.TimeUtils;
-import me.edgan.redditslide.util.FilterContentUtil;
-
 import net.dean.jraw.managers.AccountManager;
 import net.dean.jraw.models.MultiReddit;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.paginators.SubredditPaginator;
-
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class MainActivity extends BaseActivity
         implements NetworkStateReceiver.NetworkStateReceiverListener {
@@ -169,7 +166,7 @@ public class MainActivity extends BaseActivity
     boolean changed;
     String term;
     View headerMain;
-    MaterialDialog d;
+    Dialog d;
     public AsyncTask<View, Void, View> currentFlair;
     View accountsArea;
     SideArrayAdapter sideArrayAdapter;
@@ -497,8 +494,54 @@ public class MainActivity extends BaseActivity
         return true;
     }
 
+    /**
+     * Reads the clipboard and, if it contains a Reddit link, opens it. Otherwise shows a toast.
+     * The clipboard is only read when the menu option is selected.
+     */
+    private void openClipboardRedditLink() {
+        final ClipboardManager clipboard =
+                ContextCompat.getSystemService(this, ClipboardManager.class);
+
+        String clip = null;
+        if (clipboard != null && clipboard.hasPrimaryClip()) {
+            final ClipData data = clipboard.getPrimaryClip();
+            if (data != null && data.getItemCount() > 0) {
+                final CharSequence text = data.getItemAt(0).coerceToText(this);
+                if (text != null) {
+                    clip = text.toString().trim();
+                }
+            }
+        }
+
+        if (clip == null || clip.isEmpty() || !isRedditLink(clip)) {
+            Toast.makeText(this, R.string.clipboard_no_reddit_link, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        OpenRedditLink.openUrl(this, clip, true);
+    }
+
+    /** Returns true if the given url points at Reddit (link, gallery, or v.redd.it video). */
+    private static boolean isRedditLink(String url) {
+        switch (ContentType.getContentType(url)) {
+            case REDDIT:
+            case REDDIT_GALLERY:
+            case VREDDIT_DIRECT:
+            case VREDDIT_REDIRECT:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
+        // Handled independently of the current feed state.
+        if (item.getItemId() == R.id.open_clipboard) {
+            openClipboardRedditLink();
+            return true;
+        }
+
         if (usedArray == null || usedArray.isEmpty() || Reddit.currentPosition < 0 || Reddit.currentPosition >= usedArray.size()) {
             return super.onOptionsItemSelected(item);
         }
@@ -513,22 +556,22 @@ public class MainActivity extends BaseActivity
             posts = ((SubmissionsView) adapter.getCurrentFragment()).posts.posts;
         }
 
-        switch (item.getItemId()) {
-            case R.id.filter:
-                FilterContentUtil.showFilterDialog(this, shouldLoad, this::reloadSubs);
-                return true;
-            case R.id.sidebar:
-                if (!subreddit.equals("all")
-                        && !subreddit.equals("frontpage")
-                        && !subreddit.contains(".")
-                        && !subreddit.contains("+")
-                        && !subreddit.contains("/m/")) {
-                    drawerLayout.openDrawer(GravityCompat.END);
-                } else {
-                    Toast.makeText(this, R.string.sidebar_notfound, Toast.LENGTH_SHORT).show();
-                }
-                return true;
-            case R.id.night:
+        int itemId = item.getItemId();
+        if (itemId == R.id.filter) {
+            FilterContentUtil.showFilterDialog(this, shouldLoad, this::reloadSubs);
+            return true;
+        } else if (itemId == R.id.sidebar) {
+            if (!subreddit.equals("all")
+                    && !subreddit.equals("frontpage")
+                    && !subreddit.contains(".")
+                    && !subreddit.contains("+")
+                    && !subreddit.contains("/m/")) {
+                drawerLayout.openDrawer(GravityCompat.END);
+            } else {
+                Toast.makeText(this, R.string.sidebar_notfound, Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        } else if (itemId == R.id.night) {
                 {
                     LayoutInflater inflater = getLayoutInflater();
                     final View dialoglayout = inflater.inflate(R.layout.choosethemesmall, null);
@@ -537,7 +580,7 @@ public class MainActivity extends BaseActivity
 
                     final AlertDialog.Builder builder =
                             new AlertDialog.Builder(MainActivity.this).setView(dialoglayout);
-                    final Dialog d = builder.show();
+                    final Dialog d = DialogUtil.showWithCardBackground(builder);
                     back = new ColorPreferences(MainActivity.this).getFontStyle().getThemeType();
                     if (SettingValues.isNight()) {
                         dialoglayout.findViewById(R.id.nightmsg).setVisibility(View.VISIBLE);
@@ -574,26 +617,26 @@ public class MainActivity extends BaseActivity
                                         });
                     }
                 }
-                return true;
-            case R.id.action_refresh:
-                if (adapter != null && adapter.getCurrentFragment() != null) {
-                    ((SubmissionsView) adapter.getCurrentFragment()).forceRefresh();
-                }
-                return true;
-            case R.id.action_sort:
-                if (subreddit.equalsIgnoreCase("friends")) {
-                    Snackbar s =
-                            Snackbar.make(
-                                    findViewById(R.id.anchor),
-                                    getString(R.string.friends_sort_error),
-                                    Snackbar.LENGTH_SHORT);
-                    LayoutUtils.showSnackbar(s);
-                } else {
-                    subredditSortController.openPopup();
-                }
-                return true;
-            case R.id.search:
-                final Context contextThemeWrapper = new ContextThemeWrapper(this,
+            return true;
+        } else if (itemId == R.id.action_refresh) {
+            if (adapter != null && adapter.getCurrentFragment() != null) {
+                ((SubmissionsView) adapter.getCurrentFragment()).forceRefresh();
+            }
+            return true;
+        } else if (itemId == R.id.action_sort) {
+            if (subreddit.equalsIgnoreCase("friends")) {
+                Snackbar s =
+                        Snackbar.make(
+                                findViewById(R.id.anchor),
+                                getString(R.string.friends_sort_error),
+                                Snackbar.LENGTH_SHORT);
+                LayoutUtils.showSnackbar(s);
+            } else {
+                subredditSortController.openPopup();
+            }
+            return true;
+        } else if (itemId == R.id.search) {
+            final Context contextThemeWrapper = new ContextThemeWrapper(this,
                         new ColorPreferences(this).getFontStyle().getBaseId());
                 final String currentSubreddit = usedArray.get(Reddit.currentPosition);
 
@@ -696,79 +739,77 @@ public class MainActivity extends BaseActivity
                 dialog.getButton(DialogInterface.BUTTON_POSITIVE).setTextColor(accentColor);
                 dialog.getButton(DialogInterface.BUTTON_NEUTRAL).setTextColor(accentColor);
 
-                return true;
-            case R.id.save:
-                if (adapter != null && adapter.getCurrentFragment() != null &&
-                    adapter.getCurrentFragment() instanceof SubmissionsView &&
-                    ((SubmissionsView) adapter.getCurrentFragment()).posts != null &&
-                    ((SubmissionsView) adapter.getCurrentFragment()).posts.posts != null) {
-                    saveOffline(
-                            ((SubmissionsView) adapter.getCurrentFragment()).posts.posts,
-                            ((SubmissionsView) adapter.getCurrentFragment()).posts.subreddit);
-                }
-                return true;
-            case R.id.hide_posts:
-                if (adapter != null && adapter.getCurrentFragment() != null &&
-                    adapter.getCurrentFragment() instanceof SubmissionsView) {
-                    ((SubmissionsView) adapter.getCurrentFragment()).clearSeenPosts(false);
-                }
-                return true;
-            case R.id.share:
-                Reddit.defaultShareText(
-                        "Slide for Reddit",
-                        "https://play.google.com/store/apps/details?id=me.edgan.redditslide",
-                        MainActivity.this);
-                return true;
-            case R.id.submit:
-                {
-                    Intent i = new Intent(MainActivity.this, Submit.class);
-                    i.putExtra(Submit.EXTRA_SUBREDDIT, subreddit);
-                    startActivity(i);
-                }
-                return true;
-            case R.id.gallery:
-                if (posts != null && !posts.isEmpty() && adapter != null &&
-                    adapter.getCurrentFragment() != null &&
-                    adapter.getCurrentFragment() instanceof SubmissionsView &&
-                    ((SubmissionsView) adapter.getCurrentFragment()).posts != null) {
-                    Intent i2 = new Intent(this, Gallery.class);
-                    i2.putExtra(
-                            "offline",
-                            ((SubmissionsView) adapter.getCurrentFragment()).posts.cached != null
-                                    ? ((SubmissionsView) adapter.getCurrentFragment())
-                                            .posts
-                                            .cached
-                                            .time
-                                    : 0L);
-                    i2.putExtra(
-                            Gallery.EXTRA_SUBREDDIT,
-                            ((SubmissionsView) adapter.getCurrentFragment()).posts.subreddit);
-                    startActivity(i2);
-                }
-                return true;
-            case R.id.action_shadowbox:
-                if (posts != null && !posts.isEmpty() && adapter != null &&
-                    adapter.getCurrentFragment() != null &&
-                    adapter.getCurrentFragment() instanceof SubmissionsView &&
-                    ((SubmissionsView) adapter.getCurrentFragment()).posts != null) {
-                    Intent i2 = new Intent(this, Shadowbox.class);
-                    i2.putExtra(Shadowbox.EXTRA_PAGE, getCurrentPage());
-                    i2.putExtra(
-                            "offline",
-                            ((SubmissionsView) adapter.getCurrentFragment()).posts.cached != null
-                                    ? ((SubmissionsView) adapter.getCurrentFragment())
-                                            .posts
-                                            .cached
-                                            .time
-                                    : 0L);
-                    i2.putExtra(
-                            Shadowbox.EXTRA_SUBREDDIT,
-                            ((SubmissionsView) adapter.getCurrentFragment()).posts.subreddit);
-                    startActivity(i2);
-                }
-                return true;
-            default:
-                return false;
+            return true;
+        } else if (itemId == R.id.save) {
+            if (adapter != null && adapter.getCurrentFragment() != null &&
+                adapter.getCurrentFragment() instanceof SubmissionsView &&
+                ((SubmissionsView) adapter.getCurrentFragment()).posts != null &&
+                ((SubmissionsView) adapter.getCurrentFragment()).posts.posts != null) {
+                saveOffline(
+                        ((SubmissionsView) adapter.getCurrentFragment()).posts.posts,
+                        ((SubmissionsView) adapter.getCurrentFragment()).posts.subreddit);
+            }
+            return true;
+        } else if (itemId == R.id.hide_posts) {
+            if (adapter != null && adapter.getCurrentFragment() != null &&
+                adapter.getCurrentFragment() instanceof SubmissionsView) {
+                ((SubmissionsView) adapter.getCurrentFragment()).clearSeenPosts(false);
+            }
+            return true;
+        } else if (itemId == R.id.share) {
+            Reddit.defaultShareText(
+                    "Slide for Reddit",
+                    "https://play.google.com/store/apps/details?id=me.edgan.redditslide",
+                    MainActivity.this);
+            return true;
+        } else if (itemId == R.id.submit) {
+            Intent i = new Intent(MainActivity.this, Submit.class);
+            i.putExtra(Submit.EXTRA_SUBREDDIT, subreddit);
+            startActivity(i);
+            return true;
+        } else if (itemId == R.id.gallery) {
+            if (posts != null && !posts.isEmpty() && adapter != null &&
+                adapter.getCurrentFragment() != null &&
+                adapter.getCurrentFragment() instanceof SubmissionsView &&
+                ((SubmissionsView) adapter.getCurrentFragment()).posts != null) {
+                Intent i2 = new Intent(this, Gallery.class);
+                i2.putExtra(
+                        "offline",
+                        ((SubmissionsView) adapter.getCurrentFragment()).posts.cached != null
+                                ? ((SubmissionsView) adapter.getCurrentFragment())
+                                        .posts
+                                        .cached
+                                        .time
+                                : 0L);
+                i2.putExtra(
+                        Gallery.EXTRA_SUBREDDIT,
+                        ((SubmissionsView) adapter.getCurrentFragment()).posts.subreddit);
+                startActivity(i2);
+            }
+            return true;
+        } else if (itemId == R.id.action_shadowbox) {
+            if (posts != null && !posts.isEmpty() && adapter != null &&
+                adapter.getCurrentFragment() != null &&
+                adapter.getCurrentFragment() instanceof SubmissionsView &&
+                ((SubmissionsView) adapter.getCurrentFragment()).posts != null) {
+                Intent i2 = new Intent(this, Shadowbox.class);
+                i2.putExtra(Shadowbox.EXTRA_PAGE, getCurrentPage());
+                i2.putExtra(
+                        "offline",
+                        ((SubmissionsView) adapter.getCurrentFragment()).posts.cached != null
+                                ? ((SubmissionsView) adapter.getCurrentFragment())
+                                        .posts
+                                        .cached
+                                        .time
+                                : 0L);
+                i2.putExtra(
+                        Shadowbox.EXTRA_SUBREDDIT,
+                        ((SubmissionsView) adapter.getCurrentFragment()).posts.subreddit);
+                startActivity(i2);
+            }
+            return true;
+        } else {
+            return false;
         }
     }
 
@@ -995,16 +1036,10 @@ public class MainActivity extends BaseActivity
             toGoto = getIntent().getIntExtra(EXTRA_PAGE_TO, 0);
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            Window window = this.getWindow();
-            int color = Palette.getDarkerColor(Palette.getDarkerColor(Palette.getDefaultColor()));
-
-            if (SettingValues.alwaysBlackStatusbar) {
-                color = Color.BLACK;
-            }
-
-            window.setStatusBarColor(color);
-        }
+        // Route through themeSystemBars() so the system-bar scrims are colored too; under
+        // edge-to-edge enforcement (API 35+) a direct window.setStatusBarColor() is a no-op.
+        // themeSystemBars() applies alwaysBlackStatusbar internally.
+        themeSystemBars(Palette.getDarkerColor(Palette.getDarkerColor(Palette.getDefaultColor())));
 
         mTabLayout = (TabLayout) findViewById(R.id.sliding_tabs);
         header = findViewById(R.id.header);
@@ -1102,12 +1137,13 @@ public class MainActivity extends BaseActivity
                 @Override
                 protected void onPreExecute() {
                     d =
-                            new MaterialDialog.Builder(MainActivity.this)
+                            new MaterialProgressDialog.Builder(MainActivity.this)
                                     .title(R.string.misc_setting_up)
                                     .content(R.string.misc_setting_up_message)
                                     .progress(true, 100)
                                     .cancelable(false)
-                                    .build();
+                                    .build()
+                                    .getDialog();
                     d.show();
                 }
             }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
@@ -1200,6 +1236,9 @@ public class MainActivity extends BaseActivity
             reloadSubs();
             // If the user changed a Setting regarding the app's theme, restartTheme()
             if (SettingsThemeFragment.changed) {
+                // Drop the cached new Reddit-style Markwon so it rebuilds with the new theme
+                // colors (code-block background, table borders, blockquote stripe).
+                RedditMarkwon.invalidate();
                 restartTheme();
             }
 
@@ -1320,33 +1359,30 @@ public class MainActivity extends BaseActivity
                                             new OnSingleClickListener() {
                                                 @Override
                                                 public void onSingleClick(View view) {
-                                                    new MaterialDialog.Builder(MainActivity.this)
-                                                            .title("Friends")
-                                                            .items(friends)
-                                                            .itemsCallback(
-                                                                    new MaterialDialog
-                                                                            .ListCallback() {
-                                                                        @Override
-                                                                        public void onSelection(
-                                                                                MaterialDialog
-                                                                                        dialog,
-                                                                                View itemView,
-                                                                                int which,
-                                                                                CharSequence text) {
-                                                                            Intent i =
-                                                                                    new Intent(
+                                                    new MaterialAlertDialogBuilder(
+                                                                    new ContextThemeWrapper(
+                                                                            MainActivity.this,
+                                                                            new ColorPreferences(
                                                                                             MainActivity
-                                                                                                    .this,
-                                                                                            Profile
-                                                                                                    .class);
-                                                                            i.putExtra(
-                                                                                    Profile
-                                                                                            .EXTRA_PROFILE,
-                                                                                    friends.get(
-                                                                                            which));
-                                                                            startActivity(i);
-                                                                            dialog.dismiss();
-                                                                        }
+                                                                                                    .this)
+                                                                                    .getFontStyle()
+                                                                                    .getBaseId()))
+                                                            .setTitle("Friends")
+                                                            .setItems(
+                                                                    friends.toArray(
+                                                                            new CharSequence[0]),
+                                                                    (dialog, which) -> {
+                                                                        Intent i =
+                                                                                new Intent(
+                                                                                        MainActivity
+                                                                                                .this,
+                                                                                        Profile
+                                                                                                .class);
+                                                                        i.putExtra(
+                                                                                Profile.EXTRA_PROFILE,
+                                                                                friends.get(which));
+                                                                        startActivity(i);
+                                                                        dialog.dismiss();
                                                                     })
                                                             .show();
                                                 }
@@ -1718,16 +1754,10 @@ public class MainActivity extends BaseActivity
         if (accountsArea != null) {
             accountsArea.setBackgroundColor(Palette.getDarkerColor(color));
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            Window window = getWindow();
-            int finalColor = Palette.getDarkerColor(color);
-
-            if (SettingValues.alwaysBlackStatusbar) {
-                finalColor = Color.BLACK;
-            }
-
-            window.setStatusBarColor(finalColor);
-        }
+        // Route through themeSystemBars() so the system-bar scrims update too; a direct
+        // window.setStatusBarColor() is a no-op under edge-to-edge enforcement (API 35+).
+        // themeSystemBars() applies alwaysBlackStatusbar internally.
+        themeSystemBars(Palette.getDarkerColor(color));
         setRecentBar(subreddit, color);
         View headerSubView = findViewById(R.id.header_sub);
         if (headerSubView != null) {
@@ -1743,33 +1773,22 @@ public class MainActivity extends BaseActivity
         if (subs.isEmpty() && !NetworkUtil.isConnected(this)) {
             findViewById(R.id.toolbar).setVisibility(View.GONE);
             d =
-                    new MaterialDialog.Builder(MainActivity.this)
-                            .title(R.string.offline_no_content_found)
-                            .positiveText(R.string.offline_enter_online)
-                            .negativeText(R.string.btn_close)
-                            .cancelable(false)
-                            .onNegative(
-                                    new MaterialDialog.SingleButtonCallback() {
-                                        @Override
-                                        public void onClick(
-                                                @NonNull MaterialDialog dialog,
-                                                @NonNull DialogAction which) {
-                                            finish();
-                                        }
+                    new MaterialAlertDialogBuilder(
+                                    new ContextThemeWrapper(
+                                            MainActivity.this,
+                                            new ColorPreferences(MainActivity.this)
+                                                    .getFontStyle()
+                                                    .getBaseId()))
+                            .setTitle(R.string.offline_no_content_found)
+                            .setNegativeButton(
+                                    R.string.btn_close, (dialog, which) -> finish())
+                            .setPositiveButton(
+                                    R.string.offline_enter_online,
+                                    (dialog, which) -> {
+                                        Reddit.appRestart.edit().remove("forceoffline").commit();
+                                        Reddit.forceRestart(MainActivity.this, false);
                                     })
-                            .onPositive(
-                                    new MaterialDialog.SingleButtonCallback() {
-                                        @Override
-                                        public void onClick(
-                                                @NonNull MaterialDialog dialog,
-                                                @NonNull DialogAction which) {
-                                            Reddit.appRestart
-                                                    .edit()
-                                                    .remove("forceoffline")
-                                                    .commit();
-                                            Reddit.forceRestart(MainActivity.this, false);
-                                        }
-                                    })
+                            .setCancelable(false)
                             .show();
         } else {
             drawerLayout = (DrawerLayout) findViewById(R.id.drawer_layout);

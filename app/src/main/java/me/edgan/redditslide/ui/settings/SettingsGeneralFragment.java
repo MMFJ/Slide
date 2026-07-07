@@ -15,6 +15,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.net.Uri;
 import android.os.AsyncTask;
@@ -35,19 +36,18 @@ import android.widget.RelativeLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
-
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.app.ActivityCompat;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
-
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.CaseInsensitiveArrayList;
 import me.edgan.redditslide.Fragments.DrawerItemsDialog;
@@ -59,27 +59,21 @@ import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.ImageLoaderUtils;
-import me.edgan.redditslide.util.OnSingleClickListener;
+import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialInputDialog;
+import me.edgan.redditslide.util.OnSingleClickListener;
 import me.edgan.redditslide.util.QrCodeScannerHelper;
 import me.edgan.redditslide.util.SortingUtil;
 import me.edgan.redditslide.util.StorageUtil;
 import me.edgan.redditslide.util.StringUtil;
 import me.edgan.redditslide.util.TimeUtils;
-
 import net.dean.jraw.models.CommentSort;
 import net.dean.jraw.models.Subreddit;
 import net.dean.jraw.paginators.Sorting;
 import net.dean.jraw.paginators.TimePeriod;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-
-import android.content.pm.PackageManager;
 
 /** Created by ccrama on 3/5/2015. */
 public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
@@ -187,6 +181,7 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
         final AlertDialog.Builder builder = new AlertDialog.Builder(context).setView(dialoglayout);
         final Dialog dialog = builder.create();
         dialog.setCancelable(false);
+        DialogUtil.matchDialogToCardBackground(dialog);
         dialog.show();
         dialog.setOnDismissListener(
                 new DialogInterface.OnDismissListener() {
@@ -284,8 +279,7 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
         {
             View notifs = context.findViewById(R.id.settings_general_redditnotifs);
             if (notifs != null) {
-                if (!Reddit.isPackageInstalled("com.reddit.frontpage")
-                        || Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2) {
+                if (!Reddit.isPackageInstalled("com.reddit.frontpage")) {
                     notifs.setVisibility(View.GONE);
                     if (context.findViewById(R.id.settings_general_installreddit) != null) {
                         context.findViewById(R.id.settings_general_installreddit)
@@ -325,7 +319,7 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                                                                             "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"));
                                                         }
                                                     });
-                                            s.show();
+                                            LayoutUtils.showSnackbar(s);
                                         }
                                     });
                         }
@@ -349,8 +343,7 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                 context.findViewById(R.id.settings_general_sorting_current_frontpage);
 
         context.findViewById(R.id.settings_general_drawer_items)
-                .setOnClickListener(
-                        v -> new DrawerItemsDialog(new MaterialDialog.Builder(context)).show());
+                .setOnClickListener(v -> DrawerItemsDialog.show(context));
 
         {
             SwitchCompat immersiveModeSwitch =
@@ -406,6 +399,64 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                                             SettingValues.PREF_HIGH_COLORSPACE_IMAGES, isChecked)
                                     .apply();
                         });
+            }
+        }
+
+        {
+            SwitchCompat wideColorGamutSwitch =
+                    context.findViewById(R.id.settings_general_wide_color_gamut);
+            if (wideColorGamutSwitch != null) {
+                wideColorGamutSwitch.setChecked(SettingValues.wideColorGamut);
+                wideColorGamutSwitch.setOnCheckedChangeListener(
+                        (buttonView, isChecked) -> {
+                            SettingsThemeFragment.changed = true;
+                            SettingValues.wideColorGamut = isChecked;
+                            SettingValues.prefs
+                                    .edit()
+                                    .putBoolean(SettingValues.PREF_WIDE_COLOR_GAMUT, isChecked)
+                                    .apply();
+                        });
+            }
+        }
+
+        {
+            final TextView commentImageSizeCurrent =
+                    context.findViewById(R.id.settings_general_comment_image_size_current);
+            final View commentImageSizeRow =
+                    context.findViewById(R.id.settings_general_comment_image_size);
+            if (commentImageSizeRow != null) {
+                final String[] sizeLabels = {
+                    context.getString(R.string.comment_image_size_small),
+                    context.getString(R.string.comment_image_size_medium),
+                    context.getString(R.string.comment_image_size_large)
+                };
+                if (commentImageSizeCurrent != null) {
+                    commentImageSizeCurrent.setText(sizeLabels[SettingValues.commentImageSize]);
+                }
+                commentImageSizeRow.setOnClickListener(
+                        v ->
+                                DialogUtil.showWithCardBackground(
+                                        new AlertDialog.Builder(
+                                                        SettingsGeneralFragment.this.context)
+                                                .setTitle(R.string.comment_image_size)
+                                                .setSingleChoiceItems(
+                                                        sizeLabels,
+                                                        SettingValues.commentImageSize,
+                                                        (dialog, which) -> {
+                                                            SettingValues.commentImageSize = which;
+                                                            SettingValues.prefs
+                                                                    .edit()
+                                                                    .putInt(
+                                                                            SettingValues
+                                                                                    .PREF_COMMENT_IMAGE_SIZE,
+                                                                            which)
+                                                                    .apply();
+                                                            if (commentImageSizeCurrent != null) {
+                                                                commentImageSizeCurrent.setText(
+                                                                        sizeLabels[which]);
+                                                            }
+                                                            dialog.dismiss();
+                                                        })));
             }
         }
 
@@ -773,52 +824,46 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
 
                         popup.setOnMenuItemClickListener(
                                 item -> {
-                                    switch (item.getItemId()) {
-                                        case R.id.disabled:
-                                            SettingValues.fab = false;
-                                            SettingValues.prefs
-                                                    .edit()
-                                                    .putBoolean(SettingValues.PREF_FAB, false)
-                                                    .apply();
-                                            break;
-                                        case R.id.hide:
-                                            SettingValues.fab = true;
-                                            SettingValues.fabType = FAB_DISMISS;
-                                            SettingValues.prefs
-                                                    .edit()
-                                                    .putInt(
-                                                            SettingValues.PREF_FAB_TYPE,
-                                                            FAB_DISMISS)
-                                                    .apply();
-                                            SettingValues.prefs
-                                                    .edit()
-                                                    .putBoolean(SettingValues.PREF_FAB, true)
-                                                    .apply();
-                                            break;
-                                        case R.id.create:
-                                            SettingValues.fab = true;
-                                            SettingValues.fabType = FAB_POST;
-                                            SettingValues.prefs
-                                                    .edit()
-                                                    .putInt(SettingValues.PREF_FAB_TYPE, FAB_POST)
-                                                    .apply();
-                                            SettingValues.prefs
-                                                    .edit()
-                                                    .putBoolean(SettingValues.PREF_FAB, true)
-                                                    .apply();
-                                            break;
-                                        case R.id.search:
-                                            SettingValues.fab = true;
-                                            SettingValues.fabType = FAB_SEARCH;
-                                            SettingValues.prefs
-                                                    .edit()
-                                                    .putInt(SettingValues.PREF_FAB_TYPE, FAB_SEARCH)
-                                                    .apply();
-                                            SettingValues.prefs
-                                                    .edit()
-                                                    .putBoolean(SettingValues.PREF_FAB, true)
-                                                    .apply();
-                                            break;
+                                    int itemId = item.getItemId();
+                                    if (itemId == R.id.disabled) {
+                                        SettingValues.fab = false;
+                                        SettingValues.prefs
+                                                .edit()
+                                                .putBoolean(SettingValues.PREF_FAB, false)
+                                                .apply();
+                                    } else if (itemId == R.id.hide) {
+                                        SettingValues.fab = true;
+                                        SettingValues.fabType = FAB_DISMISS;
+                                        SettingValues.prefs
+                                                .edit()
+                                                .putInt(SettingValues.PREF_FAB_TYPE, FAB_DISMISS)
+                                                .apply();
+                                        SettingValues.prefs
+                                                .edit()
+                                                .putBoolean(SettingValues.PREF_FAB, true)
+                                                .apply();
+                                    } else if (itemId == R.id.create) {
+                                        SettingValues.fab = true;
+                                        SettingValues.fabType = FAB_POST;
+                                        SettingValues.prefs
+                                                .edit()
+                                                .putInt(SettingValues.PREF_FAB_TYPE, FAB_POST)
+                                                .apply();
+                                        SettingValues.prefs
+                                                .edit()
+                                                .putBoolean(SettingValues.PREF_FAB, true)
+                                                .apply();
+                                    } else if (itemId == R.id.search) {
+                                        SettingValues.fab = true;
+                                        SettingValues.fabType = FAB_SEARCH;
+                                        SettingValues.prefs
+                                                .edit()
+                                                .putInt(SettingValues.PREF_FAB_TYPE, FAB_SEARCH)
+                                                .apply();
+                                        SettingValues.prefs
+                                                .edit()
+                                                .putBoolean(SettingValues.PREF_FAB, true)
+                                                .apply();
                                     }
                                     if (SettingValues.fab) {
                                         if (SettingValues.fabType == FAB_DISMISS) {
@@ -870,43 +915,37 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                                 .inflate(R.menu.subreddit_search_settings, popup.getMenu());
                         popup.setOnMenuItemClickListener(
                                 item -> {
-                                    switch (item.getItemId()) {
-                                        case R.id.subreddit_search_drawer:
-                                            SettingValues.subredditSearchMethod =
-                                                    SUBREDDIT_SEARCH_METHOD_DRAWER;
-                                            SettingValues.prefs
-                                                    .edit()
-                                                    .putInt(
-                                                            SettingValues
-                                                                    .PREF_SUBREDDIT_SEARCH_METHOD,
-                                                            SUBREDDIT_SEARCH_METHOD_DRAWER)
-                                                    .apply();
-                                            searchChanged = true;
-                                            break;
-                                        case R.id.subreddit_search_toolbar:
-                                            SettingValues.subredditSearchMethod =
-                                                    SUBREDDIT_SEARCH_METHOD_TOOLBAR;
-                                            SettingValues.prefs
-                                                    .edit()
-                                                    .putInt(
-                                                            SettingValues
-                                                                    .PREF_SUBREDDIT_SEARCH_METHOD,
-                                                            SUBREDDIT_SEARCH_METHOD_TOOLBAR)
-                                                    .apply();
-                                            searchChanged = true;
-                                            break;
-                                        case R.id.subreddit_search_both:
-                                            SettingValues.subredditSearchMethod =
-                                                    SUBREDDIT_SEARCH_METHOD_BOTH;
-                                            SettingValues.prefs
-                                                    .edit()
-                                                    .putInt(
-                                                            SettingValues
-                                                                    .PREF_SUBREDDIT_SEARCH_METHOD,
-                                                            SUBREDDIT_SEARCH_METHOD_BOTH)
-                                                    .apply();
-                                            searchChanged = true;
-                                            break;
+                                    int itemId = item.getItemId();
+                                    if (itemId == R.id.subreddit_search_drawer) {
+                                        SettingValues.subredditSearchMethod =
+                                                SUBREDDIT_SEARCH_METHOD_DRAWER;
+                                        SettingValues.prefs
+                                                .edit()
+                                                .putInt(
+                                                        SettingValues.PREF_SUBREDDIT_SEARCH_METHOD,
+                                                        SUBREDDIT_SEARCH_METHOD_DRAWER)
+                                                .apply();
+                                        searchChanged = true;
+                                    } else if (itemId == R.id.subreddit_search_toolbar) {
+                                        SettingValues.subredditSearchMethod =
+                                                SUBREDDIT_SEARCH_METHOD_TOOLBAR;
+                                        SettingValues.prefs
+                                                .edit()
+                                                .putInt(
+                                                        SettingValues.PREF_SUBREDDIT_SEARCH_METHOD,
+                                                        SUBREDDIT_SEARCH_METHOD_TOOLBAR)
+                                                .apply();
+                                        searchChanged = true;
+                                    } else if (itemId == R.id.subreddit_search_both) {
+                                        SettingValues.subredditSearchMethod =
+                                                SUBREDDIT_SEARCH_METHOD_BOTH;
+                                        SettingValues.prefs
+                                                .edit()
+                                                .putInt(
+                                                        SettingValues.PREF_SUBREDDIT_SEARCH_METHOD,
+                                                        SUBREDDIT_SEARCH_METHOD_BOTH)
+                                                .apply();
+                                        searchChanged = true;
                                     }
 
                                     switch (SettingValues.subredditSearchMethod) {
@@ -961,51 +1000,43 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
 
                     popup.setOnMenuItemClickListener(
                             item -> {
-                                switch (item.getItemId()) {
-                                    case R.id.back_button_behavior_default:
-                                        SettingValues.backButtonBehavior =
-                                                BackButtonBehaviorOptions.Default.getValue();
-                                        SettingValues.prefs
-                                                .edit()
-                                                .putInt(
-                                                        SettingValues.PREF_BACK_BUTTON_BEHAVIOR,
-                                                        BackButtonBehaviorOptions.Default
-                                                                .getValue())
-                                                .apply();
-                                        break;
-                                    case R.id.back_button_behavior_confirm_exit:
-                                        SettingValues.backButtonBehavior =
-                                                BackButtonBehaviorOptions.ConfirmExit.getValue();
-                                        SettingValues.prefs
-                                                .edit()
-                                                .putInt(
-                                                        SettingValues.PREF_BACK_BUTTON_BEHAVIOR,
-                                                        BackButtonBehaviorOptions.ConfirmExit
-                                                                .getValue())
-                                                .apply();
-                                        break;
-                                    case R.id.back_button_behavior_open_drawer:
-                                        SettingValues.backButtonBehavior =
-                                                BackButtonBehaviorOptions.OpenDrawer.getValue();
-                                        SettingValues.prefs
-                                                .edit()
-                                                .putInt(
-                                                        SettingValues.PREF_BACK_BUTTON_BEHAVIOR,
-                                                        BackButtonBehaviorOptions.OpenDrawer
-                                                                .getValue())
-                                                .apply();
-                                        break;
-                                    case R.id.back_button_behavior_goto_first:
-                                        SettingValues.backButtonBehavior =
-                                                BackButtonBehaviorOptions.GotoFirst.getValue();
-                                        SettingValues.prefs
-                                                .edit()
-                                                .putInt(
-                                                        SettingValues.PREF_BACK_BUTTON_BEHAVIOR,
-                                                        BackButtonBehaviorOptions.GotoFirst
-                                                                .getValue())
-                                                .apply();
-                                        break;
+                                int itemId = item.getItemId();
+                                if (itemId == R.id.back_button_behavior_default) {
+                                    SettingValues.backButtonBehavior =
+                                            BackButtonBehaviorOptions.Default.getValue();
+                                    SettingValues.prefs
+                                            .edit()
+                                            .putInt(
+                                                    SettingValues.PREF_BACK_BUTTON_BEHAVIOR,
+                                                    BackButtonBehaviorOptions.Default.getValue())
+                                            .apply();
+                                } else if (itemId == R.id.back_button_behavior_confirm_exit) {
+                                    SettingValues.backButtonBehavior =
+                                            BackButtonBehaviorOptions.ConfirmExit.getValue();
+                                    SettingValues.prefs
+                                            .edit()
+                                            .putInt(
+                                                    SettingValues.PREF_BACK_BUTTON_BEHAVIOR,
+                                                    BackButtonBehaviorOptions.ConfirmExit.getValue())
+                                            .apply();
+                                } else if (itemId == R.id.back_button_behavior_open_drawer) {
+                                    SettingValues.backButtonBehavior =
+                                            BackButtonBehaviorOptions.OpenDrawer.getValue();
+                                    SettingValues.prefs
+                                            .edit()
+                                            .putInt(
+                                                    SettingValues.PREF_BACK_BUTTON_BEHAVIOR,
+                                                    BackButtonBehaviorOptions.OpenDrawer.getValue())
+                                            .apply();
+                                } else if (itemId == R.id.back_button_behavior_goto_first) {
+                                    SettingValues.backButtonBehavior =
+                                            BackButtonBehaviorOptions.GotoFirst.getValue();
+                                    SettingValues.prefs
+                                            .edit()
+                                            .putInt(
+                                                    SettingValues.PREF_BACK_BUTTON_BEHAVIOR,
+                                                    BackButtonBehaviorOptions.GotoFirst.getValue())
+                                            .apply();
                                 }
 
                                 if (SettingValues.backButtonBehavior
@@ -1140,13 +1171,13 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                                         sortingStrings.remove(skip);
                                     }
 
-                                    new AlertDialog.Builder(SettingsGeneralFragment.this.context)
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsGeneralFragment.this.context)
                                             .setTitle(R.string.sorting_choose)
                                             .setSingleChoiceItems(
                                                     sortingStrings.toArray(new String[0]),
                                                     SortingUtil.getSortingId(""),
                                                     l2)
-                                            .show();
+                                            );
                                 });
             }
         }
@@ -1207,13 +1238,13 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                                     List<String> sortingStrings =
                                             new ArrayList<>(
                                                     Arrays.asList(SortingUtil.getSortingStrings()));
-                                    new AlertDialog.Builder(SettingsGeneralFragment.this.context)
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsGeneralFragment.this.context)
                                             .setTitle(R.string.sorting_choose)
                                             .setSingleChoiceItems(
                                                     sortingStrings.toArray(new String[0]),
                                                     SortingUtil.getSortingIdFrontpage(),
                                                     l2)
-                                            .show();
+                                            );
                                 });
             }
         }
@@ -1289,7 +1320,7 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
 
                                     Resources res = context.getBaseContext().getResources();
 
-                                    new AlertDialog.Builder(SettingsGeneralFragment.this.context)
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsGeneralFragment.this.context)
                                             .setTitle(R.string.sorting_choose)
                                             .setSingleChoiceItems(
                                                     new String[] {
@@ -1303,7 +1334,7 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                                                     },
                                                     i2,
                                                     l2)
-                                            .show();
+                                            );
                                 });
             }
         }
@@ -1534,13 +1565,13 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                     }
                 };
 
-        new AlertDialog.Builder(SettingsGeneralFragment.this.context)
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsGeneralFragment.this.context)
                 .setTitle(R.string.sorting_choose)
                 .setSingleChoiceItems(
                         SortingUtil.getSortingTimesStrings(),
                         SortingUtil.getSortingTimeId(sub),
                         l2)
-                .show();
+                );
     }
 
     private void setSubText() {
@@ -1627,7 +1658,7 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
 
         final ArrayList<String> toCheck = new ArrayList<>(subThresholds.keySet());
         final String[] finalAll = all;
-        new AlertDialog.Builder(SettingsGeneralFragment.this.context)
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsGeneralFragment.this.context)
                 .setMultiChoiceItems(
                         finalAll,
                         checked,
@@ -1646,41 +1677,22 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                 .setNegativeButton(
                         R.string.sub_post_notifs_settings_search,
                         (dialog, which) ->
-                                new MaterialDialog.Builder(SettingsGeneralFragment.this.context)
+                                new MaterialInputDialog.Builder(
+                                                SettingsGeneralFragment.this.context)
                                         .title(R.string.reorder_add_subreddit)
-                                        .inputRangeRes(2, 21, R.color.md_red_500)
-                                        .alwaysCallInputCallback()
+                                        .inputRange(2, 21)
                                         .input(
                                                 context.getString(R.string.reorder_subreddit_name),
                                                 null,
-                                                false,
-                                                new MaterialDialog.InputCallback() {
-                                                    @Override
-                                                    public void onInput(
-                                                            MaterialDialog dialog,
-                                                            CharSequence raw) {
+                                                (d, raw) ->
                                                         input =
                                                                 raw.toString()
-                                                                        .replaceAll(
-                                                                                "\\s",
-                                                                                ""); // remove
-                                                        // whitespace
-                                                        // from input
-                                                    }
-                                                })
+                                                                        .replaceAll("\\s", ""))
                                         .positiveText(R.string.btn_add)
-                                        .onPositive(
-                                                new MaterialDialog.SingleButtonCallback() {
-                                                    @Override
-                                                    public void onClick(
-                                                            @NonNull MaterialDialog dialog,
-                                                            @NonNull DialogAction which) {
-                                                        new AsyncGetSubreddit().execute(input);
-                                                    }
-                                                })
+                                        .onPositive(d -> new AsyncGetSubreddit().execute(input))
                                         .negativeText(R.string.btn_cancel)
                                         .show())
-                .show();
+                );
     }
 
     private void showThresholdDialog(ArrayList<String> strings, boolean search) {
@@ -1714,32 +1726,25 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
         if (!toAdd.isEmpty()) {
             final int[] selectedThreshold = {0}; // Default to index 0 ("1")
             final String[] thresholds = new String[] {"1", "5", "10", "20", "40", "50"};
-            new MaterialDialog.Builder(SettingsGeneralFragment.this.context)
-                    .title(R.string.sub_post_notifs_threshold)
-                    .items(thresholds)
-                    .alwaysCallSingleChoiceCallback()
-                    .itemsCallbackSingleChoice(
-                            0,
-                            new MaterialDialog.ListCallbackSingleChoice() {
-                                @Override
-                                public boolean onSelection(
-                                        MaterialDialog dialog,
-                                        View itemView,
-                                        int which,
-                                        CharSequence text) {
-                                    selectedThreshold[0] = which;
-                                    return true;
+            new MaterialAlertDialogBuilder(
+                            new ContextThemeWrapper(
+                                    SettingsGeneralFragment.this.context,
+                                    new ColorPreferences(SettingsGeneralFragment.this.context)
+                                            .getFontStyle()
+                                            .getBaseId()))
+                    .setTitle(R.string.sub_post_notifs_threshold)
+                    .setSingleChoiceItems(
+                            thresholds, 0, (dialog, which) -> selectedThreshold[0] = which)
+                    .setPositiveButton(
+                            R.string.btn_ok,
+                            (dialog, which) -> {
+                                for (String s : toAdd) {
+                                    subsRaw.add(s + ":" + thresholds[selectedThreshold[0]]);
                                 }
+                                saveAndUpdateSubs(subsRaw);
                             })
-                    .positiveText(R.string.btn_ok)
-                    .negativeText(R.string.btn_cancel)
-                    .onPositive((dialog, which) -> {
-                        for (String s : toAdd) {
-                            subsRaw.add(s + ":" + thresholds[selectedThreshold[0]]);
-                        }
-                        saveAndUpdateSubs(subsRaw);
-                    })
-                    .cancelable(true)
+                    .setNegativeButton(R.string.btn_cancel, null)
+                    .setCancelable(true)
                     .show();
         } else {
             saveAndUpdateSubs(subsRaw);
@@ -1774,7 +1779,7 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                 context.runOnUiThread(
                         () -> {
                             try {
-                                new AlertDialog.Builder(SettingsGeneralFragment.this.context)
+                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(SettingsGeneralFragment.this.context)
                                         .setTitle(R.string.subreddit_err)
                                         .setMessage(
                                                 context.getString(
@@ -1783,7 +1788,7 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                                                 R.string.btn_ok,
                                                 (dialog, which) -> dialog.dismiss())
                                         .setOnDismissListener(null)
-                                        .show();
+                                        );
                             } catch (Exception ignored) {
                             }
                         });

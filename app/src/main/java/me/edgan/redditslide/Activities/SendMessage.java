@@ -1,43 +1,41 @@
 package me.edgan.redditslide.Activities;
 
+import android.content.Context;
 import android.net.Uri;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.Toolbar;
-
-import com.afollestad.materialdialogs.MaterialDialog;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
-
+import java.util.ArrayList;
+import java.util.Locale;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.DataShare;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.Views.DoEditorActions;
+import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.KeyboardUtil;
+import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
-
 import net.dean.jraw.ApiException;
 import net.dean.jraw.managers.InboxManager;
 import net.dean.jraw.models.Captcha;
 import net.dean.jraw.models.PrivateMessage;
-
-import java.util.ArrayList;
-import java.util.Locale;
-import me.edgan.redditslide.util.LogUtil;
 
 /** Created by ccrama on 3/5/2015. */
 public class SendMessage extends BaseActivity {
@@ -113,23 +111,21 @@ public class SendMessage extends BaseActivity {
                             for (String s : UserSubscriptions.modOf) {
                                 items.add("/r/" + s);
                             }
-                        new MaterialDialog.Builder(SendMessage.this)
-                                .title("Send message as")
-                                .items(items)
-                                .itemsCallback(
-                                        new MaterialDialog.ListCallback() {
-                                            @Override
-                                            public void onSelection(
-                                                    MaterialDialog dialog,
-                                                    View itemView,
-                                                    int which,
-                                                    CharSequence text) {
-                                                SendMessage.this.author = (String) text;
-                                                sendingAs.setText("Sending as " + author);
-                                            }
+                        final Context contextThemeWrapper =
+                                new ContextThemeWrapper(
+                                        SendMessage.this,
+                                        new ColorPreferences(SendMessage.this)
+                                                .getFontStyle()
+                                                .getBaseId());
+                        new MaterialAlertDialogBuilder(contextThemeWrapper)
+                                .setTitle("Send message as")
+                                .setItems(
+                                        items.toArray(new CharSequence[0]),
+                                        (dialog, which) -> {
+                                            SendMessage.this.author = items.get(which);
+                                            sendingAs.setText("Sending as " + author);
                                         })
-                                .negativeText(R.string.btn_cancel)
-                                .onNegative(null)
+                                .setNegativeButton(R.string.btn_cancel, null)
                                 .show();
                     }
                 });
@@ -156,11 +152,10 @@ public class SendMessage extends BaseActivity {
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
-                                new AlertDialog.Builder(SendMessage.this)
+                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(SendMessage.this)
                                         .setTitle(getString(R.string.mail_author_wrote, name))
                                         .setMessage(previousMessage.getBody())
-                                        .create()
-                                        .show();
+                                        );
                             }
                         });
             } else {
@@ -181,11 +176,9 @@ public class SendMessage extends BaseActivity {
             subject.setText(getIntent().getStringExtra(EXTRA_SUBJECT));
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            Window window = this.getWindow();
-            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
-            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-        }
+        Window window = this.getWindow();
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         setupUserAppBar(R.id.toolbar, null, true, name);
         setRecentBar(b.getTitle().toString(), Palette.getDefaultColor());
 

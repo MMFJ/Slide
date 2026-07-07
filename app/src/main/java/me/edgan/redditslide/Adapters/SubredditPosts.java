@@ -4,9 +4,12 @@ import android.content.Context;
 import android.os.AsyncTask;
 import android.util.Log;
 import android.widget.Toast;
-
 import androidx.appcompat.app.ActionBar;
-
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Activities.MainActivity;
 import me.edgan.redditslide.Activities.SubredditView;
 import me.edgan.redditslide.Authentication;
@@ -26,18 +29,11 @@ import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.PhotoLoader;
 import me.edgan.redditslide.util.TimeUtils;
-
 import net.dean.jraw.http.NetworkException;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.paginators.DomainPaginator;
 import net.dean.jraw.paginators.Paginator;
 import net.dean.jraw.paginators.SubredditPaginator;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
 
 /**
  * This class is reponsible for loading subreddit specific submissions {@link loadMore(Context,
@@ -206,7 +202,9 @@ public class SubredditPosts implements PostLoader {
                 }
                 offline = false;
                 usedOffline = false;
-                displayer.updateSuccess(posts, start);
+                // posts was just replaced wholesale from cache, so force a full redraw
+                // (-1) rather than a targeted insert against a now-mismatched offset.
+                displayer.updateSuccess(posts, -1);
             } else {
                 if (!all.isEmpty() && !nomore && SettingValues.cache) {
                     if (context instanceof MainActivity) {
@@ -276,19 +274,20 @@ public class SubredditPosts implements PostLoader {
                 posts = new ArrayList<>(new LinkedHashSet<>(filteredSubmissions));
                 start = -1;
             } else {
+                int oldSize = posts.size();
                 posts.addAll(filteredSubmissions);
                 posts = new ArrayList<>(new LinkedHashSet<>(posts));
                 offline = false;
+                // Adapter offset of the first newly appended post. The trailing
+                // notifyDataSetChanged backstop has been removed, so this must be
+                // the real insert offset (not the new total).
+                start = oldSize;
             }
 
             if (!usedOffline) {
                 OfflineSubreddit.getSubNoLoad(subreddit.toLowerCase(Locale.ENGLISH))
                         .overwriteSubmissions(posts)
                         .writeToMemory(context);
-            }
-            start = 0;
-            if (posts != null) {
-                start = posts.size() + 1;
             }
 
             return filteredSubmissions;

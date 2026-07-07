@@ -20,17 +20,23 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
-
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.nostra13.universalimageloader.core.DisplayImageOptions;
 import com.nostra13.universalimageloader.core.assist.FailReason;
 import com.nostra13.universalimageloader.core.assist.ImageScaleType;
 import com.nostra13.universalimageloader.core.imageaware.ImageViewAware;
 import com.nostra13.universalimageloader.core.listener.ImageLoadingListener;
 import com.nostra13.universalimageloader.core.listener.ImageLoadingProgressListener;
-
+import java.io.File;
+import java.io.IOException;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import me.edgan.redditslide.Adapters.ImageGridAdapter;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.ForceTouch.PeekViewActivity;
@@ -46,19 +52,8 @@ import me.edgan.redditslide.util.GifUtils;
 import me.edgan.redditslide.util.HttpUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.NetworkUtil;
-
-import org.apache.commons.text.StringEscapeUtils;
-
-import java.io.File;
-import java.io.IOException;
-import java.net.URL;
-import java.net.URLConnection;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 import net.dean.jraw.models.Submission;
+import org.apache.commons.text.StringEscapeUtils;
 
 /** Created by ccrama on 3/5/2015. */
 public class PeekMediaView extends RelativeLayout {
@@ -393,54 +388,13 @@ public class PeekMediaView extends RelativeLayout {
                         /// todo error out
                     } else {
                         try {
-                            if (result != null && !result.isJsonNull() && result.has("image")) {
-                                String type =
-                                        result.get("image")
-                                                .getAsJsonObject()
-                                                .get("image")
-                                                .getAsJsonObject()
-                                                .get("type")
-                                                .getAsString();
-                                String urls =
-                                        result.get("image")
-                                                .getAsJsonObject()
-                                                .get("links")
-                                                .getAsJsonObject()
-                                                .get("original")
-                                                .getAsString();
-
-                                if (type.contains("gif")) {
-                                    doLoadGif(urls);
-                                } else if (!imageShown) { // only load if there is no image
-                                    displayImage(urls);
-                                }
-                            } else if (result != null && result.has("data")) {
-                                String type =
-                                        result.get("data")
-                                                .getAsJsonObject()
-                                                .get("type")
-                                                .getAsString();
-                                String urls =
-                                        result.get("data")
-                                                .getAsJsonObject()
-                                                .get("link")
-                                                .getAsString();
-                                String mp4 = "";
-                                if (result.get("data").getAsJsonObject().has("mp4")) {
-                                    mp4 =
-                                            result.get("data")
-                                                    .getAsJsonObject()
-                                                    .get("mp4")
-                                                    .getAsString();
-                                }
-
-                                if (type.contains("gif")) {
-                                    doLoadGif(((mp4 == null || mp4.isEmpty()) ? urls : mp4));
-                                } else if (!imageShown) { // only load if there is no image
-                                    displayImage(urls);
-                                }
-                            } else {
+                            HttpUtil.ImgurMedia media = HttpUtil.parseImgurMedia(result);
+                            if (media == null) {
                                 if (!imageShown) doLoadImage(finalUrl);
+                            } else if (media.isGif()) {
+                                doLoadGif(media.getGifUrl());
+                            } else if (!imageShown) { // only load if there is no image
+                                displayImage(media.getImageUrl());
                             }
                         } catch (Exception e2) {
                             // todo error out

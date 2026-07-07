@@ -14,9 +14,7 @@ import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SubmissionViews.HeaderImageLinkView;
 import me.edgan.redditslide.SubmissionViews.PopulateBase;
 import me.edgan.redditslide.Visuals.Palette;
-
 import net.dean.jraw.models.Submission;
-
 import org.apache.commons.text.StringEscapeUtils;
 
 public class SubmissionThumbnailHelper {

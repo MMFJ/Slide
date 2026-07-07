@@ -12,23 +12,27 @@ import android.os.AsyncTask;
 import android.text.InputType;
 import android.text.SpannableStringBuilder;
 import android.text.style.AbsoluteSizeSpan;
-import android.view.View;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-
+import android.view.ContextThemeWrapper;
 import androidx.appcompat.app.AlertDialog;
-import androidx.core.content.res.ResourcesCompat;
 import androidx.recyclerview.widget.RecyclerView;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
-import com.cocosw.bottomsheet.BottomSheet;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
-
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import me.edgan.redditslide.Activities.ModQueue;
+import me.edgan.redditslide.Activities.Profile;
+import me.edgan.redditslide.Adapters.CommentAdapterHelper;
+import me.edgan.redditslide.Adapters.SubmissionViewHolder;
+import me.edgan.redditslide.Authentication;
+import me.edgan.redditslide.R;
+import me.edgan.redditslide.SettingValues;
+import me.edgan.redditslide.SubmissionCache;
+import me.edgan.redditslide.Toolbox.ToolboxUI;
+import me.edgan.redditslide.Visuals.ColorPreferences;
 import net.dean.jraw.ApiException;
 import net.dean.jraw.fluent.FlairReference;
 import net.dean.jraw.fluent.FluentRedditClient;
-import net.dean.jraw.http.oauth.InvalidScopeException;
 import net.dean.jraw.managers.AccountManager;
 import net.dean.jraw.managers.ModerationManager;
 import net.dean.jraw.models.Contribution;
@@ -36,21 +40,6 @@ import net.dean.jraw.models.DistinguishedStatus;
 import net.dean.jraw.models.FlairTemplate;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.Thing;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-
-import me.edgan.redditslide.Activities.ModQueue;
-import me.edgan.redditslide.Activities.Profile;
-import me.edgan.redditslide.Activities.Reauthenticate;
-import me.edgan.redditslide.Adapters.SubmissionViewHolder;
-import me.edgan.redditslide.Authentication;
-import me.edgan.redditslide.R;
-import me.edgan.redditslide.SettingValues;
-import me.edgan.redditslide.SubmissionCache;
-import me.edgan.redditslide.Toolbox.ToolboxUI;
 
 /**
  * Handles Moderation actions for Submission views.
@@ -74,23 +63,20 @@ public class SubmissionModActions {
         TypedArray ta = mContext.obtainStyledAttributes(attrs);
 
         int color = ta.getColor(0, Color.WHITE);
-        Drawable profile = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_account_circle, null);
-        final Drawable report = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_report, null);
-        final Drawable approve = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_thumb_up, null);
-        final Drawable nsfw = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_visibility_off, null);
-        final Drawable spoiler = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_remove_circle, null);
-        final Drawable pin = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_bookmark_border, null);
-        final Drawable lock = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_lock, null);
-        final Drawable flair = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_format_quote, null);
-        final Drawable remove = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_close, null);
-        final Drawable remove_reason = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_announcement, null);
-        final Drawable ban = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_gavel, null);
-        final Drawable spam = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_flag, null);
-        final Drawable distinguish = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_star, null);
-        final Drawable note = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_note, null);
-
-        final List<Drawable> drawableSet = Arrays.asList(profile, report, approve, spam, nsfw, pin, flair, remove, spoiler, remove_reason, ban, spam, distinguish, lock, note);
-        BlendModeUtil.tintDrawablesAsSrcAtop(drawableSet, color);
+        final Drawable profile = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_account_circle, color);
+        final Drawable report = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_report, color);
+        final Drawable approve = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_thumb_up, color);
+        final Drawable nsfw = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_visibility_off, color);
+        final Drawable spoiler = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_remove_circle, color);
+        final Drawable pin = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_bookmark_border, color);
+        final Drawable lock = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_lock, color);
+        final Drawable flair = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_format_quote, color);
+        final Drawable remove = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_close, color);
+        final Drawable remove_reason = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_announcement, color);
+        final Drawable ban = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_gavel, color);
+        final Drawable spam = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_flag, color);
+        final Drawable distinguish = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_star, color);
+        final Drawable note = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_note, color);
 
         ta.recycle();
 
@@ -180,10 +166,10 @@ public class SubmissionModActions {
 
                                 @Override
                                 public void onPostExecute(ArrayList<String> data) {
-                                    new AlertDialog.Builder(mContext)
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                                             .setTitle(R.string.mod_reports)
                                             .setItems(data.toArray(new CharSequence[0]), null)
-                                            .show();
+                                            );
                                 }
                             }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
 
@@ -273,10 +259,10 @@ public class SubmissionModActions {
                                                     Snackbar s = Snackbar.make(holder.itemView, R.string.submission_removed, Snackbar.LENGTH_LONG);
                                                     LayoutUtils.showSnackbar(s);
                                                 } else {
-                                                    new AlertDialog.Builder(mContext)
+                                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                                                         .setTitle(R.string.err_general)
                                                         .setMessage(R.string.err_retry_later)
-                                                        .show();
+                                                        );
                                                 }
                                             }
                                         });
@@ -301,7 +287,8 @@ public class SubmissionModActions {
                             break;
                         case 23:
                             // ban a user
-                            showBan(mContext, holder.itemView, submission, "", "", "", "");
+                            CommentAdapterHelper.showBan(
+                                    mContext, holder.itemView, submission, "", "", "", "");
 
                             break;
                         case 24:
@@ -322,31 +309,19 @@ public class SubmissionModActions {
             final RecyclerView recyclerview,
             final SubmissionViewHolder holder) {
         reason = "";
-        new MaterialDialog.Builder(mContext)
+        new MaterialInputDialog.Builder(mContext)
                 .title(R.string.mod_remove_title)
                 .positiveText(R.string.btn_remove)
-                .alwaysCallInputCallback()
+                .inputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
                 .input(
                         mContext.getString(R.string.mod_remove_hint),
                         mContext.getString(R.string.mod_remove_template),
-                        false,
-                        new MaterialDialog.InputCallback() {
-                            @Override
-                            public void onInput(MaterialDialog dialog, CharSequence input) {
-                                reason = input.toString();
-                            }
-                        })
-                .inputType(InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+                        (dialog, input) -> reason = input.toString())
                 .neutralText(R.string.mod_remove_insert_draft)
                 .onPositive(
-                        new MaterialDialog.SingleButtonCallback() {
-                            @Override
-                            public void onClick(final MaterialDialog dialog, DialogAction which) {
-
+                        dialog ->
                                 removeSubmissionReason(
-                                        submission, mContext, posts, reason, holder, recyclerview);
-                            }
-                        })
+                                        submission, mContext, posts, reason, holder, recyclerview))
                 .negativeText(R.string.btn_cancel)
                 .onNegative(null)
                 .show();
@@ -393,10 +368,10 @@ public class SubmissionModActions {
                     LayoutUtils.showSnackbar(s);
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                             .setTitle(R.string.err_general)
                             .setMessage(R.string.err_retry_later)
-                            .show();
+                            );
                 }
             }
 
@@ -461,10 +436,10 @@ public class SubmissionModActions {
                     LayoutUtils.showSnackbar(s);
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                             .setTitle(R.string.err_general)
                             .setMessage(R.string.err_retry_later)
-                            .show();
+                            );
                 }
             }
 
@@ -512,10 +487,9 @@ public class SubmissionModActions {
             public void onPostExecute(final ArrayList<String> data) {
                 try {
                     if (data == null || data.isEmpty()) { // Added null check
-                        new AlertDialog.Builder(mContext)
+                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                                 .setTitle(R.string.mod_flair_none_found)
-                                .setPositiveButton(R.string.btn_ok, null)
-                                .show();
+                                .setPositiveButton(R.string.btn_ok, null));
                     } else {
                         showFlairSelectionDialog(mContext, submission, data, flair, holder);
                     }
@@ -532,23 +506,19 @@ public class SubmissionModActions {
             ArrayList<String> data,
             final ArrayList<FlairTemplate> flair,
             final SubmissionViewHolder holder) {
-        new MaterialDialog.Builder(mContext)
-                .items(data)
-                .title(R.string.sidebar_select_flair)
-                .itemsCallback(
-                        new MaterialDialog.ListCallback() {
-                            @Override
-                            public void onSelection(
-                                    MaterialDialog dialog,
-                                    View itemView,
-                                    int which,
-                                    CharSequence text) {
-                                final FlairTemplate t = flair.get(which);
-                                if (t.isTextEditable()) {
-                                    showFlairEditDialog(mContext, submission, t, holder);
-                                } else {
-                                    setFlair(mContext, null, submission, t, holder);
-                                }
+        new MaterialAlertDialogBuilder(
+                        new ContextThemeWrapper(
+                                mContext,
+                                new ColorPreferences(mContext).getFontStyle().getBaseId()))
+                .setTitle(R.string.sidebar_select_flair)
+                .setItems(
+                        data.toArray(new CharSequence[0]),
+                        (dialog, which) -> {
+                            final FlairTemplate t = flair.get(which);
+                            if (t.isTextEditable()) {
+                                showFlairEditDialog(mContext, submission, t, holder);
+                            } else {
+                                setFlair(mContext, null, submission, t, holder);
                             }
                         })
                 .show();
@@ -559,21 +529,14 @@ public class SubmissionModActions {
             final Submission submission,
             final FlairTemplate t,
             final SubmissionViewHolder holder) {
-        new MaterialDialog.Builder(mContext)
+        new MaterialInputDialog.Builder(mContext)
                 .title(R.string.sidebar_select_flair_text)
-                .input(
-                        mContext.getString(R.string.mod_flair_hint),
-                        t.getText(),
-                        true,
-                        (dialog, input) -> {})
+                .input(mContext.getString(R.string.mod_flair_hint), t.getText(), null)
                 .positiveText(R.string.btn_set)
                 .onPositive(
-                        new MaterialDialog.SingleButtonCallback() {
-                            @Override
-                            public void onClick(MaterialDialog dialog, DialogAction which) {
-                                final String flair = dialog.getInputEditText().getText().toString();
-                                setFlair(mContext, flair, submission, t, holder);
-                            }
+                        dialog -> {
+                            final String flair = dialog.getInputEditText().getText().toString();
+                            setFlair(mContext, flair, submission, t, holder);
                         })
                 .negativeText(R.string.btn_cancel)
                 .show();
@@ -673,10 +636,10 @@ public class SubmissionModActions {
                     LayoutUtils.showSnackbar(s);
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                             .setTitle(R.string.err_general)
                             .setMessage(R.string.err_retry_later)
-                            .show();
+                            );
                 }
             }
 
@@ -707,10 +670,10 @@ public class SubmissionModActions {
                     LayoutUtils.showSnackbar(s);
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                         .setTitle(R.string.err_general)
                         .setMessage(R.string.err_retry_later)
-                        .show();
+                        );
                 }
             }
 
@@ -740,10 +703,10 @@ public class SubmissionModActions {
                     LayoutUtils.showSnackbar(s);
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                         .setTitle(R.string.err_general)
                         .setMessage(R.string.err_retry_later)
-                        .show();
+                        );
                 }
             }
 
@@ -769,10 +732,10 @@ public class SubmissionModActions {
                     LayoutUtils.showSnackbar(s);
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                         .setTitle(R.string.err_general)
                         .setMessage(R.string.err_retry_later)
-                        .show();
+                        );
                 }
             }
 
@@ -799,10 +762,10 @@ public class SubmissionModActions {
                     LayoutUtils.showSnackbar(s);
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                         .setTitle(R.string.err_general)
                         .setMessage(R.string.err_retry_later)
-                        .show();
+                        );
                 }
             }
 
@@ -828,10 +791,10 @@ public class SubmissionModActions {
                     Snackbar s = Snackbar.make(holder.itemView, R.string.submission_distinguished_removed, Snackbar.LENGTH_LONG);
                     LayoutUtils.showSnackbar(s);
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                         .setTitle(R.string.err_general)
                         .setMessage(R.string.err_retry_later)
-                        .show();
+                        );
                 }
             }
 
@@ -860,10 +823,10 @@ public class SubmissionModActions {
                     // TODO: Update UI immediately
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                         .setTitle(R.string.err_general)
                         .setMessage(R.string.err_retry_later)
-                        .show();
+                        );
                 }
             }
 
@@ -892,10 +855,10 @@ public class SubmissionModActions {
                     // TODO: Update UI immediately
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                         .setTitle(R.string.err_general)
                         .setMessage(R.string.err_retry_later)
-                        .show();
+                        );
                 }
             }
 
@@ -927,10 +890,10 @@ public class SubmissionModActions {
                     // TODO: Update UI immediately
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                         .setTitle(R.string.err_general)
                         .setMessage(R.string.err_retry_later)
-                        .show();
+                        );
                 }
             }
 
@@ -960,10 +923,10 @@ public class SubmissionModActions {
                     // TODO: Update UI immediately
 
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                         .setTitle(R.string.err_general)
                         .setMessage(R.string.err_retry_later)
-                        .show();
+                        );
                 }
             }
 
@@ -1010,10 +973,10 @@ public class SubmissionModActions {
                         LogUtil.e(e, "Failed to show mod-approved snackbar");
                     }
                 } else {
-                    new AlertDialog.Builder(mContext)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                         .setTitle(R.string.err_general)
                         .setMessage(R.string.err_retry_later)
-                        .show();
+                        );
                 }
             }
 
@@ -1031,143 +994,4 @@ public class SubmissionModActions {
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
-    public static void showBan(final Context mContext, final View mToolbar, final Submission submission, String rs, String nt, String msg, String t) {
-        LinearLayout l = new LinearLayout(mContext);
-        l.setOrientation(LinearLayout.VERTICAL);
-        int sixteen = DisplayUtil.dpToPxVertical(16);
-        l.setPadding(sixteen, 0, sixteen, 0);
-
-        final EditText reason = new EditText(mContext);
-        reason.setHint(R.string.mod_ban_reason);
-        reason.setText(rs);
-        reason.setInputType(InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        l.addView(reason);
-
-        final EditText note = new EditText(mContext);
-        note.setHint(R.string.mod_ban_note_mod);
-        note.setText(nt);
-        note.setInputType(InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        l.addView(note);
-
-        final EditText message = new EditText(mContext);
-        message.setHint(R.string.mod_ban_note_user);
-        message.setText(msg);
-        message.setInputType(InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        l.addView(message);
-
-        final EditText time = new EditText(mContext);
-        time.setHint(R.string.mod_ban_time);
-        time.setText(t);
-        time.setInputType(InputType.TYPE_CLASS_NUMBER);
-        l.addView(time);
-
-        new AlertDialog.Builder(mContext)
-                .setView(l)
-                .setTitle(mContext.getString(R.string.mod_ban_title, submission.getAuthor()))
-                .setCancelable(true)
-                .setPositiveButton(
-                    R.string.mod_btn_ban,
-                    (dialog, which) -> {
-                        // to ban
-                        if (reason.getText().toString().isEmpty()) {
-                            new AlertDialog.Builder(mContext)
-                                    .setTitle(R.string.mod_ban_reason_required)
-                                    .setMessage(R.string.misc_please_try_again)
-                                    .setPositiveButton(
-                                            R.string.btn_ok,
-                                            (dialog1, which1) ->
-                                                    showBan(mContext, mToolbar, submission, reason.getText().toString(), note.getText().toString(), message.getText().toString(), time.getText().toString()))
-                                    .setCancelable(false)
-                                    .show();
-                        } else {
-                            // Snapshot View state on the UI thread; the AsyncTask below
-                            // runs doInBackground() on a worker thread.
-                            final String noteText = note.getText().toString();
-                            final String messageText = message.getText().toString();
-                            final String timeText = time.getText().toString();
-                            final String reasonText = reason.getText().toString();
-                            new AsyncTask<Void, Void, Boolean>() {
-                                @Override
-                                protected Boolean doInBackground(Void... params) {
-                                    try {
-                                        String n = noteText;
-                                        String m = messageText;
-
-                                        if (n.isEmpty()) {
-                                            n = null;
-                                        }
-                                        if (m.isEmpty()) {
-                                            m = null;
-                                        }
-                                        if (timeText.isEmpty()) {
-                                            new ModerationManager(Authentication.reddit)
-                                                .banUserPermanently(submission.getSubredditName(), submission.getAuthor(), reasonText, n, m);
-                                        } else {
-                                            new ModerationManager(Authentication.reddit)
-                                                .banUser(submission.getSubredditName(), submission.getAuthor(), reasonText, n, m, Integer.parseInt(timeText));
-                                        }
-                                        return true;
-                                    } catch (Exception e) {
-                                        if (e instanceof InvalidScopeException) {
-                                            scope = true;
-                                        }
-                                        LogUtil.e(e, "SubmissionModActions.doInBackground failed");
-                                        return false;
-                                    }
-                                }
-
-                                boolean scope;
-
-                                @Override
-                                protected void onPostExecute(Boolean done) {
-                                    Snackbar s;
-                                    if (done) {
-                                        s = Snackbar.make(mToolbar, R.string.mod_ban_success, Snackbar.LENGTH_SHORT);
-                                    } else {
-                                        if (scope) {
-                                            new AlertDialog.Builder(mContext)
-                                                    .setTitle(R.string.mod_ban_reauth)
-                                                    .setMessage(R.string.mod_ban_reauth_question)
-                                                    .setPositiveButton(
-                                                            R.string.btn_ok,
-                                                            (dialog12, which12) -> {
-                                                                Intent i = new Intent(mContext, Reauthenticate.class);
-                                                                mContext.startActivity(i);
-                                                            })
-                                                    .setNegativeButton(
-                                                            R.string.misc_maybe_later, null)
-                                                    .setCancelable(false)
-                                                    .show();
-                                        }
-                                        s = Snackbar.make(mToolbar, R.string.mod_ban_fail, Snackbar.LENGTH_INDEFINITE)
-                                            .setAction(
-                                                R.string.misc_try_again,
-                                                new View.OnClickListener() {
-                                                    @Override
-                                                    public void onClick(
-                                                            View v) {
-                                                        showBan(
-                                                                mContext,
-                                                                mToolbar,
-                                                                submission,
-                                                                reason.getText()
-                                                                        .toString(),
-                                                                note.getText()
-                                                                        .toString(),
-                                                                message.getText()
-                                                                        .toString(),
-                                                                time.getText()
-                                                                        .toString());
-                                                        }
-                                                    });
-                                    }
-
-                                    if (s != null) {
-                                        LayoutUtils.showSnackbar(s);
-                                    }
-                                }
-                            }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-                        }
-                    }).setNegativeButton(R.string.btn_cancel, null).show();
-    }
 }

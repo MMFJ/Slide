@@ -26,7 +26,6 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.appcompat.view.ContextThemeWrapper;
@@ -40,13 +39,13 @@ import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.viewpager.widget.ViewPager;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
-
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.Fragments.BlankFragment;
@@ -68,15 +67,16 @@ import me.edgan.redditslide.Views.ToggleSwipeViewPager;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.ui.settings.SettingsSubAdapter;
+import me.edgan.redditslide.util.FilterContentUtil;
 import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialInputDialog;
+import me.edgan.redditslide.util.MaterialProgressDialog;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
 import me.edgan.redditslide.util.SortingUtil;
 import me.edgan.redditslide.util.StringUtil;
 import me.edgan.redditslide.util.SubmissionParser;
-import me.edgan.redditslide.util.FilterContentUtil;
-
 import net.dean.jraw.ApiException;
 import net.dean.jraw.http.MultiRedditUpdateRequest;
 import net.dean.jraw.http.NetworkException;
@@ -92,11 +92,6 @@ import net.dean.jraw.models.UserRecord;
 import net.dean.jraw.paginators.Sorting;
 import net.dean.jraw.paginators.TimePeriod;
 import net.dean.jraw.paginators.UserRecordPaginator;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
 
 public class SubredditView extends BaseActivity {
 
@@ -312,137 +307,118 @@ public class SubredditView extends BaseActivity {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case android.R.id.home:
-                getOnBackPressedDispatcher().onBackPressed();
-                return true;
-            case R.id.filter:
-                FilterContentUtil.showFilterDialog(this, subreddit, this::reloadSubs);
-                return true;
-            case R.id.submit:
-                Intent i = new Intent(this, Submit.class);
-                if (canSubmit) i.putExtra(Submit.EXTRA_SUBREDDIT, subreddit);
-                startActivity(i);
-                return true;
-            case R.id.action_refresh:
-                if (adapter != null && adapter.getCurrentFragment() != null) {
-                    ((SubmissionsView) adapter.getCurrentFragment()).forceRefresh();
-                }
-                return true;
-            case R.id.action_sort:
-                if (subreddit.equalsIgnoreCase("friends")) {
-                    Snackbar s =
-                            Snackbar.make(
-                                    findViewById(R.id.anchor),
-                                    getString(R.string.friends_sort_error),
-                                    Snackbar.LENGTH_SHORT);
-                    LayoutUtils.showSnackbar(s);
-                } else {
-                    openPopup();
-                }
-                return true;
-            case R.id.gallery:
-                List<Submission> gPosts =
-                        ((SubmissionsView) adapter.getCurrentFragment()).posts.posts;
-                if (gPosts != null && !gPosts.isEmpty()) {
-                    Intent i2 = new Intent(this, Gallery.class);
-                    i2.putExtra(
-                            "offline",
-                            ((SubmissionsView) adapter.getCurrentFragment()).posts.cached != null
-                                    ? ((SubmissionsView) adapter.getCurrentFragment())
-                                            .posts
-                                            .cached
-                                            .time
-                                    : 0L);
-                    i2.putExtra(
-                            Gallery.EXTRA_SUBREDDIT,
-                            ((SubmissionsView) adapter.getCurrentFragment()).posts.subreddit);
-                    startActivity(i2);
-                }
-                return true;
-            case R.id.search:
-                MaterialDialog.Builder builder =
-                        new MaterialDialog.Builder(this)
-                                .title(R.string.search_title)
-                                .alwaysCallInputCallback()
-                                .input(
-                                        getString(R.string.search_msg),
-                                        "",
-                                        new MaterialDialog.InputCallback() {
-                                            @Override
-                                            public void onInput(
-                                                    MaterialDialog materialDialog,
-                                                    CharSequence charSequence) {
-                                                term = charSequence.toString();
-                                            }
-                                        })
-                                .neutralText(R.string.search_all)
-                                .onNeutral(
-                                        new MaterialDialog.SingleButtonCallback() {
-                                            @Override
-                                            public void onClick(
-                                                    @NonNull MaterialDialog materialDialog,
-                                                    @NonNull DialogAction dialogAction) {
-                                                Intent i =
-                                                        new Intent(
-                                                                SubredditView.this, Search.class);
-                                                i.putExtra(Search.EXTRA_TERM, term);
-                                                startActivity(i);
-                                            }
-                                        });
-
-                // Add "search current sub" if it is not frontpage/all/random
-                if (!subreddit.equalsIgnoreCase("frontpage")
-                        && !subreddit.equalsIgnoreCase("all")
-                        && !subreddit.equalsIgnoreCase("random")
-                        && !subreddit.equalsIgnoreCase("popular")
-                        && !subreddit.equals("myrandom")
-                        && !subreddit.equals("randnsfw")
-                        && !subreddit.equalsIgnoreCase("friends")
-                        && !subreddit.equalsIgnoreCase("mod")) {
-                    builder.positiveText(getString(R.string.search_subreddit, subreddit))
-                            .onPositive(
-                                    new MaterialDialog.SingleButtonCallback() {
-                                        @Override
-                                        public void onClick(
-                                                @NonNull MaterialDialog materialDialog,
-                                                @NonNull DialogAction dialogAction) {
-                                            Intent i = new Intent(SubredditView.this, Search.class);
-                                            i.putExtra(Search.EXTRA_TERM, term);
-                                            i.putExtra(Search.EXTRA_SUBREDDIT, subreddit);
-                                            Log.v(
-                                                    LogUtil.getTag(),
-                                                    "INTENT SHOWS " + term + " AND " + subreddit);
-                                            startActivity(i);
-                                        }
+        int itemId = item.getItemId();
+        if (itemId == android.R.id.home) {
+            getOnBackPressedDispatcher().onBackPressed();
+            return true;
+        } else if (itemId == R.id.filter) {
+            FilterContentUtil.showFilterDialog(this, subreddit, this::reloadSubs);
+            return true;
+        } else if (itemId == R.id.submit) {
+            Intent i = new Intent(this, Submit.class);
+            if (canSubmit) i.putExtra(Submit.EXTRA_SUBREDDIT, subreddit);
+            startActivity(i);
+            return true;
+        } else if (itemId == R.id.action_refresh) {
+            if (adapter != null && adapter.getCurrentFragment() != null) {
+                ((SubmissionsView) adapter.getCurrentFragment()).forceRefresh();
+            }
+            return true;
+        } else if (itemId == R.id.action_sort) {
+            if (subreddit.equalsIgnoreCase("friends")) {
+                Snackbar s =
+                        Snackbar.make(
+                                findViewById(R.id.anchor),
+                                getString(R.string.friends_sort_error),
+                                Snackbar.LENGTH_SHORT);
+                LayoutUtils.showSnackbar(s);
+            } else {
+                openPopup();
+            }
+            return true;
+        } else if (itemId == R.id.gallery) {
+            List<Submission> gPosts = ((SubmissionsView) adapter.getCurrentFragment()).posts.posts;
+            if (gPosts != null && !gPosts.isEmpty()) {
+                Intent i2 = new Intent(this, Gallery.class);
+                i2.putExtra(
+                        "offline",
+                        ((SubmissionsView) adapter.getCurrentFragment()).posts.cached != null
+                                ? ((SubmissionsView) adapter.getCurrentFragment())
+                                        .posts
+                                        .cached
+                                        .time
+                                : 0L);
+                i2.putExtra(
+                        Gallery.EXTRA_SUBREDDIT,
+                        ((SubmissionsView) adapter.getCurrentFragment()).posts.subreddit);
+                startActivity(i2);
+            }
+            return true;
+        } else if (itemId == R.id.search) {
+            MaterialInputDialog.Builder builder =
+                    new MaterialInputDialog.Builder(this)
+                            .title(R.string.search_title)
+                            .input(
+                                    getString(R.string.search_msg),
+                                    "",
+                                    (dialog, charSequence) -> term = charSequence.toString())
+                            .neutralText(R.string.search_all)
+                            .onNeutral(
+                                    dialog -> {
+                                        Intent searchIntent =
+                                                new Intent(SubredditView.this, Search.class);
+                                        searchIntent.putExtra(Search.EXTRA_TERM, term);
+                                        startActivity(searchIntent);
                                     });
-                }
-                builder.show();
-                return true;
-            case R.id.sidebar:
-                drawerLayout.openDrawer(Gravity.RIGHT);
-                return true;
-            case R.id.hide_posts:
-                ((SubmissionsView) adapter.getCurrentFragment()).clearSeenPosts(false);
-                return true;
-            case R.id.action_shadowbox:
-                List<Submission> sPosts =
-                        ((SubmissionsView)
-                                        ((SubredditPagerAdapter) pager.getAdapter())
-                                                .getCurrentFragment())
-                                .posts
-                                .posts;
-                if (sPosts != null && !sPosts.isEmpty()) {
-                    Intent i2 = new Intent(this, Shadowbox.class);
-                    i2.putExtra(Shadowbox.EXTRA_PAGE, getCurrentPage());
-                    i2.putExtra(
-                            Shadowbox.EXTRA_SUBREDDIT,
-                            ((SubmissionsView) adapter.getCurrentFragment()).posts.subreddit);
-                    startActivity(i2);
-                }
-                return true;
-            default:
-                return false;
+
+            // Add "search current sub" if it is not frontpage/all/random
+            if (!subreddit.equalsIgnoreCase("frontpage")
+                    && !subreddit.equalsIgnoreCase("all")
+                    && !subreddit.equalsIgnoreCase("random")
+                    && !subreddit.equalsIgnoreCase("popular")
+                    && !subreddit.equals("myrandom")
+                    && !subreddit.equals("randnsfw")
+                    && !subreddit.equalsIgnoreCase("friends")
+                    && !subreddit.equalsIgnoreCase("mod")) {
+                builder.positiveText(getString(R.string.search_subreddit, subreddit))
+                        .onPositive(
+                                dialog -> {
+                                    Intent searchIntent =
+                                            new Intent(SubredditView.this, Search.class);
+                                    searchIntent.putExtra(Search.EXTRA_TERM, term);
+                                    searchIntent.putExtra(Search.EXTRA_SUBREDDIT, subreddit);
+                                    Log.v(
+                                            LogUtil.getTag(),
+                                            "INTENT SHOWS " + term + " AND " + subreddit);
+                                    startActivity(searchIntent);
+                                });
+            }
+            builder.show();
+            return true;
+        } else if (itemId == R.id.sidebar) {
+            drawerLayout.openDrawer(Gravity.RIGHT);
+            return true;
+        } else if (itemId == R.id.hide_posts) {
+            ((SubmissionsView) adapter.getCurrentFragment()).clearSeenPosts(false);
+            return true;
+        } else if (itemId == R.id.action_shadowbox) {
+            List<Submission> sPosts =
+                    ((SubmissionsView)
+                                    ((SubredditPagerAdapter) pager.getAdapter())
+                                            .getCurrentFragment())
+                            .posts
+                            .posts;
+            if (sPosts != null && !sPosts.isEmpty()) {
+                Intent i2 = new Intent(this, Shadowbox.class);
+                i2.putExtra(Shadowbox.EXTRA_PAGE, getCurrentPage());
+                i2.putExtra(
+                        Shadowbox.EXTRA_SUBREDDIT,
+                        ((SubmissionsView) adapter.getCurrentFragment()).posts.subreddit);
+                startActivity(i2);
+            }
+            return true;
+        } else {
+            return false;
         }
     }
 
@@ -473,6 +449,65 @@ public class SubredditView extends BaseActivity {
         if (position == 1 && adapter != null && adapter.getCurrentFragment() != null) {
             ((SubmissionsView) adapter.getCurrentFragment()).adapter.refreshView();
         }
+    }
+
+
+    /**
+     * Sets the logged-in user's flair on the subreddit ({@code flairText} null keeps the
+     * template's default text) and refreshes the sidebar flair label with the result.
+     */
+    private void setSubFlair(
+            final String subOverride,
+            final FlairTemplate t,
+            final String flairText,
+            final AccountManager m,
+            final View dialoglayout) {
+        new AsyncTask<Void, Void, Boolean>() {
+            String current;
+
+            @Override
+            protected Boolean doInBackground(Void... params) {
+                try {
+                    new ModerationManager(Authentication.reddit)
+                            .setFlair(subOverride, t, flairText, Authentication.name);
+                    FlairTemplate currentF = m.getCurrentFlair(subOverride);
+                    if (currentF.getText().isEmpty()) {
+                        current = ("[" + currentF.getCssClass() + "]");
+                    } else {
+                        current = (currentF.getText());
+                    }
+                    return true;
+                } catch (Exception e) {
+                    LogUtil.e(e, "SubredditView.doInBackground failed");
+                    return false;
+                }
+            }
+
+            @Override
+            protected void onPostExecute(Boolean done) {
+                Snackbar s;
+                if (done) {
+                    if (current != null) {
+                        ((TextView) dialoglayout.findViewById(R.id.flair_text))
+                                .setText(getString(R.string.sidebar_flair, current));
+                    }
+                    s =
+                            Snackbar.make(
+                                    mToolbar,
+                                    R.string.snackbar_flair_success,
+                                    Snackbar.LENGTH_SHORT);
+                } else {
+                    s =
+                            Snackbar.make(
+                                    mToolbar,
+                                    R.string.snackbar_flair_error,
+                                    Snackbar.LENGTH_SHORT);
+                }
+                if (s != null) {
+                    LayoutUtils.showSnackbar(s);
+                }
+            }
+        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
     public void doSubSidebar(final String subOverride) {
@@ -699,12 +734,13 @@ public class SubredditView extends BaseActivity {
                                 @Override
                                 public void onClick(View v) {
                                     final Dialog d =
-                                            new MaterialDialog.Builder(SubredditView.this)
+                                            new MaterialProgressDialog.Builder(SubredditView.this)
                                                     .title(R.string.sidebar_findingmods)
                                                     .cancelable(true)
                                                     .content(R.string.misc_please_wait)
                                                     .progress(true, 100)
-                                                    .show();
+                                                    .show()
+                                                    .getDialog();
                                     new AsyncTask<Void, Void, Void>() {
                                         ArrayList<UserRecord> mods;
 
@@ -735,54 +771,41 @@ public class SubredditView extends BaseActivity {
                                                 names.add(rec.getFullName());
                                             }
                                             d.dismiss();
-                                            new MaterialDialog.Builder(SubredditView.this)
-                                                    .title(
+                                            new MaterialAlertDialogBuilder(
+                                                            new ContextThemeWrapper(
+                                                                    SubredditView.this,
+                                                                    new ColorPreferences(
+                                                                                    SubredditView
+                                                                                            .this)
+                                                                            .getFontStyle()
+                                                                            .getBaseId()))
+                                                    .setTitle(
                                                             getString(
                                                                     R.string.sidebar_submods,
                                                                     subreddit))
-                                                    .items(names)
-                                                    .itemsCallback(
-                                                            new MaterialDialog.ListCallback() {
-                                                                @Override
-                                                                public void onSelection(
-                                                                        MaterialDialog dialog,
-                                                                        View itemView,
-                                                                        int which,
-                                                                        CharSequence text) {
-                                                                    Intent i =
-                                                                            new Intent(
-                                                                                    SubredditView
-                                                                                            .this,
-                                                                                    Profile.class);
-                                                                    i.putExtra(
-                                                                            Profile.EXTRA_PROFILE,
-                                                                            names.get(which));
-                                                                    startActivity(i);
-                                                                }
+                                                    .setItems(
+                                                            names.toArray(new CharSequence[0]),
+                                                            (dialog, which) -> {
+                                                                Intent i =
+                                                                        new Intent(
+                                                                                SubredditView.this,
+                                                                                Profile.class);
+                                                                i.putExtra(
+                                                                        Profile.EXTRA_PROFILE,
+                                                                        names.get(which));
+                                                                startActivity(i);
                                                             })
-                                                    .positiveText(R.string.btn_message)
-                                                    .onPositive(
-                                                            new MaterialDialog
-                                                                    .SingleButtonCallback() {
-                                                                @Override
-                                                                public void onClick(
-                                                                        @NonNull
-                                                                                MaterialDialog
-                                                                                        dialog,
-                                                                        @NonNull
-                                                                                DialogAction
-                                                                                        which) {
-                                                                    Intent i =
-                                                                            new Intent(
-                                                                                    SubredditView
-                                                                                            .this,
-                                                                                    SendMessage
-                                                                                            .class);
-                                                                    i.putExtra(
-                                                                            SendMessage.EXTRA_NAME,
-                                                                            "/r/" + subOverride);
-                                                                    startActivity(i);
-                                                                }
+                                                    .setPositiveButton(
+                                                            R.string.btn_message,
+                                                            (dialog, which) -> {
+                                                                Intent i =
+                                                                        new Intent(
+                                                                                SubredditView.this,
+                                                                                SendMessage.class);
+                                                                i.putExtra(
+                                                                        SendMessage.EXTRA_NAME,
+                                                                        "/r/" + subOverride);
+                                                                startActivity(i);
                                                             })
                                                     .show();
                                         }
@@ -841,21 +864,22 @@ public class SubredditView extends BaseActivity {
                                     new View.OnClickListener() {
                                         @Override
                                         public void onClick(View v) {
-                                            new MaterialDialog.Builder(SubredditView.this)
-                                                    .items(flairText)
-                                                    .title(R.string.sidebar_select_flair)
-                                                    .itemsCallback(
-                                                            new MaterialDialog.ListCallback() {
+                                            new MaterialAlertDialogBuilder(
+                                                            new ContextThemeWrapper(
+                                                                    SubredditView.this,
+                                                                    new ColorPreferences(SubredditView.this).getFontStyle().getBaseId()))
+                                                    .setTitle(R.string.sidebar_select_flair)
+                                                    .setItems(
+                                                            flairText.toArray(new CharSequence[0]),
+                                                            new DialogInterface.OnClickListener() {
                                                                 @Override
-                                                                public void onSelection(
-                                                                        MaterialDialog dialog,
-                                                                        View itemView,
-                                                                        int which,
-                                                                        CharSequence text) {
+                                                                public void onClick(
+                                                                        DialogInterface listDialog,
+                                                                        int which) {
                                                                     final FlairTemplate t =
                                                                             flairs.get(which);
                                                                     if (t.isTextEditable()) {
-                                                                        new MaterialDialog.Builder(
+                                                                        new MaterialInputDialog.Builder(
                                                                                         SubredditView
                                                                                                 .this)
                                                                                 .title(
@@ -867,130 +891,26 @@ public class SubredditView extends BaseActivity {
                                                                                                         .string
                                                                                                         .mod_flair_hint),
                                                                                         t.getText(),
-                                                                                        true,
-                                                                                        (dialog1,
-                                                                                                input) -> {})
+                                                                                        null)
                                                                                 .positiveText(
                                                                                         R.string
                                                                                                 .btn_set)
                                                                                 .onPositive(
-                                                                                        new MaterialDialog
-                                                                                                .SingleButtonCallback() {
+                                                                                        new MaterialInputDialog
+                                                                                                .ButtonCallback() {
                                                                                             @Override
                                                                                             public
                                                                                             void
                                                                                                     onClick(
-                                                                                                            MaterialDialog
-                                                                                                                    dialog,
-                                                                                                            DialogAction
-                                                                                                                    which) {
+                                                                                                            MaterialInputDialog
+                                                                                                                    dialog) {
                                                                                                 final
                                                                                                 String
                                                                                                         flair =
                                                                                                                 dialog.getInputEditText()
                                                                                                                         .getText()
                                                                                                                         .toString();
-                                                                                                new AsyncTask<
-                                                                                                        Void,
-                                                                                                        Void,
-                                                                                                        Boolean>() {
-                                                                                                    @Override
-                                                                                                    protected
-                                                                                                    Boolean
-                                                                                                            doInBackground(
-                                                                                                                    Void
-                                                                                                                                    ...
-                                                                                                                            params) {
-                                                                                                        try {
-                                                                                                            new ModerationManager(
-                                                                                                                            Authentication
-                                                                                                                                    .reddit)
-                                                                                                                    .setFlair(
-                                                                                                                            subOverride,
-                                                                                                                            t,
-                                                                                                                            flair,
-                                                                                                                            Authentication
-                                                                                                                                    .name);
-                                                                                                            FlairTemplate
-                                                                                                                    currentF =
-                                                                                                                            m
-                                                                                                                                    .getCurrentFlair(
-                                                                                                                                            subOverride);
-                                                                                                            if (currentF.getText()
-                                                                                                                    .isEmpty()) {
-                                                                                                                current =
-                                                                                                                        ("["
-                                                                                                                                + currentF
-                                                                                                                                        .getCssClass()
-                                                                                                                                + "]");
-                                                                                                            } else {
-                                                                                                                current =
-                                                                                                                        (currentF
-                                                                                                                                .getText());
-                                                                                                            }
-                                                                                                            return true;
-                                                                                                        } catch (
-                                                                                                                Exception
-                                                                                                                        e) {
-                                                                                                            LogUtil.e(e, "SubredditView.doInBackground failed");
-                                                                                                            return false;
-                                                                                                        }
-                                                                                                    }
-
-                                                                                                    @Override
-                                                                                                    protected
-                                                                                                    void
-                                                                                                            onPostExecute(
-                                                                                                                    Boolean
-                                                                                                                            done) {
-                                                                                                        Snackbar
-                                                                                                                s;
-                                                                                                        if (done) {
-                                                                                                            if (current
-                                                                                                                    != null) {
-                                                                                                                ((TextView)
-                                                                                                                                dialoglayout
-                                                                                                                                        .findViewById(
-                                                                                                                                                R
-                                                                                                                                                        .id
-                                                                                                                                                        .flair_text))
-                                                                                                                        .setText(
-                                                                                                                                getString(
-                                                                                                                                        R
-                                                                                                                                                .string
-                                                                                                                                                .sidebar_flair,
-                                                                                                                                        current));
-                                                                                                            }
-                                                                                                            s =
-                                                                                                                    Snackbar
-                                                                                                                            .make(
-                                                                                                                                    mToolbar,
-                                                                                                                                    R
-                                                                                                                                            .string
-                                                                                                                                            .snackbar_flair_success,
-                                                                                                                                    Snackbar
-                                                                                                                                    .LENGTH_SHORT);
-                                                                                                        } else {
-                                                                                                            s =
-                                                                                                                    Snackbar
-                                                                                                                            .make(
-                                                                                                                                    mToolbar,
-                                                                                                                                    R
-                                                                                                                                            .string
-                                                                                                                                            .snackbar_flair_error,
-                                                                                                                                    Snackbar
-                                                                                                                                    .LENGTH_SHORT);
-                                                                                                        }
-                                                                                                        if (s
-                                                                                                                != null) {
-                                                                                                            LayoutUtils
-                                                                                                                    .showSnackbar(
-                                                                                                                            s);
-                                                                                                        }
-                                                                                                    }
-                                                                                                }.executeOnExecutor(
-                                                                                                        AsyncTask
-                                                                                                                .THREAD_POOL_EXECUTOR);
+                                                                                                setSubFlair(subOverride, t, flair, m, dialoglayout);
                                                                                             }
                                                                                         })
                                                                                 .negativeText(
@@ -998,102 +918,7 @@ public class SubredditView extends BaseActivity {
                                                                                                 .btn_cancel)
                                                                                 .show();
                                                                     } else {
-                                                                        new AsyncTask<
-                                                                                Void,
-                                                                                Void,
-                                                                                Boolean>() {
-                                                                            @Override
-                                                                            protected Boolean
-                                                                                    doInBackground(
-                                                                                            Void...
-                                                                                                    params) {
-                                                                                try {
-                                                                                    new ModerationManager(
-                                                                                                    Authentication
-                                                                                                            .reddit)
-                                                                                            .setFlair(
-                                                                                                    subOverride,
-                                                                                                    t,
-                                                                                                    null,
-                                                                                                    Authentication
-                                                                                                            .name);
-                                                                                    FlairTemplate
-                                                                                            currentF =
-                                                                                                    m
-                                                                                                            .getCurrentFlair(
-                                                                                                                    subOverride);
-                                                                                    if (currentF.getText()
-                                                                                            .isEmpty()) {
-                                                                                        current =
-                                                                                                ("["
-                                                                                                        + currentF
-                                                                                                                .getCssClass()
-                                                                                                        + "]");
-                                                                                    } else {
-                                                                                        current =
-                                                                                                (currentF
-                                                                                                        .getText());
-                                                                                    }
-                                                                                    return true;
-                                                                                } catch (
-                                                                                        Exception
-                                                                                                e) {
-                                                                                    LogUtil.e(e, "SubredditView.doInBackground failed");
-                                                                                    return false;
-                                                                                }
-                                                                            }
-
-                                                                            @Override
-                                                                            protected void
-                                                                                    onPostExecute(
-                                                                                            Boolean
-                                                                                                    done) {
-                                                                                Snackbar s;
-                                                                                if (done) {
-                                                                                    if (current
-                                                                                            != null) {
-                                                                                        ((TextView)
-                                                                                                        dialoglayout
-                                                                                                                .findViewById(
-                                                                                                                        R
-                                                                                                                                .id
-                                                                                                                                .flair_text))
-                                                                                                .setText(
-                                                                                                        getString(
-                                                                                                                R
-                                                                                                                        .string
-                                                                                                                        .sidebar_flair,
-                                                                                                                current));
-                                                                                    }
-                                                                                    s =
-                                                                                            Snackbar
-                                                                                                    .make(
-                                                                                                            mToolbar,
-                                                                                                            R
-                                                                                                                    .string
-                                                                                                                    .snackbar_flair_success,
-                                                                                                            Snackbar
-                                                                                                                    .LENGTH_SHORT);
-                                                                                } else {
-                                                                                    s =
-                                                                                            Snackbar
-                                                                                                    .make(
-                                                                                                            mToolbar,
-                                                                                                            R
-                                                                                                                    .string
-                                                                                                                    .snackbar_flair_error,
-                                                                                                            Snackbar
-                                                                                                                    .LENGTH_SHORT);
-                                                                                }
-                                                                                if (s != null) {
-                                                                                    LayoutUtils
-                                                                                            .showSnackbar(
-                                                                                                    s);
-                                                                                }
-                                                                            }
-                                                                        }.executeOnExecutor(
-                                                                                AsyncTask
-                                                                                        .THREAD_POOL_EXECUTOR);
+                                                                        setSubFlair(subOverride, t, null, m, dialoglayout);
                                                                     }
                                                                 }
                                                             })
@@ -1453,20 +1278,21 @@ public class SubredditView extends BaseActivity {
 
                                     @Override
                                     protected void onPostExecute(Void aVoid) {
-                                        new MaterialDialog.Builder(SubredditView.this)
-                                                .title(
+                                        new MaterialAlertDialogBuilder(
+                                                        new ContextThemeWrapper(
+                                                                SubredditView.this,
+                                                                new ColorPreferences(SubredditView.this).getFontStyle().getBaseId()))
+                                                .setTitle(
                                                         "Add /r/"
                                                                 + subreddit.getDisplayName()
                                                                 + " to")
-                                                .items(multis.keySet())
-                                                .itemsCallback(
-                                                        new MaterialDialog.ListCallback() {
+                                                .setItems(
+                                                        multis.keySet().toArray(new CharSequence[0]),
+                                                        new DialogInterface.OnClickListener() {
                                                             @Override
-                                                            public void onSelection(
-                                                                    MaterialDialog dialog,
-                                                                    View itemView,
-                                                                    final int which,
-                                                                    CharSequence text) {
+                                                            public void onClick(
+                                                                    DialogInterface dialog,
+                                                                    final int which) {
                                                                 new AsyncTask<Void, Void, Void>() {
                                                                     @Override
                                                                     protected Void doInBackground(

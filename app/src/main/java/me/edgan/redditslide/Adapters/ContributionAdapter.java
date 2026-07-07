@@ -1,11 +1,7 @@
 package me.edgan.redditslide.Adapters;
 
-/** Created by ccrama on 3/22/2015. */
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.app.Dialog;
-import android.content.DialogInterface;
-import android.content.Intent;
 import android.content.res.TypedArray;
 import android.graphics.Typeface;
 import android.text.SpannableStringBuilder;
@@ -18,48 +14,36 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
-import androidx.appcompat.app.AlertDialog;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
-
-import com.cocosw.bottomsheet.BottomSheet;
 import com.devspark.robototextview.RobotoTypefaces;
-import com.google.android.material.snackbar.Snackbar;
-
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import me.edgan.redditslide.ActionStates;
-import me.edgan.redditslide.Activities.Profile;
-import me.edgan.redditslide.Activities.SubredditView;
-import me.edgan.redditslide.Activities.Website;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.HasSeen;
 import me.edgan.redditslide.Hidden;
 import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.R;
-import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SubmissionViews.PopulateSubmissionViewHolder;
 import me.edgan.redditslide.Views.CatchStaggeredGridLayoutManager;
 import me.edgan.redditslide.Views.CreateCardView;
 import me.edgan.redditslide.Visuals.FontPreferences;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.markdown.MarkdownImages;
 import me.edgan.redditslide.util.CompatUtil;
-import me.edgan.redditslide.util.LayoutUtils;
-import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.SubmissionParser;
 import me.edgan.redditslide.util.TimeUtils;
-
 import net.dean.jraw.models.Comment;
 import net.dean.jraw.models.Contribution;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.VoteDirection;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import androidx.core.content.ContextCompat;
 
 public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
         implements BaseAdapter {
@@ -174,221 +158,18 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
                     new View.OnLongClickListener() {
                         @Override
                         public boolean onLongClick(View v) {
-                            LayoutInflater inflater = mContext.getLayoutInflater();
-                            final View dialoglayout = inflater.inflate(R.layout.postmenu, null);
-                            final TextView title = dialoglayout.findViewById(R.id.title);
                             CharSequence titleText = CompatUtil.fromHtml(submission.getTitle());
                             if (hasActiveFilter() && currentQuery != null) {
                                 titleText = highlightSearchTerms(titleText, currentQuery);
                             }
-                            title.setText(titleText);
-
-                            ((TextView) dialoglayout.findViewById(R.id.userpopup))
-                                    .setText("/u/" + submission.getAuthor());
-                            ((TextView) dialoglayout.findViewById(R.id.subpopup))
-                                    .setText("/r/" + submission.getSubredditName());
-                            dialoglayout
-                                    .findViewById(R.id.sidebar)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    Intent i = new Intent(mContext, Profile.class);
-                                                    i.putExtra(
-                                                            Profile.EXTRA_PROFILE,
-                                                            submission.getAuthor());
-                                                    mContext.startActivity(i);
-                                                }
-                                            });
-
-                            dialoglayout
-                                    .findViewById(R.id.wiki)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    Intent i =
-                                                            new Intent(
-                                                                    mContext, SubredditView.class);
-                                                    i.putExtra(
-                                                            SubredditView.EXTRA_SUBREDDIT,
-                                                            submission.getSubredditName());
-                                                    mContext.startActivity(i);
-                                                }
-                                            });
-
-                            dialoglayout
-                                    .findViewById(R.id.save)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    if (submission.isSaved()) {
-                                                        ((TextView)
-                                                                        dialoglayout.findViewById(
-                                                                                R.id.savedtext))
-                                                                .setText(R.string.submission_save);
-                                                    } else {
-                                                        ((TextView)
-                                                                        dialoglayout.findViewById(
-                                                                                R.id.savedtext))
-                                                                .setText(
-                                                                        R.string
-                                                                                .submission_post_saved);
-                                                    }
-                                                    new AsyncSave(mContext, firstHolder.itemView)
-                                                            .execute(submission);
-                                                }
-                                            });
-                            dialoglayout.findViewById(R.id.copy).setVisibility(View.GONE);
-                            if (submission.isSaved()) {
-                                ((TextView) dialoglayout.findViewById(R.id.savedtext))
-                                        .setText(R.string.submission_post_saved);
-                            }
-                            dialoglayout
-                                    .findViewById(R.id.gild)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    String urlString =
-                                                            "https://reddit.com"
-                                                                    + submission.getPermalink();
-                                                    Intent i = new Intent(mContext, Website.class);
-                                                    i.putExtra(LinkUtil.EXTRA_URL, urlString);
-                                                    mContext.startActivity(i);
-                                                }
-                                            });
-                            dialoglayout
-                                    .findViewById(R.id.share)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    if (submission.isSelfPost()) {
-                                                        if (SettingValues.shareLongLink) {
-                                                            Reddit.defaultShareText(
-                                                                    "",
-                                                                    "https://reddit.com"
-                                                                            + submission
-                                                                                    .getPermalink(),
-                                                                    mContext);
-                                                        } else {
-                                                            Reddit.defaultShareText(
-                                                                    "",
-                                                                    "https://reddit.com/comments/"
-                                                                            + submission.getId(),
-                                                                    mContext);
-                                                        }
-                                                    } else {
-                                                        new BottomSheet.Builder(mContext)
-                                                                .title(
-                                                                        R.string
-                                                                                .submission_share_title)
-                                                                .grid()
-                                                                .sheet(R.menu.share_menu)
-                                                                .listener(
-                                                                        new DialogInterface
-                                                                                .OnClickListener() {
-                                                                            @Override
-                                                                            public void onClick(
-                                                                                    DialogInterface
-                                                                                            dialog,
-                                                                                    int which) {
-                                                                                switch (which) {
-                                                                                    case R.id
-                                                                                            .reddit_url:
-                                                                                        if (SettingValues
-                                                                                                .shareLongLink) {
-                                                                                            Reddit
-                                                                                                    .defaultShareText(
-                                                                                                            submission
-                                                                                                                    .getTitle(),
-                                                                                                            "https://reddit.com"
-                                                                                                                    + submission
-                                                                                                                            .getPermalink(),
-                                                                                                            mContext);
-                                                                                        } else {
-                                                                                            Reddit
-                                                                                                    .defaultShareText(
-                                                                                                            submission
-                                                                                                                    .getTitle(),
-                                                                                                            "https://reddit.com/comments/"
-                                                                                                                    + submission
-                                                                                                                            .getId(),
-                                                                                                            mContext);
-                                                                                        }
-                                                                                        break;
-                                                                                    case R.id
-                                                                                            .link_url:
-                                                                                        Reddit
-                                                                                                .defaultShareText(
-                                                                                                        submission
-                                                                                                                .getTitle(),
-                                                                                                        submission
-                                                                                                                .getUrl(),
-                                                                                                        mContext);
-                                                                                        break;
-                                                                                }
-                                                                            }
-                                                                        })
-                                                                .show();
-                                                    }
-                                                }
-                                            });
-                            if (!Authentication.isLoggedIn || !Authentication.didOnline) {
-                                dialoglayout.findViewById(R.id.save).setVisibility(View.GONE);
-                                dialoglayout.findViewById(R.id.gild).setVisibility(View.GONE);
-                            }
-                            title.setBackgroundColor(
-                                    Palette.getColor(submission.getSubredditName()));
-
-                            final AlertDialog.Builder builder =
-                                    new AlertDialog.Builder(mContext).setView(dialoglayout);
-                            final Dialog d = builder.show();
-                            dialoglayout
-                                    .findViewById(R.id.hide)
-                                    .setOnClickListener(
-                                            new View.OnClickListener() {
-                                                @Override
-                                                public void onClick(View v) {
-                                                    final int pos =
-                                                            dataSet.posts.indexOf(submission);
-                                                    final Contribution old = dataSet.posts.get(pos);
-                                                    dataSet.posts.remove(submission);
-                                                    notifyItemRemoved(pos + 1);
-                                                    d.dismiss();
-
-                                                    Hidden.setHidden(old);
-
-                                                    Snackbar s =
-                                                            Snackbar.make(
-                                                                            listView,
-                                                                            R.string
-                                                                                    .submission_info_hidden,
-                                                                            Snackbar.LENGTH_LONG)
-                                                                    .setAction(
-                                                                            R.string.btn_undo,
-                                                                            new View
-                                                                                    .OnClickListener() {
-                                                                                @Override
-                                                                                public void onClick(
-                                                                                        View v) {
-                                                                                    dataSet.posts
-                                                                                            .add(
-                                                                                                    pos,
-                                                                                                    old);
-                                                                                    notifyItemInserted(
-                                                                                            pos
-                                                                                                    + 1);
-                                                                                    Hidden
-                                                                                            .undoHidden(
-                                                                                                    old);
-                                                                                }
-                                                                            });
-                                                    LayoutUtils.showSnackbar(s);
-                                                }
-                                            });
+                            SubmissionAdapterHelper.showSubmissionLongPressDialog(
+                                    mContext,
+                                    submission,
+                                    titleText,
+                                    firstHolder.itemView,
+                                    ContributionAdapter.this,
+                                    dataSet.posts,
+                                    listView);
                             return true;
                         }
                     });
@@ -544,14 +325,24 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
             }
 
             holder.time.setText(titleString);
-            // Pass search query for highlighting comment body
-            setViews(
-                    SubmissionParser.replaceProcessingImgPlaceholders(
-                            comment.getDataNode().get("body_html").asText(),
-                            comment.getDataNode()),
-                    comment.getSubredditName(),
-                    holder,
-                    hasActiveFilter() ? currentQuery : null);
+            if (SettingValues.markdownNewReddit) {
+                // New Reddit-style: render the raw markdown body via Markwon (issue #179).
+                setViewsMarkdown(
+                        comment.getBody(),
+                        comment.getDataNode().path("body_html").asText(""),
+                        comment.getDataNode(),
+                        comment.getSubredditName(),
+                        holder);
+            } else {
+                // Pass search query for highlighting comment body
+                setViews(
+                        SubmissionParser.replaceProcessingImgPlaceholders(
+                                comment.getDataNode().path("body_html").asText(""),
+                                comment.getDataNode()),
+                        comment.getSubredditName(),
+                        holder,
+                        hasActiveFilter() ? currentQuery : null);
+            }
 
             int type = new FontPreferences(mContext).getFontTypeComment().getTypeface();
             Typeface typeface;
@@ -644,6 +435,20 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
         public SpacerViewHolder(View itemView) {
             super(itemView);
         }
+    }
+
+    /**
+     * New Reddit-style rendering of a profile/saved comment: render the raw markdown via Markwon
+     * into the single content TextView and clear the overflow block list. See issue #179.
+     */
+    private void setViewsMarkdown(
+            String rawMarkdown,
+            String bodyHtml,
+            JsonNode dataNode,
+            String subredditName,
+            ProfileCommentViewHolder holder) {
+        MarkdownImages.renderInto(
+                holder.content, holder.overflow, subredditName, rawMarkdown, bodyHtml, dataNode);
     }
 
     private void setViews(String rawHTML, String subredditName, ProfileCommentViewHolder holder, String searchQuery) {

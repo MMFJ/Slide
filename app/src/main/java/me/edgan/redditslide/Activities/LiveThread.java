@@ -18,23 +18,21 @@ import android.webkit.WebView;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.TextView;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.content.ContextCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.neovisionaries.ws.client.WebSocket;
-import com.neovisionaries.ws.client.WebSocketAdapter;
-import com.neovisionaries.ws.client.WebSocketException;
-import com.neovisionaries.ws.client.WebSocketFactory;
-
+import java.io.IOException;
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.R;
@@ -44,26 +42,22 @@ import me.edgan.redditslide.Views.CommentOverflow;
 import me.edgan.redditslide.Views.SidebarLayout;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.CompatUtil;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.HttpUtil;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialProgressDialog;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.SubmissionParser;
 import me.edgan.redditslide.util.TimeUtils;
 import me.edgan.redditslide.util.TwitterObject;
-
 import net.dean.jraw.managers.LiveThreadManager;
 import net.dean.jraw.models.LiveUpdate;
 import net.dean.jraw.paginators.LiveThreadPaginator;
-
 import okhttp3.OkHttpClient;
-
-import java.io.IOException;
-import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import androidx.core.content.ContextCompat;
+import okhttp3.Request;
+import okhttp3.WebSocket;
+import okhttp3.WebSocketListener;
 
 public class LiveThread extends BaseActivityAnim {
 
@@ -72,15 +66,15 @@ public class LiveThread extends BaseActivityAnim {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case android.R.id.home:
-                getOnBackPressedDispatcher().onBackPressed();
-                return true;
-            case R.id.info:
-                ((DrawerLayout) findViewById(R.id.drawer_layout)).openDrawer(Gravity.RIGHT);
-                return true;
-            default:
-                return false;
+        int itemId = item.getItemId();
+        if (itemId == android.R.id.home) {
+            getOnBackPressedDispatcher().onBackPressed();
+            return true;
+        } else if (itemId == R.id.info) {
+            ((DrawerLayout) findViewById(R.id.drawer_layout)).openDrawer(Gravity.RIGHT);
+            return true;
+        } else {
+            return false;
         }
     }
 
@@ -113,12 +107,12 @@ public class LiveThread extends BaseActivityAnim {
         baseRecycler = (RecyclerView) findViewById(R.id.content_view);
         baseRecycler.setLayoutManager(new LinearLayoutManager(LiveThread.this));
         new AsyncTask<Void, Void, Void>() {
-            MaterialDialog d;
+            MaterialProgressDialog d;
 
             @Override
             public void onPreExecute() {
                 d =
-                        new MaterialDialog.Builder(LiveThread.this)
+                        new MaterialProgressDialog.Builder(LiveThread.this)
                                 .title(R.string.livethread_loading_title)
                                 .content(R.string.misc_please_wait)
                                 .progress(true, 100)
@@ -141,13 +135,13 @@ public class LiveThread extends BaseActivityAnim {
             @Override
             public void onPostExecute(Void aVoid) {
                 if (thread == null) {
-                    new AlertDialog.Builder(LiveThread.this)
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(LiveThread.this)
                             .setTitle(R.string.livethread_not_found)
                             .setMessage(R.string.misc_please_try_again_soon)
                             .setPositiveButton(R.string.btn_ok, (dialog, which) -> finish())
                             .setOnDismissListener(dialog -> finish())
                             .setCancelable(false)
-                            .show();
+                            );
                 } else {
                     d.dismiss();
                     setupAppBar(R.id.toolbar, thread.getTitle(), true, false);
@@ -190,76 +184,63 @@ public class LiveThread extends BaseActivityAnim {
         baseRecycler.setAdapter(adapter);
         doLiveSidebar();
         if (thread.getWebsocketUrl() != null && !thread.getWebsocketUrl().isEmpty()) {
-            new AsyncTask<Void, Void, Void>() {
-                @Override
-                protected Void doInBackground(Void... params) {
-                    final ObjectReader o = new ObjectMapper().reader();
-
-                    try {
-                        WebSocket ws =
-                                new WebSocketFactory().createSocket(thread.getWebsocketUrl());
-                        ws.addListener(
-                                new WebSocketAdapter() {
-                                    @Override
-                                    public void onTextMessage(WebSocket websocket, String s) {
-                                        LogUtil.v("Recieved" + s);
-                                        if (s.contains("\"type\": \"update\"")) {
-                                            try {
-                                                LiveUpdate u =
-                                                        new LiveUpdate(
-                                                                o.readTree(s)
-                                                                        .get("payload")
-                                                                        .get("data"));
-                                                updates.add(0, u);
-                                                runOnUiThread(
-                                                        new Runnable() {
-                                                            @Override
-                                                            public void run() {
-                                                                adapter.notifyItemInserted(0);
-                                                                baseRecycler.smoothScrollToPosition(
-                                                                        0);
-                                                            }
-                                                        });
-                                            } catch (IOException e) {
-                                                LogUtil.e(e, "LiveThread.run failed");
-                                            }
-                                        } else if (s.contains("embeds_ready")) {
-                                            String node = updates.get(0).getDataNode().toString();
-                                            LogUtil.v("Getting");
-                                            try {
-                                                node =
-                                                        node.replace(
-                                                                "\"embeds\":[]",
-                                                                "\"embeds\":"
-                                                                        + o.readTree(s)
-                                                                                .get("payload")
-                                                                                .get("media_embeds")
-                                                                                .toString());
-                                                LiveUpdate u = new LiveUpdate(o.readTree(node));
-                                                updates.set(0, u);
-                                                runOnUiThread(
-                                                        new Runnable() {
-                                                            @Override
-                                                            public void run() {
-                                                                adapter.notifyItemChanged(0);
-                                                            }
-                                                        });
-                                            } catch (Exception e) {
-                                                LogUtil.e(e, "LiveThread.run failed");
-                                            }
-                                        } /* todoelse if(s.contains("delete")){
-                                              updates.remove(0);
-                                              adapter.notifyItemRemoved(0);
-                                          }*/
-                                    }
-                                });
-                        ws.connect();
-                    } catch (IOException | WebSocketException e) {
-                        LogUtil.e(e, "LiveThread.run failed");
-                    }
-                    return null;
-                }
-            }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+            final ObjectReader o = new ObjectMapper().reader();
+            Request request = new Request.Builder().url(thread.getWebsocketUrl()).build();
+            // OkHttp connects on its own dispatcher thread; onMessage is delivered off the UI
+            // thread, so the view updates below are posted back via runOnUiThread.
+            Reddit.client.newWebSocket(
+                    request,
+                    new WebSocketListener() {
+                        @Override
+                        public void onMessage(WebSocket webSocket, String s) {
+                            LogUtil.v("Recieved" + s);
+                            if (s.contains("\"type\": \"update\"")) {
+                                try {
+                                    LiveUpdate u =
+                                            new LiveUpdate(
+                                                    o.readTree(s).get("payload").get("data"));
+                                    updates.add(0, u);
+                                    runOnUiThread(
+                                            new Runnable() {
+                                                @Override
+                                                public void run() {
+                                                    adapter.notifyItemInserted(0);
+                                                    baseRecycler.smoothScrollToPosition(0);
+                                                }
+                                            });
+                                } catch (IOException e) {
+                                    LogUtil.e(e, "LiveThread.run failed");
+                                }
+                            } else if (s.contains("embeds_ready")) {
+                                String node = updates.get(0).getDataNode().toString();
+                                LogUtil.v("Getting");
+                                try {
+                                    node =
+                                            node.replace(
+                                                    "\"embeds\":[]",
+                                                    "\"embeds\":"
+                                                            + o.readTree(s)
+                                                                    .get("payload")
+                                                                    .get("media_embeds")
+                                                                    .toString());
+                                    LiveUpdate u = new LiveUpdate(o.readTree(node));
+                                    updates.set(0, u);
+                                    runOnUiThread(
+                                            new Runnable() {
+                                                @Override
+                                                public void run() {
+                                                    adapter.notifyItemChanged(0);
+                                                }
+                                            });
+                                } catch (Exception e) {
+                                    LogUtil.e(e, "LiveThread.run failed");
+                                }
+                            } /* todoelse if(s.contains("delete")){
+                                  updates.remove(0);
+                                  adapter.notifyItemRemoved(0);
+                              }*/
+                        }
+                    });
         }
     }
 
@@ -291,7 +272,7 @@ public class LiveThread extends BaseActivityAnim {
             } else {
                 holder.info.setVisibility(View.VISIBLE);
                 holder.info.setTextHtml(
-                        CompatUtil.fromHtml(u.getDataNode().get("body_html").asText()),
+                        CompatUtil.fromHtml(u.getDataNode().path("body_html").asText("")),
                         "NO SUBREDDIT");
             }
             holder.title.setOnClickListener(

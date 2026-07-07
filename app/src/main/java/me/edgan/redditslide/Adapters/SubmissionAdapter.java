@@ -1,6 +1,5 @@
 package me.edgan.redditslide.Adapters;
 
-/** Created by ccrama on 3/22/2015. */
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Handler;
@@ -8,16 +7,16 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
-
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.google.android.material.snackbar.Snackbar;
-
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Activities.CommentsScreen;
 import me.edgan.redditslide.Activities.MainActivity;
-import me.edgan.redditslide.Activities.SubredditView;
 import me.edgan.redditslide.Activities.MainPagerAdapterComment;
+import me.edgan.redditslide.Activities.SubredditView;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Fragments.SubmissionsView;
 import me.edgan.redditslide.R;
@@ -26,14 +25,10 @@ import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SubmissionViews.PopulateSubmissionViewHolder;
 import me.edgan.redditslide.Views.CatchStaggeredGridLayoutManager;
 import me.edgan.redditslide.Views.CreateCardView;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.OnSingleClickListener;
-
 import net.dean.jraw.models.Submission;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
 
 public class SubmissionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>
         implements BaseAdapter {
@@ -317,7 +312,7 @@ public class SubmissionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                                 }
                             } else {
                                 if (!Reddit.appRestart.contains("offlinepopup")) {
-                                    new AlertDialog.Builder(context)
+                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(context)
                                             .setTitle(R.string.cache_no_comments_found)
                                             .setMessage(R.string.cache_no_comments_found_message)
                                             .setCancelable(false)
@@ -328,7 +323,7 @@ public class SubmissionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                                                                     .edit()
                                                                     .putString("offlinepopup", "")
                                                                     .apply())
-                                            .show();
+                                            );
                                 } else {
                                     Snackbar s =
                                             Snackbar.make(
@@ -340,7 +335,7 @@ public class SubmissionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                                             new View.OnClickListener() {
                                                 @Override
                                                 public void onClick(View v) {
-                                                    new AlertDialog.Builder(context)
+                                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(context)
                                                             .setTitle(
                                                                     R.string
                                                                             .cache_no_comments_found)
@@ -357,7 +352,7 @@ public class SubmissionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                                                                                             "offlinepopup",
                                                                                             "")
                                                                                     .apply())
-                                                            .show();
+                                                            );
                                                 }
                                             });
                                     LayoutUtils.showSnackbar(s);
@@ -380,18 +375,13 @@ public class SubmissionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                             null);
         }
         if (holder2 instanceof SubmissionFooterViewHolder) {
-            Handler handler = new Handler();
-
-            final Runnable r =
-                    new Runnable() {
-                        public void run() {
-                            notifyItemChanged(
-                                    dataSet.posts.size() + 1); // the loading spinner to replaced by
-                            // nomoreposts.xml
-                        }
-                    };
-
-            handler.post(r);
+            // Only refresh when the footer actually needs to change type (e.g. the
+            // loading spinner replaced by nomoreposts.xml). Posting unconditionally made
+            // the footer re-bind itself on every bind, an endless redraw loop. Compute the
+            // position inside the post so it reflects the list size when it actually runs.
+            if (holder2.getItemViewType() != getItemViewType(dataSet.posts.size() + 1)) {
+                new Handler().post(() -> notifyItemChanged(dataSet.posts.size() + 1));
+            }
 
             if (holder2.itemView.findViewById(R.id.reload) != null) {
                 holder2.itemView

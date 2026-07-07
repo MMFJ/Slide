@@ -8,10 +8,7 @@ import android.graphics.Bitmap;
 import android.os.AsyncTask;
 import android.os.Environment;
 import android.widget.Toast;
-
 import androidx.appcompat.app.AlertDialog;
-
-import com.afollestad.materialdialogs.MaterialDialog;
 import com.nostra13.universalimageloader.cache.disc.DiskCache;
 import com.nostra13.universalimageloader.cache.disc.impl.UnlimitedDiskCache;
 import com.nostra13.universalimageloader.cache.disc.impl.ext.LruDiskCache;
@@ -21,15 +18,6 @@ import com.nostra13.universalimageloader.core.ImageLoader;
 import com.nostra13.universalimageloader.core.ImageLoaderConfiguration;
 import com.nostra13.universalimageloader.core.assist.ImageScaleType;
 import com.nostra13.universalimageloader.core.assist.ImageSize;
-
-import me.edgan.redditslide.Activities.SendMessage;
-import me.edgan.redditslide.util.LogUtil;
-import me.edgan.redditslide.util.OkHttpImageDownloader;
-
-import net.dean.jraw.http.HttpRequest;
-import net.dean.jraw.http.MediaTypes;
-import net.dean.jraw.http.RestResponse;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -38,6 +26,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import me.edgan.redditslide.Activities.SendMessage;
+import me.edgan.redditslide.util.DialogUtil;
+import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MaterialProgressDialog;
+import me.edgan.redditslide.util.OkHttpImageDownloader;
+import net.dean.jraw.http.HttpRequest;
+import net.dean.jraw.http.MediaTypes;
+import net.dean.jraw.http.RestResponse;
 
 /** Created by Carlos on 4/15/2017. */
 public class ImageFlairs {
@@ -50,14 +46,13 @@ public class ImageFlairs {
                 if (flairStylesheet != null) {
                     flairs.edit().putBoolean(subreddit.toLowerCase(Locale.ENGLISH), true).commit();
                     d =
-                            new AlertDialog.Builder(context)
+                            DialogUtil.showWithCardBackground(new AlertDialog.Builder(context)
                                     .setTitle("Subreddit flairs synced")
                                     .setMessage(
                                             "Slide found and synced "
                                                     + flairStylesheet.count
                                                     + " image flairs")
-                                    .setPositiveButton(R.string.btn_ok, null)
-                                    .show();
+                                    .setPositiveButton(R.string.btn_ok, null));
                 } else {
                     final AlertDialog.Builder b =
                             new AlertDialog.Builder(context)
@@ -87,19 +82,20 @@ public class ImageFlairs {
                                 });
                     }
 
-                    d = b.show();
+                    d = DialogUtil.showWithCardBackground(b);
                 }
             }
 
             @Override
             protected void onPreExecute() {
                 d =
-                        new MaterialDialog.Builder(context)
+                        new MaterialProgressDialog.Builder(context)
                                 .progress(true, 100)
                                 .content(R.string.misc_please_wait)
                                 .title("Syncing flairs...")
                                 .cancelable(false)
-                                .show();
+                                .show()
+                                .getDialog();
             }
         }.execute();
     }
@@ -736,7 +732,7 @@ public class ImageFlairs {
         DiskCache discCache;
         File dir = getCacheDirectory(context);
         discCacheSize *= 100;
-        int threadPoolSize = 7;
+        int threadPoolSize = Constants.IMAGE_LOADER_THREAD_POOL_SIZE;
         if (discCacheSize > 0) {
             try {
                 dir.mkdir();
@@ -760,7 +756,6 @@ public class ImageFlairs {
                         .threadPoolSize(threadPoolSize)
                         .denyCacheImageMultipleSizesInMemory()
                         .diskCache(discCache)
-                        .threadPoolSize(4)
                         .imageDownloader(new OkHttpImageDownloader(context))
                         .defaultDisplayImageOptions(options)
                         .build();

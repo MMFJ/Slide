@@ -1,10 +1,7 @@
 package me.edgan.redditslide.Activities;
 
-import android.annotation.TargetApi;
 import android.app.ActivityManager;
 import android.content.res.Configuration;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
@@ -14,17 +11,17 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
-
 import androidx.annotation.IdRes;
 import androidx.annotation.Nullable;
-import androidx.annotation.RequiresApi;
 import androidx.annotation.StringRes;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
-
+import java.util.Locale;
+import java.util.Map;
+import java.util.WeakHashMap;
 import me.edgan.redditslide.ForceTouch.PeekViewActivity;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
@@ -37,10 +34,7 @@ import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.FontPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.GifUtils;
-
-import java.util.Locale;
-import java.util.Map;
-import java.util.WeakHashMap;
+import me.edgan.redditslide.util.LogUtil;
 
 /**
  * This is an activity which is the base for most of Slide's activities. It has support for handling
@@ -164,9 +158,7 @@ public class BaseActivity extends PeekViewActivity implements SwipeBackActivityB
         applyOverrideLanguage();
 
         super.onCreate(savedInstanceState);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            setAutofill();
-        }
+        setAutofill();
 
         /**
          * Enable fullscreen immersive mode if setting is checked
@@ -203,7 +195,6 @@ public class BaseActivity extends PeekViewActivity implements SwipeBackActivityB
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
     protected void setAutofill() {
         getWindow()
                 .getDecorView()
@@ -321,12 +312,33 @@ public class BaseActivity extends PeekViewActivity implements SwipeBackActivityB
      */
     private void applyScrimColors() {
         if (mStatusBarScrim == null || mNavBarScrim == null) {
+            LogUtil.v(
+                    "StatusBarColor: applyScrimColors() skipped, scrims not created yet ("
+                            + getClass().getSimpleName()
+                            + ")");
             return;
         }
-        int color =
-                mSystemBarColorSet
-                        ? mSystemBarColor
-                        : resolveThemeColor(android.R.attr.statusBarColor);
+        int themeFallback = opaqueOrBlack(resolveThemeColor(android.R.attr.statusBarColor));
+        int color = mSystemBarColorSet ? mSystemBarColor : themeFallback;
+        // Intermittent grey is usually this fallback firing before themeSystemBars() has run, or
+        // alwaysBlackStatusbar forcing black; log enough to tell which branch produced the color.
+        LogUtil.v(
+                "StatusBarColor: applyScrimColors() ["
+                        + getClass().getSimpleName()
+                        + "] source="
+                        + (mSystemBarColorSet ? "themeSystemBars" : "themeFallback")
+                        + " systemBarColorSet="
+                        + mSystemBarColorSet
+                        + " systemBarColor="
+                        + colorHex(mSystemBarColor)
+                        + " themeFallback="
+                        + colorHex(themeFallback)
+                        + " alwaysBlackStatusbar="
+                        + SettingValues.alwaysBlackStatusbar
+                        + " colorNavBar="
+                        + SettingValues.colorNavBar
+                        + " -> chosen="
+                        + colorHex(color));
         if (SettingValues.alwaysBlackStatusbar) {
             color = Color.BLACK;
         }
@@ -334,7 +346,23 @@ public class BaseActivity extends PeekViewActivity implements SwipeBackActivityB
         mNavBarScrim.setBackgroundColor(
                 SettingValues.colorNavBar
                         ? color
-                        : resolveThemeColor(android.R.attr.navigationBarColor));
+                        : opaqueOrBlack(resolveThemeColor(android.R.attr.navigationBarColor)));
+    }
+
+    /** Formats a color-int as #AARRGGBB for readable logging of bar colors. */
+    private static String colorHex(int color) {
+        return String.format(Locale.ENGLISH, "#%08X", color);
+    }
+
+    /**
+     * The system bar scrims must be opaque so they hide the content behind them. Under edge-to-edge
+     * enforcement (API 35+) the framework default for android:navigationBarColor/statusBarColor is
+     * transparent, and our themes never override it, so resolveThemeColor() returns a fully
+     * transparent color. A transparent scrim paints nothing, which let the post list and FAB bleed
+     * through the navigation bar area and flicker. Fall back to black in that case.
+     */
+    private static int opaqueOrBlack(int color) {
+        return Color.alpha(color) == 0 ? Color.BLACK : color;
     }
 
     private int resolveThemeColor(int attr) {
@@ -564,7 +592,21 @@ public class BaseActivity extends PeekViewActivity implements SwipeBackActivityB
      * @param subreddit The subreddit to base the color on.
      */
     public void themeSystemBars(String subreddit) {
-        themeSystemBars(Palette.getSubredditStatusBarColor(subreddit));
+        int color = Palette.getSubredditStatusBarColor(subreddit);
+        LogUtil.v(
+                "StatusBarColor: themeSystemBars(subreddit=\""
+                        + subreddit
+                        + "\") ["
+                        + getClass().getSimpleName()
+                        + "] subColor="
+                        + colorHex(Palette.getColor(subreddit))
+                        + " defaultColor="
+                        + colorHex(Palette.getDefaultColor())
+                        + " usingDefault="
+                        + (Palette.getColor(subreddit) == Palette.getDefaultColor())
+                        + " -> statusBar="
+                        + colorHex(color));
+        themeSystemBars(color);
     }
 
     /**
@@ -573,6 +615,16 @@ public class BaseActivity extends PeekViewActivity implements SwipeBackActivityB
      * @param color The color to tint the bars with
      */
     protected void themeSystemBars(int color) {
+        LogUtil.v(
+                "StatusBarColor: themeSystemBars(color="
+                        + colorHex(color)
+                        + ") ["
+                        + getClass().getSimpleName()
+                        + "] alwaysBlackStatusbar="
+                        + SettingValues.alwaysBlackStatusbar
+                        + " colorNavBar="
+                        + SettingValues.colorNavBar);
+
         if (SettingValues.alwaysBlackStatusbar) {
             color = Color.BLACK;
         }
@@ -605,28 +657,19 @@ public class BaseActivity extends PeekViewActivity implements SwipeBackActivityB
      * @param color Color for the recent app bar
      */
     public void setRecentBar(@Nullable String title, int color) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            if (title == null || title.isEmpty()) {
-                title = getString(R.string.app_name);
-            }
-            setRecentBarTaskDescription(title, color);
+        if (title == null || title.isEmpty()) {
+            title = getString(R.string.app_name);
         }
+        setRecentBarTaskDescription(title, color);
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     private void setRecentBarTaskDescription(@Nullable String title, int color) {
         int icon =
                 title.equalsIgnoreCase("androidcirclejerk")
                         ? R.drawable.matiasduarte
                         : R.drawable.ic_launcher;
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            setTaskDescription(new ActivityManager.TaskDescription(title, icon, color));
-        } else {
-            Bitmap bitmap = BitmapFactory.decodeResource(getResources(), icon);
-            setTaskDescription(new ActivityManager.TaskDescription(title, bitmap, color));
-            bitmap.recycle();
-        }
+        setTaskDescription(new ActivityManager.TaskDescription(title, icon, color));
     }
 
     @Override

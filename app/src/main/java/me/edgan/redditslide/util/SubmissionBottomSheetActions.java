@@ -9,39 +9,30 @@ import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
+import android.view.ContextThemeWrapper;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
 import androidx.recyclerview.widget.RecyclerView;
-
-import com.afollestad.materialdialogs.DialogAction;
-import com.afollestad.materialdialogs.MaterialDialog;
-import com.cocosw.bottomsheet.BottomSheet;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
-
-import net.dean.jraw.ApiException;
-import net.dean.jraw.models.Contribution;
-import net.dean.jraw.models.Ruleset;
-import net.dean.jraw.models.Submission;
-import net.dean.jraw.models.SubredditRule;
-
-import org.apache.commons.text.StringEscapeUtils;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-
 import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.Activities.PostReadLater;
 import me.edgan.redditslide.Activities.Profile;
@@ -53,10 +44,22 @@ import me.edgan.redditslide.Hidden;
 import me.edgan.redditslide.OfflineSubreddit;
 import me.edgan.redditslide.PostMatch;
 import me.edgan.redditslide.R;
-import me.edgan.redditslide.SubmissionViews.ReadLater;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
+import me.edgan.redditslide.SpoilerRobotoTextView;
+import me.edgan.redditslide.SubmissionCache;
+import me.edgan.redditslide.SubmissionViews.LocalSaved;
+import me.edgan.redditslide.SubmissionViews.ReadLater;
+import me.edgan.redditslide.Views.CommentOverflow;
+import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.markdown.MarkdownImages;
+import net.dean.jraw.ApiException;
+import net.dean.jraw.models.Contribution;
+import net.dean.jraw.models.Ruleset;
+import net.dean.jraw.models.Submission;
+import net.dean.jraw.models.SubredditRule;
+import org.apache.commons.text.StringEscapeUtils;
 
 /**
  * Handles Bottom Sheet actions for Submission views.
@@ -93,8 +96,12 @@ public class SubmissionBottomSheetActions {
         Drawable reddit = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_forum, null);
         Drawable filter = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_filter_list, null);
         Drawable crosspost = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_forward, null);
+        Drawable viewmode = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_visibility, null);
+        Drawable history = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_history, null);
+        Drawable translate = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_translate, null);
+        Drawable readAloud = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_volume_on, null);
 
-        final List<Drawable> drawableSet = Arrays.asList(profile, sub, saved, hide, report, copy, open, link, reddit, readLater, filter, crosspost);
+        final List<Drawable> drawableSet = Arrays.asList(profile, sub, saved, hide, report, copy, open, link, reddit, readLater, filter, crosspost, viewmode, history, translate, readAloud);
         BlendModeUtil.tintDrawablesAsSrcAtop(drawableSet, color);
 
         ta.recycle();
@@ -131,6 +138,19 @@ public class SubmissionBottomSheetActions {
 
         if (submission.getSelftext() != null && !submission.getSelftext().isEmpty() && full) {
             b.sheet(25, copy, mContext.getString(R.string.submission_copy_text));
+        }
+
+        if (submission.getSelftext() != null && !submission.getSelftext().isEmpty()) {
+            b.sheet(60, viewmode, mContext.getString(R.string.comment_render_other));
+        }
+
+        b.sheet(62, translate, mContext.getString(R.string.translate_with_google));
+        b.sheet(63, readAloud, mContext.getString(R.string.read_aloud));
+
+        if (full
+                && PostRecovery.isRemovedOrDeleted(submission)
+                && !PostRecovery.isRecovered(submission.getFullName())) {
+            b.sheet(61, history, mContext.getString(R.string.recover_post));
         }
 
         boolean hidden = submission.isHidden();
@@ -209,7 +229,7 @@ public class SubmissionBottomSheetActions {
                         }
 
 
-                        new AlertDialog.Builder(mContext)
+                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
                             .setTitle(R.string.filter_title)
                             .setMultiChoiceItems(choices, chosen, (dialog1, which1, isChecked) -> chosen[which1] = isChecked)
                             .setPositiveButton(R.string.filter_btn, (dialog12, which12) -> {
@@ -275,9 +295,19 @@ public class SubmissionBottomSheetActions {
 
                                 if (filtered) {
                                     e.apply();
+
+                                    RecyclerView.Adapter<?> adapter = recyclerview.getAdapter();
+                                    if (adapter == null) {
+                                        return;
+                                    }
+
+                                    // Operate on the list the adapter is actually displaying;
+                                    // the captured reference can be stale after a refresh.
+                                    final List<T> livePosts = resolveLivePosts(recyclerview, posts);
+
                                     ArrayList<Contribution> toRemove = new ArrayList<>();
 
-                                    for (Contribution s : posts) {
+                                    for (Contribution s : livePosts) {
                                         if (s instanceof Submission && PostMatch.doesMatch((Submission) s)) {
                                             toRemove.add(s);
                                         }
@@ -286,17 +316,30 @@ public class SubmissionBottomSheetActions {
                                     OfflineSubreddit s = OfflineSubreddit.getSubreddit(baseSub, false, mContext);
 
                                     for (Contribution remove : toRemove) {
-                                        final int pos = posts.indexOf(remove);
-                                        posts.remove(pos);
-                                        if (baseSub != null) {
-                                            s.hideMulti(pos);
+                                        final int pos = livePosts.indexOf(remove);
+                                        if (pos < 0) {
+                                            continue;
                                         }
+                                        livePosts.remove(pos);
+                                        if (baseSub != null && s.submissions != null) {
+                                            // The offline cache is a separate list that may not
+                                            // be index-aligned with the live feed, so match by
+                                            // identity instead of reusing the display index.
+                                            final int offlinePos = s.submissions.indexOf(remove);
+                                            if (offlinePos >= 0) {
+                                                s.hideMulti(offlinePos);
+                                            }
+                                        }
+                                        // Header/spacer at position 0; the helper applies the
+                                        // offset and falls back to a full reset if this
+                                        // removal empties the list (no transient inconsistent
+                                        // state to reconcile afterwards).
+                                        notifyRemovedOrReset(adapter, livePosts, pos);
                                     }
 
                                     s.writeToMemoryNoStorage();
-                                    recyclerview.getAdapter().notifyDataSetChanged();
                                 }
-                            }).setNegativeButton(R.string.btn_cancel, null).show();
+                            }).setNegativeButton(R.string.btn_cancel, null));
 
                         break;
                     case 3:
@@ -349,34 +392,67 @@ public class SubmissionBottomSheetActions {
                                 ).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
                             }
 
-                            s.show();
+                            LayoutUtils.showSnackbar(s);
                         } else {
                             ReadLater.setReadLater(submission, false);
                             if (isReadLater || !Authentication.didOnline) {
-                                final int pos = posts.indexOf(submission);
-                                posts.remove(submission);
+                                final RecyclerView.Adapter<?> adapter = recyclerview.getAdapter();
 
-                                recyclerview.getAdapter().notifyItemRemoved(holder.getBindingAdapterPosition());
+                                // Operate on the list the adapter is actually displaying; the
+                                // captured reference can be stale after a refresh.
+                                final List<T> livePosts = resolveLivePosts(recyclerview, posts);
 
-                                Snackbar s2 = Snackbar.make(holder.itemView, "Removed from read later", Snackbar.LENGTH_SHORT);
-                                View view2 = s2.getView();
-                                TextView tv2 = view2.findViewById(com.google.android.material.R.id.snackbar_text);
-                                tv2.setTextColor(Color.WHITE);
-                                s2.setAction(
-                                    R.string.btn_undo,
-                                    new View.OnClickListener() {
-                                        @Override
-                                        public void onClick(View view) {
-                                            posts.add(pos, (T) submission);
-                                            recyclerview.getAdapter().notifyDataSetChanged();
+                                final int pos = livePosts.indexOf(submission);
+                                if (adapter != null && pos != -1) {
+                                    livePosts.remove(pos);
+
+                                    if (adapter instanceof me.edgan.redditslide.Adapters.SubmissionAdapter) {
+                                        // Feed adapter: header/spacer at 0, so the removed
+                                        // row is pos + 1; also handles the list emptying.
+                                        notifyRemovedOrReset(adapter, livePosts, pos);
+                                    } else {
+                                        // Other adapters (e.g. Read Later): use the live
+                                        // binding position. getBindingAdapterPosition() returns
+                                        // NO_POSITION for a holder that is mid-recycle; fall
+                                        // back to a full reset (also covers the list emptying).
+                                        final int bindingPos = holder.getBindingAdapterPosition();
+                                        if (bindingPos != RecyclerView.NO_POSITION && !livePosts.isEmpty()) {
+                                            adapter.notifyItemRemoved(bindingPos);
+                                        } else {
+                                            adapter.notifyDataSetChanged();
                                         }
                                     }
-                                );
+
+                                    Snackbar s2 = Snackbar.make(holder.itemView, "Removed from read later", Snackbar.LENGTH_SHORT);
+                                    View view2 = s2.getView();
+                                    TextView tv2 = view2.findViewById(com.google.android.material.R.id.snackbar_text);
+                                    tv2.setTextColor(Color.WHITE);
+                                    s2.setAction(
+                                        R.string.btn_undo,
+                                        new View.OnClickListener() {
+                                            @Override
+                                            public void onClick(View view) {
+                                                // Re-resolve at click time in case a refresh
+                                                // swapped in a new adapter list.
+                                                final RecyclerView.Adapter<?> undoAdapter =
+                                                        recyclerview.getAdapter();
+                                                if (undoAdapter != null) {
+                                                    final List<T> undoList =
+                                                            resolveLivePosts(recyclerview, livePosts);
+                                                    if (!undoList.contains(submission)) {
+                                                        undoList.add(
+                                                                Math.min(pos, undoList.size()),
+                                                                (T) submission);
+                                                    }
+                                                    undoAdapter.notifyDataSetChanged();
+                                                }
+                                            }
+                                        }
+                                    );
+                                }
                             } else {
                                 Snackbar s2 = Snackbar.make(holder.itemView, "Removed from read later", Snackbar.LENGTH_SHORT);
-                                View view2 = s2.getView();
-                                TextView tv2 = view2.findViewById(com.google.android.material.R.id.snackbar_text);
-                                s2.show();
+                                LayoutUtils.showSnackbar(s2);
                             }
                             OfflineSubreddit.newSubreddit(CommentCacheAsync.SAVED_SUBMISSIONS).deleteFromMemory(submission.getFullName());
                         }
@@ -387,20 +463,24 @@ public class SubmissionBottomSheetActions {
 
                         break;
                     case 12:
-                        final MaterialDialog reportDialog =
-                            new MaterialDialog.Builder(mContext)
-                                .customView(R.layout.report_dialog, true)
-                                .title(R.string.report_post)
-                                .positiveText(R.string.btn_report)
-                                .negativeText(R.string.btn_cancel)
-                                .onPositive(
-                                    new MaterialDialog.SingleButtonCallback() {
-                                        @Override
-                                        public void onClick(MaterialDialog dialog, DialogAction which) {
-                                            RadioGroup reasonGroup = dialog.getCustomView().findViewById(R.id.report_reasons);
+                        final Context contextThemeWrapper =
+        new ContextThemeWrapper(mContext, new ColorPreferences(mContext).getFontStyle().getBaseId());
+final View reportView =
+        LayoutInflater.from(contextThemeWrapper).inflate(R.layout.report_dialog, null);
+final AlertDialog reportDialog =
+        new MaterialAlertDialogBuilder(contextThemeWrapper)
+                .setView(reportView)
+                .setTitle(R.string.report_post)
+                .setNegativeButton(R.string.btn_cancel, null)
+                .setPositiveButton(
+                        R.string.btn_report,
+                        new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                            RadioGroup reasonGroup = reportView.findViewById(R.id.report_reasons);
                                             String reportReason;
                                             if (reasonGroup.getCheckedRadioButtonId() == R.id.report_other) {
-                                                reportReason = ((EditText) dialog.getCustomView().findViewById(R.id.input_report_reason)).getText().toString();
+                                                reportReason = ((EditText) reportView.findViewById(R.id.input_report_reason)).getText().toString();
                                             } else {
                                                 reportReason = ((RadioButton) reasonGroup.findViewById(reasonGroup.getCheckedRadioButtonId())).getText().toString();
                                             }
@@ -408,18 +488,18 @@ public class SubmissionBottomSheetActions {
                                             new AsyncReportTask(submission, holder.itemView).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, reportReason);
                                         }
                                     }
-                                ).build();
+                                ).create();
 
-                        final RadioGroup reasonGroup = reportDialog.getCustomView().findViewById(R.id.report_reasons);
+                        final RadioGroup reasonGroup = reportView.findViewById(R.id.report_reasons);
 
                         reasonGroup.setOnCheckedChangeListener(
                             new RadioGroup.OnCheckedChangeListener() {
                                 @Override
                                 public void onCheckedChanged(RadioGroup group, int checkedId) {
                                     if (checkedId == R.id.report_other) {
-                                        reportDialog.getCustomView().findViewById(R.id.input_report_reason).setVisibility(View.VISIBLE);
+                                        reportView.findViewById(R.id.input_report_reason).setVisibility(View.VISIBLE);
                                     } else {
-                                        reportDialog.getCustomView().findViewById(R.id.input_report_reason).setVisibility(View.GONE);
+                                        reportView.findViewById(R.id.input_report_reason).setVisibility(View.GONE);
                                     }
                                 }
                             }
@@ -440,7 +520,7 @@ public class SubmissionBottomSheetActions {
 
                             @Override
                             protected void onPostExecute(Ruleset rules) {
-                                reportDialog.getCustomView().findViewById(R.id.report_loading).setVisibility(View.GONE);
+                                reportView.findViewById(R.id.report_loading).setVisibility(View.GONE);
                                 if (rules == null) {
                                     // Could not load rules (offline); leave the dialog as-is
                                     return;
@@ -495,9 +575,11 @@ public class SubmissionBottomSheetActions {
                         final TextView showText = new TextView(mContext);
                         showText.setText(StringEscapeUtils.unescapeHtml4(submission.getTitle() + "\n\n" + submission.getSelftext()));
                         showText.setTextIsSelectable(true);
+                        TranslateUtil.addToSelectionMenu(showText);
                         int sixteen = DisplayUtil.dpToPxVertical(24);
                         showText.setPadding(sixteen, 0, sixteen, 0);
-                        new AlertDialog.Builder(mContext)
+                        final AlertDialog copyDialog =
+                            new AlertDialog.Builder(mContext)
                             .setView(showText)
                             .setTitle("Select text to copy")
                             .setCancelable(true)
@@ -516,13 +598,153 @@ public class SubmissionBottomSheetActions {
                             .setNeutralButton("COPY ALL", (dialog14, which14) -> {
                                 ClipboardUtil.copyToClipboard(mContext, "Selftext", StringEscapeUtils.unescapeHtml4(submission.getTitle() + "\n\n" + submission.getSelftext()));
                                 Toast.makeText(mContext, R.string.submission_text_copied, Toast.LENGTH_SHORT).show();
-                            }).show();
+                            }).create();
+                        DialogUtil.matchDialogToCardBackground(mContext, copyDialog);
+                        copyDialog.show();
 
+                        break;
+                    case 60:
+                        // Preview this self-text with the opposite markdown renderer.
+                        showOppositeRender(mContext, submission);
+                        break;
+                    case 62:
+                        // Translate the title (and self-text, when present) via Google Translate.
+                        TranslateUtil.translate(mContext, submissionPlainText(submission));
+                        break;
+                    case 63:
+                        // Read the title (and self-text, when present) aloud via text-to-speech.
+                        ReadAloudUtil.readAloud(mContext, submissionPlainText(submission));
+                        break;
+                    case 61:
+                        // Recover the original body of a removed/deleted post from the archive.
+                        final MaterialProgressDialog recoverProgress =
+                                new MaterialProgressDialog.Builder(mContext)
+                                        .title(R.string.recover_post)
+                                        .content(R.string.recover_post_loading)
+                                        .progress(true, 0)
+                                        .cancelable(false)
+                                        .show();
+                        new AsyncTask<Void, Void, PostRecovery.Result>() {
+                            @Override
+                            protected PostRecovery.Result doInBackground(Void... voids) {
+                                return PostRecovery.fetch(submission);
+                            }
+
+                            @Override
+                            protected void onPostExecute(PostRecovery.Result result) {
+                                // The fetch can outlive the screen; don't touch a dead Activity.
+                                if (mContext.isFinishing() || mContext.isDestroyed()) {
+                                    return;
+                                }
+                                if (recoverProgress.isShowing()) {
+                                    recoverProgress.dismiss();
+                                }
+                                if (result.isEmpty()) {
+                                    Toast.makeText(
+                                                    mContext,
+                                                    R.string.recover_post_failed,
+                                                    Toast.LENGTH_LONG)
+                                            .show();
+                                    return;
+                                }
+                                PostRecovery.store(submission, result);
+                                // Re-render the cached title with the recovered one.
+                                SubmissionCache.updateTitle(submission, mContext);
+                                // A recovered link flips is_self/url on the node, so the cached
+                                // info line (domain) is now stale — refresh it to match.
+                                if (result.url != null) {
+                                    SubmissionCache.updateInfoSpannable(
+                                            submission, mContext, baseSub);
+                                }
+                                if (recyclerview != null && recyclerview.getAdapter() != null) {
+                                    // Full post view: pos 0 = spacer, pos 1 = header.
+                                    recyclerview.getAdapter().notifyItemChanged(1);
+                                }
+                            }
+                        }.execute();
                         break;
                 }
             }
         });
         b.show();
+    }
+
+    /**
+     * Show a one-shot dialog rendering {@code submission}'s self-text with the opposite of the
+     * current global markdown setting ({@link SettingValues#markdownNewReddit}). Purely a preview:
+     * it stores no state and does not change the post or the setting. Mirrors the per-comment
+     * "Show other rendering" action. See issue #179.
+     */
+    /**
+     * Returns the post's title plus self-text (when present) as readable plain text for translation
+     * / text-to-speech, resolving markdown via Reddit's rendered {@code selftext_html} so raw syntax
+     * (asterisks, link URLs) isn't spoken or translated. Falls back to the unescaped raw self-text
+     * if no rendered HTML is available; link posts return just the title.
+     */
+    private static String submissionPlainText(final Submission submission) {
+        final String title = CompatUtil.fromHtml(submission.getTitle()).toString().trim();
+        final String selftext = submission.getSelftext();
+        if (selftext == null || selftext.isEmpty()) {
+            return title;
+        }
+        // Removed/deleted posts keep a non-empty self-text ("[removed]") but may have a null
+        // selftext_html, so only render HTML when it's actually present; otherwise use the raw text.
+        final JsonNode selfHtml = submission.getDataNode().path("selftext_html");
+        String body =
+                (selfHtml.isNull() || selfHtml.isMissingNode())
+                        ? StringEscapeUtils.unescapeHtml4(selftext)
+                        : CompatUtil.htmlToText(selfHtml.asText(""));
+        if (body.isEmpty()) {
+            body = StringEscapeUtils.unescapeHtml4(selftext);
+        }
+        return title + "\n\n" + body;
+    }
+
+    private static void showOppositeRender(final Activity mContext, final Submission submission) {
+        final boolean showNewReddit = !SettingValues.markdownNewReddit;
+        final String subreddit =
+                submission.getSubredditName() == null ? "all" : submission.getSubredditName();
+        final String bodyHtml = submission.getDataNode().path("selftext_html").asText("");
+
+        LinearLayout container = new LinearLayout(mContext);
+        container.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (16 * mContext.getResources().getDisplayMetrics().density);
+        container.setPadding(pad, pad, pad, pad);
+
+        SpoilerRobotoTextView first = new SpoilerRobotoTextView(mContext);
+        CommentOverflow overflow = new CommentOverflow(mContext);
+        container.addView(first);
+        container.addView(overflow);
+
+        ScrollView scroll = new ScrollView(mContext);
+        scroll.addView(container);
+
+        if (showNewReddit) {
+            MarkdownImages.renderInto(
+                    first, overflow, subreddit, submission.getSelftext(), bodyHtml,
+                    submission.getDataNode());
+        } else {
+            // Mirror the old-Reddit self-text path (PopulateSubmissionViewHolder.setViews): split
+            // selftext_html into blocks, first into the TextView, the rest into the overflow.
+            List<String> blocks = SubmissionParser.getBlocks(bodyHtml);
+            int startIndex = 0;
+            if (!blocks.get(0).startsWith("<table>") && !blocks.get(0).startsWith("<pre>")) {
+                first.setTextHtml(blocks.get(0), subreddit);
+                startIndex = 1;
+            }
+            if (blocks.size() > 1) {
+                overflow.setViews(blocks.subList(startIndex, blocks.size()), subreddit);
+            }
+        }
+
+        new MaterialAlertDialogBuilder(mContext)
+                .setTitle(
+                        showNewReddit
+                                ? R.string.markdown_preview_new_reddit
+                                : R.string.markdown_preview_old_reddit)
+                .setView(scroll)
+                .setPositiveButton(R.string.btn_ok, null)
+                .show();
     }
 
     public static void saveSubmission(final Submission submission, final Activity mContext, final SubmissionViewHolder holder, final boolean full) {
@@ -533,9 +755,11 @@ public class SubmissionBottomSheetActions {
                     if (ActionStates.isSaved(submission)) {
                         new net.dean.jraw.managers.AccountManager(Authentication.reddit).unsave(submission);
                         ActionStates.setSaved(submission, false);
+                        LocalSaved.onUnsaved(submission);
                     } else {
                         new net.dean.jraw.managers.AccountManager(Authentication.reddit).save(submission);
                         ActionStates.setSaved(submission, true);
+                        LocalSaved.onSaved(submission);
                     }
 
                 } catch (Exception e) {
@@ -594,7 +818,7 @@ public class SubmissionBottomSheetActions {
 
             @Override
             public void onPreExecute() {
-                d = new MaterialDialog.Builder(mContext).progress(true, 100).title(R.string.profile_category_loading).content(R.string.misc_please_wait).show();
+                d = new MaterialProgressDialog.Builder(mContext).progress(true, 100).title(R.string.profile_category_loading).content(R.string.misc_please_wait).show().getDialog();
             }
 
             @Override
@@ -617,19 +841,19 @@ public class SubmissionBottomSheetActions {
             @Override
             public void onPostExecute(final List<String> data) {
                 try {
-                    new MaterialDialog.Builder(mContext).items(data).title(R.string.sidebar_select_flair).itemsCallback(new MaterialDialog.ListCallback() {
+                    new MaterialAlertDialogBuilder(new ContextThemeWrapper(mContext, new ColorPreferences(mContext).getFontStyle().getBaseId())).setTitle(R.string.sidebar_select_flair).setItems(data.toArray(new CharSequence[0]), new DialogInterface.OnClickListener() {
                         @Override
-                        public void onSelection(MaterialDialog dialog, final View itemView, int which, CharSequence text) {
+                        public void onClick(DialogInterface listDialog, int which) {
                             final String t = data.get(which);
                             if (which == data.size() - 1) {
-                                new MaterialDialog.Builder(mContext)
+                                new MaterialInputDialog.Builder(mContext)
                                     .title(R.string.category_set_name)
-                                    .input(mContext.getString(R.string.category_set_name_hint), null, false, (dialog1, input) -> {})
+                                    .input(mContext.getString(R.string.category_set_name_hint), null, null)
                                     .positiveText(R.string.btn_set)
                                     .onPositive(
-                                        new MaterialDialog.SingleButtonCallback() {
+                                        new MaterialInputDialog.ButtonCallback() {
                                             @Override
-                                            public void onClick(MaterialDialog dialog, DialogAction which) {
+                                            public void onClick(MaterialInputDialog dialog) {
                                                 final String flair = dialog.getInputEditText().getText().toString();
                                                 new AsyncTask<Void, Void, Boolean>() {
                                                     @Override
@@ -708,34 +932,50 @@ public class SubmissionBottomSheetActions {
     }
 
     public static <T extends Contribution> void hideSubmission(final Submission submission, final List<T> posts, final String baseSub, final RecyclerView recyclerview, Context c) {
-        final int pos = posts.indexOf(submission);
+        final RecyclerView.Adapter<?> adapter = recyclerview.getAdapter();
+        if (adapter == null) {
+            return;
+        }
+
+        // Operate on the list the adapter is actually displaying; the captured
+        // reference can be stale after a refresh, so the hidden row would
+        // otherwise never leave the screen.
+        final List<T> livePosts = resolveLivePosts(recyclerview, posts);
+
+        final int pos = livePosts.indexOf(submission);
         if (pos != -1) {
             if (submission.isHidden()) {
-                posts.remove(pos);
+                livePosts.remove(pos);
                 Hidden.undoHidden(submission);
-                recyclerview.getAdapter().notifyItemRemoved(pos + 1);
+                notifyRemovedOrReset(adapter, livePosts, pos);
                 Snackbar snack = Snackbar.make(recyclerview, R.string.submission_info_unhidden, Snackbar.LENGTH_LONG);
                 LayoutUtils.showSnackbar(snack);
             } else {
-                final T t = posts.get(pos);
-                posts.remove(pos);
+                final T t = livePosts.get(pos);
+                livePosts.remove(pos);
                 Hidden.setHidden(t);
                 final OfflineSubreddit s;
                 boolean success = false;
                 if (baseSub != null) {
                     s = OfflineSubreddit.getSubreddit(baseSub, false, c);
-                    try {
-                        s.hide(pos);
-                        success = true;
-                    } catch (Exception e) {
-                        LogUtil.e(e, "Failed to hide submission in offline subreddit");
+                    // The offline cache is a separate list that may not be
+                    // index-aligned with the live feed, so match by identity
+                    // instead of reusing the display index.
+                    final int offlinePos = s.submissions != null ? s.submissions.indexOf(t) : -1;
+                    if (offlinePos >= 0) {
+                        try {
+                            s.hide(offlinePos);
+                            success = true;
+                        } catch (Exception e) {
+                            LogUtil.e(e, "Failed to hide submission in offline subreddit");
+                        }
                     }
                 } else {
                     success = false;
                     s = null;
                 }
 
-                recyclerview.getAdapter().notifyItemRemoved(pos + 1);
+                notifyRemovedOrReset(adapter, livePosts, pos);
 
                 final boolean finalSuccess = success;
                 Snackbar snack = Snackbar.make(recyclerview, R.string.submission_info_hidden, Snackbar.LENGTH_LONG)
@@ -747,14 +987,68 @@ public class SubmissionBottomSheetActions {
                                 if (baseSub != null && s != null && finalSuccess) {
                                     s.unhideLast();
                                 }
-                                posts.add(pos, t);
-                                recyclerview.getAdapter().notifyItemInserted(pos + 1);
+                                // Re-resolve the live list at click time: a refresh
+                                // during the snackbar window can swap in a new adapter
+                                // list, and the undo must restore into whatever is
+                                // currently displayed.
+                                final RecyclerView.Adapter<?> undoAdapter = recyclerview.getAdapter();
+                                if (undoAdapter != null) {
+                                    final List<T> undoList = resolveLivePosts(recyclerview, livePosts);
+                                    if (!undoList.contains(t)) {
+                                        undoList.add(Math.min(pos, undoList.size()), t);
+                                    }
+                                    undoAdapter.notifyDataSetChanged();
+                                }
                                 Hidden.undoHidden(t);
                             }
                         }
                     );
                 LayoutUtils.showSnackbar(snack);
             }
+        }
+    }
+
+    /**
+     * Resolves the list the adapter is actually displaying. A pull-to-refresh
+     * reassigns {@code SubredditPosts.posts} to a brand-new list object, so a
+     * reference captured by a menu/undo closure at bind time can point at a stale
+     * list the adapter no longer shows. Re-resolving from the live adapter avoids
+     * mutating that dead list. Falls back to {@code captured} when the adapter is
+     * not a feed adapter (e.g. the Read Later screen).
+     */
+    @SuppressWarnings("unchecked")
+    private static <T extends Contribution> List<T> resolveLivePosts(
+            final RecyclerView recyclerview, final List<T> captured) {
+        final RecyclerView.Adapter<?> adapter = recyclerview.getAdapter();
+        if (adapter instanceof me.edgan.redditslide.Adapters.SubmissionAdapter) {
+            final List<Submission> live =
+                    ((me.edgan.redditslide.Adapters.SubmissionAdapter) adapter).dataSet.posts;
+            // SubmissionAdapter guards against a null backing list, so mirror that
+            // here and fall back to the captured reference rather than returning
+            // null (which callers dereference immediately).
+            if (live != null) {
+                return (List<T>) live;
+            }
+        }
+        return captured;
+    }
+
+    /**
+     * Signals removal of the row at {@code pos} in the backing list. Only the feed
+     * adapter ({@link me.edgan.redditslide.Adapters.SubmissionAdapter}) is known to
+     * carry a spacer at position 0, so the removed row maps to {@code pos + 1}
+     * there. For any other adapter (offset unknown), or once the list empties (the
+     * feed adapter's getItemCount() collapses to 0, dropping the spacer and footer
+     * too), a targeted notifyItemRemoved would desync the count, so fall back to a
+     * full reset.
+     */
+    private static void notifyRemovedOrReset(
+            final RecyclerView.Adapter<?> adapter, final List<?> livePosts, final int pos) {
+        if (adapter instanceof me.edgan.redditslide.Adapters.SubmissionAdapter
+                && !livePosts.isEmpty()) {
+            adapter.notifyItemRemoved(pos + 1);
+        } else {
+            adapter.notifyDataSetChanged();
         }
     }
 

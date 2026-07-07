@@ -5,7 +5,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.os.Build;
 import android.util.Pair;
 import android.view.View;
 import android.view.Window;
@@ -16,7 +15,6 @@ import android.widget.RadioButton;
 import android.widget.RelativeLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
-
 import androidx.annotation.ArrayRes;
 import androidx.annotation.LayoutRes;
 import androidx.annotation.NonNull;
@@ -26,7 +24,9 @@ import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.ContextCompat;
-
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import me.edgan.redditslide.Activities.BaseActivity;
 import me.edgan.redditslide.Activities.Slide;
 import me.edgan.redditslide.Constants;
@@ -39,16 +39,11 @@ import me.edgan.redditslide.databinding.ChooseaccentBinding;
 import me.edgan.redditslide.databinding.ChoosemainBinding;
 import me.edgan.redditslide.databinding.ChoosethemesmallBinding;
 import me.edgan.redditslide.databinding.NightmodeBinding;
+import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
-
 import org.apache.commons.lang3.ArrayUtils;
-
 import uz.shift.colorpicker.LineColorPicker;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 
 public class SettingsThemeFragment<ActivityType extends BaseActivity & RestartActivity> {
 
@@ -96,16 +91,13 @@ public class SettingsThemeFragment<ActivityType extends BaseActivity & RestartAc
 
                     popup.setOnMenuItemClickListener(
                             item -> {
-                                switch (item.getItemId()) {
-                                    case R.id.none:
-                                        setTintingMode(false, false);
-                                        break;
-                                    case R.id.background:
-                                        setTintingMode(true, false);
-                                        break;
-                                    case R.id.name:
-                                        setTintingMode(true, true);
-                                        break;
+                                int itemId = item.getItemId();
+                                if (itemId == R.id.none) {
+                                    setTintingMode(false, false);
+                                } else if (itemId == R.id.background) {
+                                    setTintingMode(true, false);
+                                } else if (itemId == R.id.name) {
+                                    setTintingMode(true, true);
                                 }
                                 currentTintTextView.setText(
                                         SettingValues.colorBack
@@ -259,16 +251,14 @@ public class SettingsThemeFragment<ActivityType extends BaseActivity & RestartAc
                                 if (toolbar != null)
                                     toolbar.setBackgroundColor(colorPicker2.getColor());
 
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                                    Window window = context.getWindow();
-                                    int color = Palette.getDarkerColor(colorPicker2.getColor());
+                                Window window = context.getWindow();
+                                int color = Palette.getDarkerColor(colorPicker2.getColor());
 
-                                    if (SettingValues.alwaysBlackStatusbar) {
-                                        color = Color.BLACK;
-                                    }
-
-                                    window.setStatusBarColor(color);
+                                if (SettingValues.alwaysBlackStatusbar) {
+                                    color = Color.BLACK;
                                 }
+
+                                window.setStatusBarColor(color);
                                 context.setRecentBar(
                                         context.getString(R.string.title_theme_settings),
                                         colorPicker2.getColor());
@@ -295,7 +285,7 @@ public class SettingsThemeFragment<ActivityType extends BaseActivity & RestartAc
                                 context.restartActivity();
                             });
 
-                    new AlertDialog.Builder(context).setView(choosemainBinding.getRoot()).show();
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(context).setView(choosemainBinding.getRoot()));
                 });
     }
 
@@ -348,7 +338,7 @@ public class SettingsThemeFragment<ActivityType extends BaseActivity & RestartAc
                                 context.restartActivity();
                             });
 
-                    new AlertDialog.Builder(context).setView(chooseaccentBinding.getRoot()).show();
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(context).setView(chooseaccentBinding.getRoot()));
                 });
     }
 
@@ -394,7 +384,7 @@ public class SettingsThemeFragment<ActivityType extends BaseActivity & RestartAc
                                         });
                     }
 
-                    new AlertDialog.Builder(context).setView(root).show();
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(context).setView(root));
                 });
     }
 
@@ -412,6 +402,7 @@ public class SettingsThemeFragment<ActivityType extends BaseActivity & RestartAc
                         final AlertDialog.Builder builder =
                                 new AlertDialog.Builder(context).setView(root);
                         final Dialog dialog = builder.create();
+                        DialogUtil.matchDialogToCardBackground(dialog);
                         dialog.show();
                         dialog.setOnDismissListener(
                                 dialog1 -> {

@@ -1,20 +1,19 @@
 package me.edgan.redditslide.util;
 
+import android.app.Dialog;
+import android.content.Context;
+import android.content.res.TypedArray;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.util.Log;
-
+import android.util.TypedValue;
 import androidx.annotation.StringRes;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.documentfile.provider.DocumentFile;
-
 import me.edgan.redditslide.R;
-
-import android.content.Context;
-import android.content.res.TypedArray;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
-
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Visuals.Palette;
 
@@ -64,6 +63,7 @@ public class DialogUtil {
                                 })
                         .create();
 
+        matchDialogToCardBackground(dialog);
         dialog.show();
     }
 
@@ -95,5 +95,47 @@ public class DialogUtil {
                 dialog.getWindow().setBackgroundDrawable(drawable);
             }
         }
+    }
+
+    /**
+     * Matches an AlertDialog's window (and therefore its button bar) to the app's themed
+     * card_background color. AppCompat dialogs otherwise keep a gray default background that
+     * clashes with the dark/black card content Slide uses, leaving a gray panel behind the
+     * dialog buttons. Call before dialog.show() to avoid a visual flash.
+     *
+     * @param context Context whose theme defines card_background
+     * @param dialog The AlertDialog to recolor
+     */
+    public static void matchDialogToCardBackground(Context context, Dialog dialog) {
+        if (dialog == null || dialog.getWindow() == null) {
+            return;
+        }
+        TypedValue cardBackground = new TypedValue();
+        if (context.getTheme().resolveAttribute(R.attr.card_background, cardBackground, true)) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(cardBackground.data));
+        }
+    }
+
+    /** Overload that takes the context from the dialog itself. */
+    public static void matchDialogToCardBackground(Dialog dialog) {
+        if (dialog != null) {
+            matchDialogToCardBackground(dialog.getContext(), dialog);
+        }
+    }
+
+    /**
+     * Convenience for the common build-and-show case: creates the dialog from {@code builder},
+     * matches its window to the themed {@link #matchDialogToCardBackground card_background} so it
+     * doesn't show the gray AppCompat default, shows it, and returns it. The context is taken from
+     * the builder, so call sites only need to wrap their existing builder chain.
+     *
+     * @param builder The configured AlertDialog.Builder
+     * @return the shown dialog, for callers that need a reference
+     */
+    public static AlertDialog showWithCardBackground(AlertDialog.Builder builder) {
+        AlertDialog dialog = builder.create();
+        matchDialogToCardBackground(builder.getContext(), dialog);
+        dialog.show();
+        return dialog;
     }
 }

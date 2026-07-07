@@ -2,15 +2,13 @@ package me.edgan.redditslide.ui.settings;
 
 import android.app.Activity;
 import android.widget.RelativeLayout;
-
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.SwitchCompat;
-
 import com.lusfold.androidkeyvaluestore.KVStore;
-
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.UserSubscriptions;
+import me.edgan.redditslide.util.DialogUtil;
 
 public class SettingsHistoryFragment {
 
@@ -87,10 +85,10 @@ public class SettingsHistoryFragment {
     }
 
     private void showHistoryClearedDialog() {
-        new AlertDialog.Builder(context)
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(context)
                 .setTitle(R.string.alert_history_cleared)
                 .setPositiveButton(android.R.string.ok, null)
-                .show();
+                );
     }
 
     private void editSharedBooleanPreference(
