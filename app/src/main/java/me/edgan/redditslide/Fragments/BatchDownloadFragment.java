@@ -14,7 +14,6 @@ import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
@@ -23,32 +22,30 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-
-import me.edgan.redditslide.Activities.Profile;
-import me.edgan.redditslide.Adapters.BatchDownloadAdapter;
-import me.edgan.redditslide.Adapters.BatchDownloadItem;
-import me.edgan.redditslide.Authentication;
-import me.edgan.redditslide.ActionStates;
-import me.edgan.redditslide.ContentType;
-import me.edgan.redditslide.HasSeen;
-import me.edgan.redditslide.R;
-import me.edgan.redditslide.Constants;
-import me.edgan.redditslide.Services.BatchDownloadService;
-import me.edgan.redditslide.Visuals.Palette;
-import me.edgan.redditslide.util.ThumbnailDHash;
-import me.edgan.redditslide.Vote;
-import net.dean.jraw.models.VoteDirection;
-
-import net.dean.jraw.models.Contribution;
-import net.dean.jraw.models.Submission;
-import net.dean.jraw.paginators.Sorting;
-import net.dean.jraw.paginators.TimePeriod;
-import net.dean.jraw.paginators.UserProfilePaginator;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import me.edgan.redditslide.ActionStates;
+import me.edgan.redditslide.Activities.Profile;
+import me.edgan.redditslide.Adapters.BatchDownloadAdapter;
+import me.edgan.redditslide.Adapters.BatchDownloadItem;
+import me.edgan.redditslide.Authentication;
+import me.edgan.redditslide.Constants;
+import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.HasSeen;
+import me.edgan.redditslide.R;
+import me.edgan.redditslide.Services.BatchDownloadService;
+import me.edgan.redditslide.SettingValues;
+import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.Vote;
+import me.edgan.redditslide.util.ThumbnailDHash;
+import net.dean.jraw.models.Contribution;
+import net.dean.jraw.models.Submission;
+import net.dean.jraw.models.VoteDirection;
+import net.dean.jraw.paginators.Sorting;
+import net.dean.jraw.paginators.TimePeriod;
+import net.dean.jraw.paginators.UserProfilePaginator;
 
 /**
  * Batch Download tab on the user Profile screen.
@@ -116,6 +113,15 @@ public class BatchDownloadFragment extends Fragment {
         recyclerView = v.findViewById(R.id.batch_dl_list);
         actionBar    = v.findViewById(R.id.batch_dl_action_bar);
 
+        if (SettingValues.prefs != null) {
+            showImages = SettingValues.prefs.getBoolean("batch_dl_show_images", true);
+            showVideos = SettingValues.prefs.getBoolean("batch_dl_show_videos", true);
+            showVoted = SettingValues.prefs.getBoolean("batch_dl_show_voted", true);
+            showViewed = SettingValues.prefs.getBoolean("batch_dl_show_viewed", true);
+            markRead = SettingValues.prefs.getBoolean("batch_dl_mark_read", true);
+            markUpvote = SettingValues.prefs.getBoolean("batch_dl_mark_upvote", false);
+        }
+
         swipeRefreshLayout.setColorSchemeColors(Palette.getColors(username, getContext()));
         swipeRefreshLayout.setProgressViewOffset(
                 false,
@@ -148,9 +154,15 @@ public class BatchDownloadFragment extends Fragment {
                 if (id == 1) {
                     markRead = !markRead;
                     item.setChecked(markRead);
+                    if (SettingValues.prefs != null) {
+                        SettingValues.prefs.edit().putBoolean("batch_dl_mark_read", markRead).apply();
+                    }
                 } else if (id == 2) {
                     markUpvote = !markUpvote;
                     item.setChecked(markUpvote);
+                    if (SettingValues.prefs != null) {
+                        SettingValues.prefs.edit().putBoolean("batch_dl_mark_upvote", markUpvote).apply();
+                    }
                 }
                 return true;
             });
@@ -508,6 +520,7 @@ public class BatchDownloadFragment extends Fragment {
                     return;
                 }
                 adapter = new BatchDownloadAdapter(getContext(), results);
+                adapter.setFilter(showImages, showVideos, showVoted, showViewed);
                 recyclerView.setAdapter(adapter);
             } else {
                 // Load More append
@@ -539,10 +552,19 @@ public class BatchDownloadFragment extends Fragment {
                         },
                         new boolean[]{ showImages, showVideos, showVoted, showViewed },
                         (dialog, which, checked) -> {
-                            if (which == 0) showImages = checked;
-                            else if (which == 1) showVideos = checked;
-                            else if (which == 2) showVoted = checked;
-                            else if (which == 3) showViewed = checked;
+                            if (which == 0) {
+                                showImages = checked;
+                                if (SettingValues.prefs != null) SettingValues.prefs.edit().putBoolean("batch_dl_show_images", checked).apply();
+                            } else if (which == 1) {
+                                showVideos = checked;
+                                if (SettingValues.prefs != null) SettingValues.prefs.edit().putBoolean("batch_dl_show_videos", checked).apply();
+                            } else if (which == 2) {
+                                showVoted = checked;
+                                if (SettingValues.prefs != null) SettingValues.prefs.edit().putBoolean("batch_dl_show_voted", checked).apply();
+                            } else if (which == 3) {
+                                showViewed = checked;
+                                if (SettingValues.prefs != null) SettingValues.prefs.edit().putBoolean("batch_dl_show_viewed", checked).apply();
+                            }
 
                             if (adapter != null) {
                                 adapter.setFilter(showImages, showVideos, showVoted, showViewed);

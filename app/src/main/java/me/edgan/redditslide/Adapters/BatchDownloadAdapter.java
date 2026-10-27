@@ -10,23 +10,18 @@ import android.view.ViewGroup;
 import android.widget.CheckBox;
 import android.widget.ImageView;
 import android.widget.TextView;
-import java.util.Locale;
-
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.nostra13.universalimageloader.core.DisplayImageOptions;
 import com.nostra13.universalimageloader.core.ImageLoader;
 import com.nostra13.universalimageloader.core.assist.ImageScaleType;
 import com.nostra13.universalimageloader.core.display.FadeInBitmapDisplayer;
-
-import me.edgan.redditslide.R;
-import me.edgan.redditslide.util.ImageLoaderUtils;
-
-import net.dean.jraw.models.Submission;
-
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import me.edgan.redditslide.R;
+import me.edgan.redditslide.util.ImageLoaderUtils;
+import net.dean.jraw.models.Submission;
 
 /**
  * RecyclerView adapter for the Batch DL media list.

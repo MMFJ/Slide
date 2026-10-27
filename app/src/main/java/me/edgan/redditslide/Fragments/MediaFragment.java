@@ -28,6 +28,7 @@ import me.edgan.redditslide.Activities.Shadowbox;
 import me.edgan.redditslide.Activities.Tumblr;
 import me.edgan.redditslide.Activities.TumblrPager;
 import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.DataShare;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SecretConstants;

@@ -5,7 +5,6 @@ import static me.edgan.redditslide.Notifications.ImageDownloadNotificationServic
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-
 import me.edgan.redditslide.Activities.MediaView;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.DataShare;

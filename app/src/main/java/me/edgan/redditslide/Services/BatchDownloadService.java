@@ -5,33 +5,19 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
-
 import androidx.core.app.NotificationCompat;
-import androidx.core.content.ContextCompat;
 import androidx.core.app.ServiceCompat;
-import android.content.pm.ServiceInfo;
+import androidx.core.content.ContextCompat;
 import androidx.documentfile.provider.DocumentFile;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nostra13.universalimageloader.core.DisplayImageOptions;
 import com.nostra13.universalimageloader.core.assist.ImageScaleType;
-
-import me.edgan.redditslide.Adapters.BatchDownloadItem;
-import me.edgan.redditslide.ContentType;
-import me.edgan.redditslide.R;
-import me.edgan.redditslide.Reddit;
-import me.edgan.redditslide.SettingValues;
-import me.edgan.redditslide.util.FileUtil;
-import me.edgan.redditslide.util.GifUtils;
-import me.edgan.redditslide.util.LogUtil;
-
-import net.dean.jraw.models.Submission;
-
 import java.io.File;
 import java.io.OutputStream;
 import java.net.MalformedURLException;
@@ -42,6 +28,15 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import me.edgan.redditslide.Adapters.BatchDownloadItem;
+import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.R;
+import me.edgan.redditslide.Reddit;
+import me.edgan.redditslide.SettingValues;
+import me.edgan.redditslide.util.FileUtil;
+import me.edgan.redditslide.util.GifUtils;
+import me.edgan.redditslide.util.LogUtil;
+import net.dean.jraw.models.Submission;
 
 public class BatchDownloadService extends Service {
 
