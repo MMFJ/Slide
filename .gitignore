@@ -44,3 +44,19 @@ changelog_override.txt
 # Local documentation (not synced to GitHub)
 docs/
 .claude
+
+backup/
+
+.kotlin
+
+# Side effects of installing the Java and Kotlin LSPs
+.project
+.settings/
+app/.classpath
+app/.project
+app/.settings
+app/bin
+nullaway-models/.classpath
+nullaway-models/.project
+nullaway-models/.settings
+nullaway-models/bin

@@ -21,6 +21,7 @@ import me.edgan.redditslide.SubmissionViews.PopulateSubmissionViewHolder;
 import me.edgan.redditslide.Views.CatchStaggeredGridLayoutManager;
 import me.edgan.redditslide.Views.CreateCardView;
 import me.edgan.redditslide.util.LayoutUtils;
+import me.edgan.redditslide.util.MiscUtil;
 import net.dean.jraw.models.Submission;
 
 public class MultiredditAdapter extends PaginatedListAdapter {
@@ -60,24 +61,42 @@ public class MultiredditAdapter extends PaginatedListAdapter {
                 new Runnable() {
                     @Override
                     public void run() {
-                        listView.setItemAnimator(a);
+                        // A second refresh landing inside this window captures the null the first
+                        // one wrote, and its restore runs last; skipping a null restore leaves the
+                        // real animator the earlier call put back.
+                        if (a != null) {
+                            listView.setItemAnimator(a);
+                        }
                     }
                 },
                 500);
     }
 
     public void refreshView(ArrayList<Integer> seen) {
-        listView.setItemAnimator(null);
+        // Read before clearing, or the animator restored below is the null just written and the
+        // feed loses its item animations for good.
         final RecyclerView.ItemAnimator a = listView.getItemAnimator();
+        listView.setItemAnimator(null);
 
+        // The indices are positions in CommentsScreen's own list, which pages in further posts
+        // than this feed ever loaded, so an index past the end here names a row that does not
+        // exist rather than one that needs rebinding.
+        final int loaded = dataSet.posts == null ? 0 : dataSet.posts.size();
         for (int i : seen) {
-            notifyItemChanged(i + 1);
+            if (i >= 0 && i < loaded) {
+                notifyItemChanged(i + 1);
+            }
         }
         listView.postDelayed(
                 new Runnable() {
                     @Override
                     public void run() {
-                        listView.setItemAnimator(a);
+                        // A second refresh landing inside this window captures the null the first
+                        // one wrote, and its restore runs last; skipping a null restore leaves the
+                        // real animator the earlier call put back.
+                        if (a != null) {
+                            listView.setItemAnimator(a);
+                        }
                     }
                 },
                 500);
@@ -87,14 +106,13 @@ public class MultiredditAdapter extends PaginatedListAdapter {
     public void onBindViewHolder(final RecyclerView.ViewHolder holder2, final int pos) {
         int i = (pos != 0) ? (pos - 1) : pos;
 
-        if (holder2 instanceof SubmissionViewHolder) {
-            final SubmissionViewHolder holder = (SubmissionViewHolder) holder2;
+        if (holder2 instanceof CardSubmissionViewHolder holder) {
             final Submission submission = dataSet.posts.get(i);
 
             CreateCardView.colorCard(
-                    submission.getSubredditName().toLowerCase(Locale.ENGLISH),
+                    MiscUtil.orEmpty(submission.getSubredditName()).toLowerCase(Locale.ENGLISH),
                     holder.itemView,
-                    "multi_" + dataSet.multiReddit.getDisplayName(),
+                    "multi_" + dataSet.displayName(),
                     true);
             holder.itemView.setOnClickListener(
                     new View.OnClickListener() {
@@ -112,9 +130,9 @@ public class MultiredditAdapter extends PaginatedListAdapter {
                                         holder2.getBindingAdapterPosition() - 1);
                                 i2.putExtra(
                                         CommentsScreen.EXTRA_MULTIREDDIT,
-                                        dataSet.multiReddit.getDisplayName());
-                                context.startActivityForResult(i2, 940);
+                                        dataSet.displayName());
                                 i2.putExtra("fullname", submission.getFullName());
+                                context.startActivityForResult(i2, 940);
                                 clicked = holder2.getBindingAdapterPosition();
 
                             } else {
@@ -139,10 +157,7 @@ public class MultiredditAdapter extends PaginatedListAdapter {
                             listView,
                             true,
                             false,
-                            "multi_"
-                                    + dataSet.multiReddit
-                                            .getDisplayName()
-                                            .toLowerCase(Locale.ENGLISH),
+                            "multi_" + dataSet.displayName().toLowerCase(Locale.ENGLISH),
                             null);
         }
         if (holder2 instanceof SubmissionFooterViewHolder) {
@@ -167,10 +182,10 @@ public class MultiredditAdapter extends PaginatedListAdapter {
             }
         }
         if (holder2 instanceof SpacerViewHolder) {
-            final int height = (context).findViewById(R.id.header).getHeight();
+            final int height = (context).requireViewById(R.id.header).getHeight();
 
             holder2.itemView
-                    .findViewById(R.id.height)
+                    .requireViewById(R.id.height)
                     .setLayoutParams(
                             new LinearLayout.LayoutParams(holder2.itemView.getWidth(), height));
             if (listView.getLayoutManager() instanceof CatchStaggeredGridLayoutManager) {
@@ -211,7 +226,7 @@ public class MultiredditAdapter extends PaginatedListAdapter {
     @Override
     protected RecyclerView.ViewHolder createContentViewHolder(ViewGroup viewGroup) {
         View v = CreateCardView.CreateView(viewGroup);
-        return new SubmissionViewHolder(v);
+        return new CardSubmissionViewHolder(v);
     }
 
 }

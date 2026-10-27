@@ -23,7 +23,9 @@ import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.util.KeyboardUtil;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class ToolbarSearchController {
 
     private final MainActivity mainActivity;
@@ -54,7 +56,7 @@ public class ToolbarSearchController {
                     }
                 }
 
-                final ListView TOOLBAR_SEARCH_SUGGEST_LIST = (ListView) mainActivity.findViewById(R.id.toolbar_search_suggestions_list);
+                final ListView TOOLBAR_SEARCH_SUGGEST_LIST = (ListView) mainActivity.requireViewById(R.id.toolbar_search_suggestions_list);
                 final ArrayList<String> subs_copy = new ArrayList<>(mainActivity.usedArray);
                 final SideArrayAdapter TOOLBAR_SEARCH_SUGGEST_ADAPTER =
                         new SideArrayAdapter(mainActivity, subs_copy, UserSubscriptions.getAllSubreddits(mainActivity), TOOLBAR_SEARCH_SUGGEST_LIST);
@@ -68,14 +70,21 @@ public class ToolbarSearchController {
                             new View.OnLongClickListener() {
                                 @Override
                                 public boolean onLongClick(View v) {
-                                    final AutoCompleteTextView GO_TO_SUB_FIELD = (AutoCompleteTextView) mainActivity.findViewById(R.id.toolbar_search);
-                                    final ImageView CLOSE_BUTTON = (ImageView) mainActivity.findViewById(R.id.close_search_toolbar);
-                                    final CardView SUGGESTIONS_BACKGROUND = (CardView) mainActivity.findViewById(R.id.toolbar_search_suggestions);
+                                    final AutoCompleteTextView GO_TO_SUB_FIELD = (AutoCompleteTextView) mainActivity.requireViewById(R.id.toolbar_search);
+                                    final ImageView CLOSE_BUTTON = (ImageView) mainActivity.requireViewById(R.id.close_search_toolbar);
+                                    final CardView SUGGESTIONS_BACKGROUND = (CardView) mainActivity.requireViewById(R.id.toolbar_search_suggestions);
 
                                     // if the view mode is set to Subreddit Tabs, save the title ("Slide" or "Slide (debug)")
-                                    mainActivity.tabViewModeTitle = (!SettingValues.single) ? mainActivity.getSupportActionBar().getTitle().toString() : null;
+                                    final CharSequence actionBarTitle =
+                                            java.util.Objects.requireNonNull(
+                                                            mainActivity.getSupportActionBar())
+                                                    .getTitle();
+                                    mainActivity.tabViewModeTitle =
+                                            (!SettingValues.single && actionBarTitle != null)
+                                                    ? actionBarTitle.toString()
+                                                    : "";
 
-                                    mainActivity.getSupportActionBar().setTitle(""); // clear title to make room for search field
+                                    java.util.Objects.requireNonNull(mainActivity.getSupportActionBar()).setTitle(""); // clear title to make room for search field
 
                                     if (GO_TO_SUB_FIELD != null && CLOSE_BUTTON != null && SUGGESTIONS_BACKGROUND != null) {
                                         GO_TO_SUB_FIELD.setVisibility(View.VISIBLE);
@@ -167,10 +176,10 @@ public class ToolbarSearchController {
                                                             CLOSE_BUTTON.setVisibility(View.GONE);
 
                                                             if (SettingValues.single) {
-                                                                mainActivity.getSupportActionBar().setTitle(mainActivity.selectedSub);
+                                                                java.util.Objects.requireNonNull(mainActivity.getSupportActionBar()).setTitle(mainActivity.selectedSub);
                                                             } else {
                                                                 // Set the title back to "Slide" or "Slide (debug)"
-                                                                mainActivity.getSupportActionBar().setTitle(mainActivity.tabViewModeTitle);
+                                                                java.util.Objects.requireNonNull(mainActivity.getSupportActionBar()).setTitle(mainActivity.tabViewModeTitle);
                                                             }
                                                         }
 
@@ -280,12 +289,12 @@ public class ToolbarSearchController {
                                 CLOSE_BUTTON.setVisibility(View.GONE);
 
                                 if (SettingValues.single) {
-                                    mainActivity.getSupportActionBar().setTitle(mainActivity.selectedSub);
+                                    java.util.Objects.requireNonNull(mainActivity.getSupportActionBar()).setTitle(mainActivity.selectedSub);
                                 } else {
-                                    mainActivity.getSupportActionBar().setTitle(mainActivity.tabViewModeTitle);
+                                    java.util.Objects.requireNonNull(mainActivity.getSupportActionBar()).setTitle(mainActivity.tabViewModeTitle);
                                 }
                             }
                         },
-                        ANIMATION_DURATION + mainActivity.ANIMATE_DURATION_OFFSET);
+                        ANIMATION_DURATION + OFFSET_ANIM);
     }
 }

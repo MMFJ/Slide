@@ -19,6 +19,7 @@ import android.widget.AutoCompleteTextView;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.SwitchCompat;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -59,15 +60,18 @@ import net.dean.jraw.http.RestResponse;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.Subreddit;
 import okhttp3.OkHttpClient;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 3/5/2015. */
+@NullMarked
 public class Crosspost extends BaseActivity {
 
+    @SuppressWarnings("NullAway.Init") // assigned by LinkUtil
     public static Submission toCrosspost;
     private SwitchCompat inboxReplies;
 
-    private String selectedFlairID;
-    private String selectedFlairText;
+    private @Nullable String selectedFlairID;
+    @Nullable private String selectedFlairText;
     private boolean allowsCrossposts = true;
     private boolean isFlairRequired = false;
 
@@ -77,18 +81,22 @@ public class Crosspost extends BaseActivity {
         DOES_NOT_EXIST
     }
 
-    private CrosspostBlockReason blockReason;
+    @Nullable private CrosspostBlockReason blockReason;
     private boolean lastSubredditExists = true;
 
+    @SuppressWarnings("NullAway.Init") // assigned in runSubredditCheck
     AsyncTask<Void, Void, Subreddit> tchange;
+    @SuppressWarnings("NullAway.Init") // assigned in fetchFlairRequirement
     AsyncTask<Void, Void, Boolean> tFlairRequired;
+    @SuppressWarnings("NullAway.Init") // assigned in fetchCrosspostableSubs
     AsyncTask<Void, Void, Set<String>> tCrosspostable;
     private final Handler subredditDebounce = new Handler(Looper.getMainLooper());
-    private Runnable subredditDebounceRunnable;
+    @Nullable private Runnable subredditDebounceRunnable;
     private String lastCheckedSubreddit = "";
+    @SuppressWarnings("NullAway.Init") // assigned in onPostExecute
     private Set<String> crosspostableSubs;
 
-    public void onCreate(Bundle savedInstanceState) {
+    @Override public void onCreate(@Nullable Bundle savedInstanceState) {
         disableSwipeBackLayout();
         super.onCreate(savedInstanceState);
         applyColorTheme();
@@ -101,18 +109,18 @@ public class Crosspost extends BaseActivity {
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         setupAppBar(R.id.toolbar, R.string.title_crosspost, true, true);
 
-        inboxReplies = (SwitchCompat) findViewById(R.id.replies);
+        inboxReplies = (SwitchCompat) requireViewById(R.id.replies);
 
         final AutoCompleteTextView subredditText =
-                ((AutoCompleteTextView) findViewById(R.id.subreddittext));
+                ((AutoCompleteTextView) requireViewById(R.id.subreddittext));
 
-        ((EditText) findViewById(R.id.crossposttext))
+        ((EditText) requireViewById(R.id.crossposttext))
                 .setText(
                         toCrosspost.getTitle()
                                 + getString(R.string.submission_properties_seperator)
                                 + "/u/"
                                 + toCrosspost.getAuthor());
-        findViewById(R.id.crossposttext).setEnabled(false);
+        requireViewById(R.id.crossposttext).setEnabled(false);
         ArrayAdapter adapter =
                 new ArrayAdapter(
                         this,
@@ -132,7 +140,7 @@ public class Crosspost extends BaseActivity {
                         if (tFlairRequired != null) {
                             tFlairRequired.cancel(true);
                         }
-                        findViewById(R.id.submittext).setVisibility(View.GONE);
+                        requireViewById(R.id.submittext).setVisibility(View.GONE);
                         // Reset state because the subreddit changed
                         allowsCrossposts = true;
                         blockReason = null;
@@ -150,7 +158,7 @@ public class Crosspost extends BaseActivity {
                 new View.OnFocusChangeListener() {
                     @Override
                     public void onFocusChange(View v, boolean hasFocus) {
-                        findViewById(R.id.submittext).setVisibility(View.GONE);
+                        requireViewById(R.id.submittext).setVisibility(View.GONE);
                         if (!hasFocus) {
                             runSubredditCheck(subredditText.getText().toString());
                         }
@@ -161,25 +169,25 @@ public class Crosspost extends BaseActivity {
                 (parent, view, position, id) ->
                         runSubredditCheck(subredditText.getText().toString()));
 
-        ((EditText) findViewById(R.id.titletext)).setText(toCrosspost.getTitle());
+        ((EditText) requireViewById(R.id.titletext)).setText(toCrosspost.getTitle());
 
-        findViewById(R.id.suggest)
+        requireViewById(R.id.suggest)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
-                                ((EditText) findViewById(R.id.titletext))
+                                ((EditText) requireViewById(R.id.titletext))
                                         .setText(toCrosspost.getTitle());
                             }
                         });
 
-        findViewById(R.id.flair)
+        requireViewById(R.id.flair)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
                                 String subreddit =
-                                        ((EditText) findViewById(R.id.subreddittext))
+                                        ((EditText) requireViewById(R.id.subreddittext))
                                                 .getText()
                                                 .toString();
                                 if (subreddit.isEmpty()) {
@@ -194,7 +202,7 @@ public class Crosspost extends BaseActivity {
                             }
                         });
 
-        findViewById(R.id.send)
+        requireViewById(R.id.send)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -212,7 +220,7 @@ public class Crosspost extends BaseActivity {
                                             .show();
                                     return;
                                 }
-                                ((FloatingActionButton) findViewById(R.id.send)).hide();
+                                ((FloatingActionButton) requireViewById(R.id.send)).hide();
                                 new AsyncDo().execute();
                             }
                         });
@@ -228,7 +236,11 @@ public class Crosspost extends BaseActivity {
         tCrosspostable =
                 new AsyncTask<Void, Void, Set<String>>() {
                     @Override
-                    protected Set<String> doInBackground(Void... voids) {
+                    protected @Nullable Set<String> doInBackground(Void... voids) {
+                        if (Authentication.reddit == null) {
+                            return null;
+                        }
+
                         try {
                             HttpRequest r =
                                     Authentication.reddit
@@ -320,7 +332,7 @@ public class Crosspost extends BaseActivity {
     private static final int WARNING_TEXT_COLOR = Color.parseColor("#F44336");
 
     private void refreshInputState(String subreddit) {
-        TextView status = (TextView) findViewById(R.id.crosspost_status);
+        TextView status = (TextView) requireViewById(R.id.crosspost_status);
         if (!allowsCrossposts) {
             int msg;
             if (blockReason == CrosspostBlockReason.DOES_NOT_EXIST) {
@@ -338,7 +350,7 @@ public class Crosspost extends BaseActivity {
             status.setText("");
         }
 
-        TextView flair = (TextView) findViewById(R.id.flair);
+        TextView flair = (TextView) requireViewById(R.id.flair);
         String base =
                 selectedFlairID != null
                         ? getString(R.string.submit_selected_flair, selectedFlairText)
@@ -357,7 +369,7 @@ public class Crosspost extends BaseActivity {
 
         boolean canSend =
                 allowsCrossposts && !(isFlairRequired && selectedFlairID == null);
-        FloatingActionButton send = (FloatingActionButton) findViewById(R.id.send);
+        FloatingActionButton send = (FloatingActionButton) requireViewById(R.id.send);
         send.setEnabled(canSend);
         send.setAlpha(canSend ? 1f : 0.4f);
     }
@@ -391,7 +403,11 @@ public class Crosspost extends BaseActivity {
         tchange =
                 new AsyncTask<Void, Void, Subreddit>() {
                     @Override
-                    protected Subreddit doInBackground(Void... params) {
+                    protected @Nullable Subreddit doInBackground(Void... params) {
+                        if (Authentication.reddit == null) {
+                            return null;
+                        }
+
                         try {
                             return Authentication.reddit.getSubreddit(subreddit);
                         } catch (Exception e) {
@@ -410,15 +426,15 @@ public class Crosspost extends BaseActivity {
                     protected void onPostExecute(Subreddit s) {
                         lastSubredditExists = (s != null);
                         if (s != null) {
-                            String text = s.getDataNode().get("submit_text_html").asText();
+                            String text = s.getDataNode().path("submit_text_html").asText();
                             if (text != null && !text.isEmpty() && !text.equals("null")) {
-                                findViewById(R.id.submittext).setVisibility(View.VISIBLE);
+                                requireViewById(R.id.submittext).setVisibility(View.VISIBLE);
                                 setViews(
                                         text,
                                         subreddit,
                                         (SpoilerRobotoTextView)
-                                                findViewById(R.id.submittext),
-                                        (CommentOverflow) findViewById(R.id.commentOverflow));
+                                                requireViewById(R.id.submittext),
+                                        (CommentOverflow) requireViewById(R.id.commentOverflow));
                             }
                             if (s.getSubredditType().equals("RESTRICTED")) {
                                 subredditText.setText("");
@@ -433,7 +449,7 @@ public class Crosspost extends BaseActivity {
 
                             fetchFlairRequirement(subreddit);
                         } else {
-                            findViewById(R.id.submittext).setVisibility(View.GONE);
+                            requireViewById(R.id.submittext).setVisibility(View.GONE);
                         }
                         applyCrosspostableState(subreddit);
                         refreshInputState(subreddit);
@@ -450,6 +466,10 @@ public class Crosspost extends BaseActivity {
                 new AsyncTask<Void, Void, Boolean>() {
                     @Override
                     protected Boolean doInBackground(Void... voids) {
+                        if (Authentication.reddit == null) {
+                            return false;
+                        }
+
                         try {
                             HttpRequest r =
                                     Authentication.reddit
@@ -468,7 +488,7 @@ public class Crosspost extends BaseActivity {
                                             + " response: "
                                             + (root == null ? "null" : root.toString()));
                             if (root != null && root.has("is_flair_required")) {
-                                return root.get("is_flair_required").asBoolean(false);
+                                return root.path("is_flair_required").asBoolean(false);
                             }
                         } catch (Exception e) {
                             LogUtil.v(
@@ -503,7 +523,7 @@ public class Crosspost extends BaseActivity {
                         .getDialog();
         new AsyncTask<Void, Void, JsonArray>() {
             @Override
-            protected JsonArray doInBackground(Void... params) {
+            protected @Nullable JsonArray doInBackground(Void... params) {
                 return FlairUtil.fetchLinkFlairs(client, gson, subreddit);
             }
 
@@ -541,6 +561,10 @@ public class Crosspost extends BaseActivity {
                                         allKeys.toArray(new CharSequence[0]),
                                         (dialog, which) -> {
                                             RichFlair selected = flairs.get(allKeys.get(which));
+                                            if (selected == null) {
+                                                return;
+                                            }
+
                                             selectedFlairID = selected.getId();
                                             selectedFlairText = selected.getText();
                                             refreshInputState(subreddit);
@@ -593,22 +617,28 @@ public class Crosspost extends BaseActivity {
 
         // Snapshot of View state, captured on the UI thread in onPreExecute().
         // doInBackground() runs on a worker thread and must not touch Views directly.
+        @SuppressWarnings("NullAway.Init")
         private String subreddit;
+        @SuppressWarnings("NullAway.Init") // assigned in onPostExecute/onPreExecute
         private String title;
         private boolean sendReplies;
 
         @Override
         protected void onPreExecute() {
             subreddit =
-                    ((AutoCompleteTextView) findViewById(R.id.subreddittext))
+                    ((AutoCompleteTextView) requireViewById(R.id.subreddittext))
                             .getText()
                             .toString();
-            title = ((EditText) findViewById(R.id.titletext)).getText().toString();
+            title = ((EditText) requireViewById(R.id.titletext)).getText().toString();
             sendReplies = inboxReplies.isChecked();
         }
 
         @Override
-        protected Void doInBackground(Void... voids) {
+        protected @Nullable Void doInBackground(Void... voids) {
+            if (Authentication.reddit == null) {
+                return null;
+            }
+
             try {
                 try {
                     Map<String, String> args = new HashMap<>();
@@ -638,9 +668,9 @@ public class Crosspost extends BaseActivity {
                     }
                     String newId =
                             response.getJson()
-                                    .get("json")
-                                    .get("data")
-                                    .get("id")
+                                    .path("json")
+                                    .path("data")
+                                    .path("id")
                                     .asText();
                     Submission s = Authentication.reddit.getSubmission(newId);
                     OpenRedditLink.openUrl(
@@ -648,7 +678,7 @@ public class Crosspost extends BaseActivity {
                             "reddit.com/r/"
                                     + subreddit
                                     + "/comments/"
-                                    + s.getFullName().substring(3),
+                                    + MiscUtil.idFromFullname(s.getFullName()),
                             true);
                     Crosspost.this.finish();
                 } catch (final ApiException e) {
@@ -692,9 +722,9 @@ public class Crosspost extends BaseActivity {
                 .setPositiveButton(
                         R.string.btn_yes,
                         (dialogInterface, i) ->
-                                ((FloatingActionButton) findViewById(R.id.send)).show())
+                                ((FloatingActionButton) requireViewById(R.id.send)).show())
                 .setOnDismissListener(
-                        dialog -> ((FloatingActionButton) findViewById(R.id.send)).show())
+                        dialog -> ((FloatingActionButton) requireViewById(R.id.send)).show())
                 );
     }
 }

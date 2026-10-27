@@ -12,6 +12,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -19,6 +20,7 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.WindowManager;
 import android.widget.Toast;
+import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.app.NotificationChannelCompat;
@@ -43,6 +45,7 @@ import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
@@ -52,15 +55,17 @@ import me.edgan.redditslide.Autocache.AutoCacheScheduler;
 import me.edgan.redditslide.ImgurAlbum.AlbumUtils;
 import me.edgan.redditslide.Notifications.NotificationJobScheduler;
 import me.edgan.redditslide.Notifications.NotificationPiggyback;
+import me.edgan.redditslide.Notifications.TokenRefreshReceiver;
+import me.edgan.redditslide.Random.RandomSubreddits;
 import me.edgan.redditslide.Tumblr.TumblrUtils;
 import me.edgan.redditslide.Visuals.Palette;
-import me.edgan.redditslide.util.AdBlocker;
 import me.edgan.redditslide.util.CompatUtil;
 import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.GifCache;
 import me.edgan.redditslide.util.ImageLoaderUtils;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.NetworkUtil;
+import me.edgan.redditslide.util.PrefUtil;
 import me.edgan.redditslide.util.ReauthNotifier;
 import me.edgan.redditslide.util.SortingUtil;
 import me.edgan.redditslide.util.UpgradeUtil;
@@ -73,6 +78,10 @@ import org.apache.commons.text.StringEscapeUtils;
 /** Created by ccrama on 9/17/2015. */
 @OptIn(markerClass = UnstableApi.class)
 public class Reddit extends Application implements Application.ActivityLifecycleCallbacks {
+    // NullAway.Init here and on the SharedPreferences group below: onCreate assigns mApplication
+    // as its first statement and doMainStuff assigns the rest, so all of them are set before any
+    // activity, service or receiver in the app can run.
+    @SuppressWarnings("NullAway.Init")
     private static Application mApplication;
 
     public static final String EMPTY_STRING = "NOTHING";
@@ -80,34 +89,49 @@ public class Reddit extends Application implements Application.ActivityLifecycle
     public static final long enter_animation_time_original = 600;
     public static final String PREF_LAYOUT = "PRESET";
     public static final String SHARED_PREF_IS_MOD = "is_mod";
-    public static Cache videoCache;
+
+    /** Built on first use by getVideoCache, so null until something plays a video. */
+    @Nullable private static Cache videoCache;
+    private static final Object videoCacheLock = new Object();
 
     public static long enter_animation_time = enter_animation_time_original;
     public static final int enter_animation_time_multiplier = 1;
 
+    @SuppressWarnings("NullAway.Init") // assigned in doMainStuff/onActivityResumed
     public static Authentication authentication;
 
+    @SuppressWarnings("NullAway.Init") // assigned in doMainStuff
     public static SharedPreferences colors;
+
+    @SuppressWarnings("NullAway.Init") // assigned in doMainStuff
     public static SharedPreferences appRestart;
+
+    @SuppressWarnings("NullAway.Init") // assigned in doMainStuff
     public static SharedPreferences tags;
 
     public static int dpWidth;
     public static int notificationTime;
     public static boolean videoPlugin;
-    public static NotificationJobScheduler notifications;
+    // Started on demand by whichever screen first needs them, and SettingsGeneralFragment
+    // already tests both for null before using them.
+    @Nullable public static NotificationJobScheduler notifications;
     public static boolean isLoading = false;
     public static final long time = System.currentTimeMillis();
     public static boolean fabClear;
-    public static ArrayList<Integer> lastPosition;
     public static int currentPosition;
+
+    @SuppressWarnings("NullAway.Init") // assigned in doMainStuff
     public static SharedPreferences cachedData;
     public static final boolean noGapps = true; // for testing
     public static boolean overrideLanguage;
     public static boolean isRestarting;
-    public static AutoCacheScheduler autoCache;
+    @Nullable public static AutoCacheScheduler autoCache;
     public static boolean peek;
     public boolean active;
-    public ImageLoader defaultImageLoader;
+    /** Built on first use by getImageLoader, and rebuilt whenever it has been de-initialised. */
+    @Nullable public ImageLoader defaultImageLoader;
+
+    @SuppressWarnings("NullAway.Init") // assigned in doMainStuff/onActivityResumed
     public static OkHttpClient client;
 
     public static boolean canUseNightModeAuto = false;
@@ -122,10 +146,15 @@ public class Reddit extends Application implements Application.ActivityLifecycle
 
         appRestart.edit().putBoolean("isRestarting", true).apply();
         isRestarting = true;
+        // Every caller of this is a "the app is not what it was" moment -- an account switch, an
+        // offline-mode toggle, a settings restore, finishing the tutorial. A hibernate snapshot
+        // taken before one of those describes a session that no longer exists, so drop it and let
+        // the rebirth land on a normal first screen.
+        HibernateState.clear(context);
         ProcessPhoenix.triggerRebirth(context, new Intent(context, MainActivity.class));
     }
 
-    public static void defaultShareText(String title, String url, Context c) {
+    public static void defaultShareText(@Nullable String title, @Nullable String url, Context c) {
         url = StringEscapeUtils.unescapeHtml4(CompatUtil.fromHtml(url).toString());
         Intent sharingIntent = new Intent(Intent.ACTION_SEND);
         sharingIntent.setType("text/plain");
@@ -141,6 +170,7 @@ public class Reddit extends Application implements Application.ActivityLifecycle
             final PackageInfo pi = getAppContext().getPackageManager().getPackageInfo(s, 0);
             if (pi != null && pi.applicationInfo.enabled) return true;
         } catch (final Throwable ignored) {
+            // Not installed, which is what the false below reports.
         }
         return false;
     }
@@ -209,14 +239,21 @@ public class Reddit extends Application implements Application.ActivityLifecycle
         } else if (NetworkUtil.isConnected(activity) && authentication == null) {
             authentication = new Authentication(this);
         }
+        // Keep the background keep-warm token refresh aligned with the current token expiry so a
+        // later re-open usually finds a fresh token instead of relying on the resume-time refresh.
+        TokenRefreshReceiver.schedule(this);
+        HibernateState.onActivityResumed(this);
     }
 
     @Override
     public void onActivityPaused(Activity activity) {
         ReauthNotifier.detach(activity);
+        HibernateState.onActivityPaused(this);
     }
 
-    public static void setDefaultErrorHandler(Context base) {
+    /** Pass null to clear the handler: the weak reference then resolves to nothing and the
+     * previous android handler is all that runs. */
+    public static void setDefaultErrorHandler(@Nullable Context base) {
         // START code adapted from https://github.com/QuantumBadger/RedReader/
         final Thread.UncaughtExceptionHandler androidHandler =
                 Thread.getDefaultUncaughtExceptionHandler();
@@ -224,13 +261,16 @@ public class Reddit extends Application implements Application.ActivityLifecycle
 
         Thread.setDefaultUncaughtExceptionHandler(
                 new Thread.UncaughtExceptionHandler() {
-                    public void uncaughtException(Thread thread, Throwable t) {
+                    @Override public void uncaughtException(Thread thread, Throwable t) {
                         if (cont.get() != null) {
                             final Context c = cont.get();
                             Writer writer = new StringWriter();
                             PrintWriter printWriter = new PrintWriter(writer);
                             t.printStackTrace(printWriter);
                             String stacktrace = writer.toString().replace(";", ",");
+                            // Null for anything thrown without one, which includes the very
+                            // NullPointerException the branch below is trying to recognise.
+                            final String message = t.getMessage();
                             if (stacktrace.contains("UnknownHostException")
                                     || stacktrace.contains("SocketTimeoutException")
                                     || stacktrace.contains("ConnectException")) {
@@ -269,7 +309,7 @@ public class Reddit extends Application implements Application.ActivityLifecycle
                                                                     })
                                                             );
                                                 } catch (Exception ignored) {
-
+                                                    // Dialog on a context that is finishing.
                                                 }
                                             }
                                         });
@@ -303,7 +343,7 @@ public class Reddit extends Application implements Application.ActivityLifecycle
                                                                                     .updateToken(c))
                                                             );
                                                 } catch (Exception ignored) {
-
+                                                    // Dialog on a context that is finishing.
                                                 }
                                             }
                                         });
@@ -332,7 +372,7 @@ public class Reddit extends Application implements Application.ActivityLifecycle
                                                                     })
                                                             );
                                                 } catch (Exception ignored) {
-
+                                                    // Dialog on a context that is finishing.
                                                 }
                                             }
                                         });
@@ -348,17 +388,18 @@ public class Reddit extends Application implements Application.ActivityLifecycle
                                                 Toast.LENGTH_LONG)
                                         .show();
                             } else if (t instanceof NullPointerException
-                                    && t.getMessage()
-                                            .contains(
-                                                    "Attempt to invoke virtual method"
-                                                        + " 'android.content.Context"
-                                                        + " android.view.ViewGroup.getContext()' on"
-                                                        + " a null object reference")) {
+                                    && message != null
+                                    && message.contains(
+                                            "Attempt to invoke virtual method"
+                                                    + " 'android.content.Context"
+                                                    + " android.view.ViewGroup.getContext()' on a"
+                                                    + " null object reference")) {
                                 LogUtil.e(t, "Reddit.run failed");
                             } else if (t instanceof WindowManager.BadTokenException) {
                                 LogUtil.e(t, "Reddit.run failed");
                             } else if (t instanceof IllegalArgumentException
-                                    && t.getMessage().contains("pointerIndex out of range")) {
+                                    && message != null
+                                    && message.contains("pointerIndex out of range")) {
                                 LogUtil.e(t, "Reddit.run failed");
                             } else {
                                 appRestart
@@ -374,6 +415,8 @@ public class Reddit extends Application implements Application.ActivityLifecycle
                                     prefs.edit().putString("stacktrace", stacktrace).apply();
 
                                 } catch (Throwable ignored) {
+                                    // Inside the uncaught-exception handler: saving the stacktrace is
+                                    // best-effort and must not throw on top of the crash it is reporting.
                                 }
 
                                 androidHandler.uncaughtException(thread, t);
@@ -384,25 +427,31 @@ public class Reddit extends Application implements Application.ActivityLifecycle
                     }
                 });
         // END adaptation
-
     }
 
     @Override
-    public void onActivityStopped(Activity activity) {}
+    public void onActivityStopped(Activity activity) {
+        HibernateState.onActivityStopped(this);
+    }
 
     @Override
-    public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
+    public void onActivityCreated(Activity activity, @Nullable Bundle savedInstanceState) {
         doLanguages();
+        HibernateState.recordCreated(activity);
     }
 
     @Override
-    public void onActivityStarted(Activity activity) {}
+    public void onActivityStarted(Activity activity) {
+        HibernateState.onActivityStarted();
+    }
 
     @Override
     public void onActivitySaveInstanceState(Activity activity, Bundle outState) {}
 
     @Override
-    public void onActivityDestroyed(Activity activity) {}
+    public void onActivityDestroyed(Activity activity) {
+        HibernateState.recordDestroyed(activity);
+    }
 
     @Override
     public void onCreate() {
@@ -413,20 +462,48 @@ public class Reddit extends Application implements Application.ActivityLifecycle
             return;
         }
 
-        final File dir;
-        if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)
-                && getExternalCacheDir() != null) {
-            dir = new File(getExternalCacheDir() + File.separator + "video-cache");
-        } else {
-            dir = new File(getCacheDir() + File.separator + "video-cache");
-        }
-        LeastRecentlyUsedCacheEvictor evictor =
-                new LeastRecentlyUsedCacheEvictor(256 * 1024 * 1024);
-        DatabaseProvider databaseProvider = new ExoDatabaseProvider(getAppContext());
-        videoCache = new SimpleCache(dir, evictor, databaseProvider); // 256MB
-
         UpgradeUtil.upgrade(getApplicationContext());
         doMainStuff();
+
+        // Build the video cache off the launch thread; SimpleCache's constructor locks and scans
+        // the cache folder, which cost hundreds of milliseconds of cold start for every user,
+        // whether or not they went on to play a video.
+        AsyncTask.THREAD_POOL_EXECUTOR.execute(Reddit::getVideoCache);
+    }
+
+    /**
+     * The per-subreddit layout-preset key. The subreddit is lowercased here so that the writer,
+     * the probe, the removes and the reader all land on the same entry.
+     */
+    public static String getLayoutPrefKey(String subreddit) {
+        return PREF_LAYOUT + subreddit.toLowerCase(Locale.ENGLISH);
+    }
+
+    /**
+     * The shared 256MB media cache, built on first use. SimpleCache throws if a second instance is
+     * created for the same directory, so this must be the only construction site.
+     */
+    public static Cache getVideoCache() {
+        synchronized (videoCacheLock) {
+            if (videoCache == null) {
+                final File dir;
+                if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)
+                        && getAppContext().getExternalCacheDir() != null) {
+                    dir =
+                            new File(
+                                    getAppContext().getExternalCacheDir()
+                                            + File.separator
+                                            + "video-cache");
+                } else {
+                    dir = new File(getAppContext().getCacheDir() + File.separator + "video-cache");
+                }
+                LeastRecentlyUsedCacheEvictor evictor =
+                        new LeastRecentlyUsedCacheEvictor(256 * 1024 * 1024);
+                DatabaseProvider databaseProvider = new ExoDatabaseProvider(getAppContext());
+                videoCache = new SimpleCache(dir, evictor, databaseProvider); // 256MB
+            }
+            return videoCache;
+        }
     }
 
     public void doMainStuff() {
@@ -446,9 +523,15 @@ public class Reddit extends Application implements Application.ActivityLifecycle
 
         cachedData = getSharedPreferences("cache", 0);
 
-        if (!cachedData.contains("hasReset")) {
-            cachedData.edit().clear().putBoolean("hasReset", true).apply();
-        }
+        // Off the launch thread: "cache" holds one entry per cached subreddit page and is never
+        // pruned, and contains() blocks until the whole file is parsed. Nothing needed for the
+        // first frame reads it.
+        AsyncTask.THREAD_POOL_EXECUTOR.execute(
+                () -> {
+                    if (!cachedData.contains("hasReset")) {
+                        cachedData.edit().clear().putBoolean("hasReset", true).apply();
+                    }
+                });
 
         registerActivityLifecycleCallbacks(this);
         Authentication.authentication = getSharedPreferences("AUTH", 0);
@@ -456,6 +539,8 @@ public class Reddit extends Application implements Application.ActivityLifecycle
         UserSubscriptions.multiNameToSubs = getSharedPreferences("MULTITONAME", 0);
 
         UserSubscriptions.pinned = getSharedPreferences("PINNED", 0);
+        SavedUsers.users = getSharedPreferences("USERS", 0);
+        SavedUsers.friends = getSharedPreferences("USERFRIENDS", 0);
         PostMatch.filters = getSharedPreferences("FILTERS", 0);
         ImageFlairs.flairs = getSharedPreferences("FLAIRS", 0);
         SettingValues.setAllValues(getSharedPreferences("SETTINGS", 0));
@@ -469,15 +554,12 @@ public class Reddit extends Application implements Application.ActivityLifecycle
         tags = getSharedPreferences("TAGS", 0);
         KVStore.init(this, "SEEN");
         doLanguages();
-        lastPosition = new ArrayList<>();
 
         Authentication.isLoggedIn = appRestart.getBoolean("loggedin", false);
-        Authentication.name = appRestart.getString("name", "LOGGEDOUT");
+        Authentication.name = PrefUtil.getString(appRestart, "name", "LOGGEDOUT");
         active = true;
 
         authentication = new Authentication(this);
-
-        AdBlocker.init(this);
 
         Authentication.mod = Authentication.authentication.getBoolean(SHARED_PREF_IS_MOD, false);
 
@@ -500,6 +582,11 @@ public class Reddit extends Application implements Application.ActivityLifecycle
         videoPlugin = isVideoPluginInstalled();
 
         GifCache.init(this);
+
+        // Opportunistic, on app open: re-check the hosted random-subreddit lists when their
+        // cadence says one is due. Only lists already cached are touched, so this is two
+        // preference reads for anyone who has never opened a random subreddit.
+        RandomSubreddits.refreshCachedLists(this);
 
         setupNotificationChannels();
     }
@@ -536,35 +623,27 @@ public class Reddit extends Application implements Application.ActivityLifecycle
     public void setupNotificationChannels() {
         // Each triple contains the channel ID, name, and importance level
         List<Triple<String, String, Integer>> notificationTripleList =
-                new ArrayList<Triple<String, String, Integer>>() {
-                    {
-                        add(
-                                Triple.of(
-                                        CHANNEL_IMG,
-                                        "Image downloads",
-                                        NotificationManagerCompat.IMPORTANCE_LOW));
-                        add(
-                                Triple.of(
-                                        CHANNEL_COMMENT_CACHE,
-                                        "Comment caching",
-                                        NotificationManagerCompat.IMPORTANCE_LOW));
-                        add(
-                                Triple.of(
-                                        CHANNEL_MAIL,
-                                        "Reddit mail",
-                                        NotificationManagerCompat.IMPORTANCE_HIGH));
-                        add(
-                                Triple.of(
-                                        CHANNEL_MODMAIL,
-                                        "Reddit modmail",
-                                        NotificationManagerCompat.IMPORTANCE_HIGH));
-                        add(
-                                Triple.of(
-                                        CHANNEL_SUBCHECKING,
-                                        "Submission post checking",
-                                        NotificationManagerCompat.IMPORTANCE_LOW));
-                    }
-                };
+                Arrays.asList(
+                        Triple.of(
+                                CHANNEL_IMG,
+                                "Image downloads",
+                                NotificationManagerCompat.IMPORTANCE_LOW),
+                        Triple.of(
+                                CHANNEL_COMMENT_CACHE,
+                                "Comment caching",
+                                NotificationManagerCompat.IMPORTANCE_LOW),
+                        Triple.of(
+                                CHANNEL_MAIL,
+                                "Reddit mail",
+                                NotificationManagerCompat.IMPORTANCE_HIGH),
+                        Triple.of(
+                                CHANNEL_MODMAIL,
+                                "Reddit modmail",
+                                NotificationManagerCompat.IMPORTANCE_HIGH),
+                        Triple.of(
+                                CHANNEL_SUBCHECKING,
+                                "Submission post checking",
+                                NotificationManagerCompat.IMPORTANCE_LOW));
 
         final NotificationManagerCompat notificationManager = NotificationManagerCompat.from(this);
 

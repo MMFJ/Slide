@@ -1,6 +1,5 @@
 package me.edgan.redditslide.util;
 import android.app.Activity;
-import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -21,6 +20,7 @@ import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
@@ -33,18 +33,24 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Predicate;
 import me.edgan.redditslide.ActionStates;
+import me.edgan.redditslide.Activities.MegaredditOverview;
 import me.edgan.redditslide.Activities.PostReadLater;
 import me.edgan.redditslide.Activities.Profile;
 import me.edgan.redditslide.Activities.SubredditView;
 import me.edgan.redditslide.Adapters.SubmissionViewHolder;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.CommentCacheAsync;
+import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.Hidden;
+import me.edgan.redditslide.Megareddit;
+import me.edgan.redditslide.Megareddits;
 import me.edgan.redditslide.OfflineSubreddit;
 import me.edgan.redditslide.PostMatch;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
+import me.edgan.redditslide.SavedTags;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SpoilerRobotoTextView;
 import me.edgan.redditslide.SubmissionCache;
@@ -60,13 +66,14 @@ import net.dean.jraw.models.Ruleset;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.SubredditRule;
 import org.apache.commons.text.StringEscapeUtils;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * Handles Bottom Sheet actions for Submission views.
  */
+@NullMarked
 public class SubmissionBottomSheetActions {
 
-    public static String reason;
     public static boolean[] chosen = new boolean[] {false, false, false, false, false};
     public static boolean[] oldChosen = new boolean[] {false, false, false, false, false};
 
@@ -76,8 +83,8 @@ public class SubmissionBottomSheetActions {
             final Submission submission,
             final SubmissionViewHolder holder,
             final List<T> posts,
-            final String baseSub,
-            final RecyclerView recyclerview,
+            final @Nullable String baseSub,
+            final @Nullable RecyclerView recyclerview,
             final boolean full) {
 
         int[] attrs = new int[] {R.attr.tintColor};
@@ -100,24 +107,38 @@ public class SubmissionBottomSheetActions {
         Drawable history = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_history, null);
         Drawable translate = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_translate, null);
         Drawable readAloud = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_volume_on, null);
+        Drawable tags = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_folder, null);
+        Drawable positive = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_add, null);
+        Drawable negative = ResourcesCompat.getDrawable(mContext.getResources(), R.drawable.ic_remove, null);
 
-        final List<Drawable> drawableSet = Arrays.asList(profile, sub, saved, hide, report, copy, open, link, reddit, readLater, filter, crosspost, viewmode, history, translate, readAloud);
+        final List<Drawable> drawableSet = Arrays.asList(profile, sub, saved, hide, report, copy, open, link, reddit, readLater, filter, crosspost, viewmode, history, translate, readAloud, tags, positive, negative);
         BlendModeUtil.tintDrawablesAsSrcAtop(drawableSet, color);
 
         ta.recycle();
 
-        final BottomSheet.Builder b = new BottomSheet.Builder(mContext).title(CompatUtil.fromHtml(submission.getTitle()));
+        // Prefer a title restored by "Recover post" so a recovered post's sheet isn't still headed
+        // "[deleted by user]".
+        final String recoveredTitle = PostRecovery.getRecoveredTitle(submission.getFullName());
+        final BottomSheet.Builder b = new BottomSheet.Builder(mContext).title(CompatUtil.fromHtml(recoveredTitle == null ? submission.getTitle() : recoveredTitle));
 
         final boolean isReadLater = mContext instanceof PostReadLater;
         final boolean isAddedToReadLaterList = ReadLater.isToBeReadLater(submission);
+        // Prefer an author restored by "Recover post" so this doesn't offer a dead /u/[deleted].
+        final String author = PostRecovery.getDisplayAuthor(submission);
         if (Authentication.didOnline) {
-            b.sheet(1, profile, "/u/" + submission.getAuthor()).sheet(2, sub, "/r/" + submission.getSubredditName());
+            b.sheet(1, profile, "/u/" + author).sheet(2, sub, "/r/" + submission.getSubredditName());
             String save = mContext.getString(R.string.btn_save);
             if (ActionStates.isSaved(submission)) {
                 save = mContext.getString(R.string.comment_unsave);
             }
             if (Authentication.isLoggedIn) {
                 b.sheet(3, saved, save);
+                // Only on the Saved screen. Tagging something while looking at a list of saved
+                // items is the case that needs a row here; everywhere else the post-save snackbar
+                // already offers it, and this sheet is shared with the feed and subreddit view.
+                if (mContext instanceof Profile && ActionStates.isSaved(submission)) {
+                    b.sheet(64, tags, mContext.getString(R.string.profile_tag_select));
+                }
             }
         }
 
@@ -167,6 +188,31 @@ public class SubmissionBottomSheetActions {
             b.sheet(10, filter, mContext.getString(R.string.filter_content));
         }
 
+        // In a Megareddit's feed, whether on its own screen or as a main tab: keep or drop this
+        // post's subreddit for good. r/all is offered the same two, because it is the listing every
+        // Megareddit is drawn from -- there the Megareddit to act on is asked for.
+        final Megareddit mega = full ? null : Megareddits.forKey(baseSub);
+        final String postSubreddit = MiscUtil.orEmpty(submission.getSubredditName());
+        final boolean inAll = !full && baseSub != null && baseSub.equalsIgnoreCase("all");
+        final boolean offerMegareddit =
+                !postSubreddit.isEmpty()
+                        && (mega != null || (inAll && !Megareddits.getAll().isEmpty()));
+        if (offerMegareddit) {
+            // Nothing to add when this Megareddit already keeps this subreddit by name.
+            if (mega == null
+                    || !mega.getPositiveSubreddits()
+                            .contains(postSubreddit.toLowerCase(Locale.ENGLISH))) {
+                b.sheet(
+                        66,
+                        positive,
+                        mContext.getString(R.string.megareddit_add_positive, postSubreddit));
+            }
+            b.sheet(
+                    65,
+                    negative,
+                    mContext.getString(R.string.megareddit_add_negative, postSubreddit));
+        }
+
         b.listener(new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
@@ -174,7 +220,7 @@ public class SubmissionBottomSheetActions {
                     case 1:
                         {
                             Intent i = new Intent(mContext, Profile.class);
-                            i.putExtra(Profile.EXTRA_PROFILE, submission.getAuthor());
+                            i.putExtra(Profile.EXTRA_PROFILE, author);
                             mContext.startActivity(i);
                         }
 
@@ -189,40 +235,53 @@ public class SubmissionBottomSheetActions {
                         break;
                     case 10:
                         String[] choices;
-                        final String flair = submission.getSubmissionFlair().getText() != null ? submission.getSubmissionFlair().getText() : "";
+                        // Trimmed here rather than at each use: a flair of nothing but whitespace
+                        // is no flair to filter on, and it used to reach the writer below and
+                        // store a bare "subreddit:" entry that looks configured and matches
+                        // nothing.
+                        final String flair = submission.getSubmissionFlair().getText() != null ? submission.getSubmissionFlair().getText().trim() : "";
+                        // Read once and coalesce, the same way flair above does: these are filter
+                        // keys, and "" already means "no such attribute to filter on" here.
+                        final String subFilter = MiscUtil.orEmpty(submission.getSubredditName());
+                        final String userFilter = MiscUtil.orEmpty(submission.getAuthor());
+                        final String domainFilter = MiscUtil.orEmpty(submission.getDomain());
+                        // A flair filter names the subreddit it applies to, so without one there
+                        // is nothing to store: PostMatch matches the entry's first half against
+                        // the subreddit being browsed and an empty half never matches.
+                        final String flairSub = MiscUtil.orEmpty(baseSub);
 
-                        if (flair.isEmpty()) {
+                        if (flair.isEmpty() || flairSub.isEmpty()) {
                             choices = new String[] {
-                                mContext.getString(R.string.filter_posts_sub, submission.getSubredditName()),
-                                mContext.getString(R.string.filter_posts_user, submission.getAuthor()),
-                                mContext.getString(R.string.filter_posts_urls, submission.getDomain()),
-                                mContext.getString(R.string.filter_open_externally, submission.getDomain())
+                                mContext.getString(R.string.filter_posts_sub, subFilter),
+                                mContext.getString(R.string.filter_posts_user, userFilter),
+                                mContext.getString(R.string.filter_posts_urls, domainFilter),
+                                mContext.getString(R.string.filter_open_externally, domainFilter)
                             };
 
                             chosen = new boolean[] {
-                                SettingValues.subredditFilters.contains(submission.getSubredditName().toLowerCase(Locale.ENGLISH)),
-                                SettingValues.userFilters.contains(submission.getAuthor().toLowerCase(Locale.ENGLISH)),
-                                SettingValues.domainFilters.contains(submission.getDomain().toLowerCase(Locale.ENGLISH)),
-                                SettingValues.alwaysExternal.contains(submission.getDomain().toLowerCase(Locale.ENGLISH)),
+                                SettingValues.subredditFilters.contains(subFilter.toLowerCase(Locale.ENGLISH)),
+                                SettingValues.userFilters.contains(userFilter.toLowerCase(Locale.ENGLISH)),
+                                SettingValues.domainFilters.contains(domainFilter.toLowerCase(Locale.ENGLISH)),
+                                SettingValues.alwaysExternal.contains(domainFilter.toLowerCase(Locale.ENGLISH)),
                                 false // Placeholder for flair filter
                             };
 
                             oldChosen = chosen.clone();
                         } else {
                             choices = new String[] {
-                                mContext.getString(R.string.filter_posts_sub, submission.getSubredditName()),
-                                mContext.getString(R.string.filter_posts_user, submission.getAuthor()),
-                                mContext.getString(R.string.filter_posts_urls, submission.getDomain()),
-                                mContext.getString(R.string.filter_open_externally, submission.getDomain()),
+                                mContext.getString(R.string.filter_posts_sub, subFilter),
+                                mContext.getString(R.string.filter_posts_user, userFilter),
+                                mContext.getString(R.string.filter_posts_urls, domainFilter),
+                                mContext.getString(R.string.filter_open_externally, domainFilter),
                                 mContext.getString(R.string.filter_posts_flair, flair, baseSub)
                             };
 
                             chosen = new boolean[] {
-                                SettingValues.subredditFilters.contains(submission.getSubredditName().toLowerCase(Locale.ENGLISH)),
-                                SettingValues.userFilters.contains(submission.getAuthor().toLowerCase(Locale.ENGLISH)),
-                                SettingValues.domainFilters.contains(submission.getDomain().toLowerCase(Locale.ENGLISH)),
-                                SettingValues.alwaysExternal.contains(submission.getDomain().toLowerCase(Locale.ENGLISH)),
-                                SettingValues.flairFilters.contains(baseSub + ":" + flair.toLowerCase(Locale.ENGLISH).trim())
+                                SettingValues.subredditFilters.contains(subFilter.toLowerCase(Locale.ENGLISH)),
+                                SettingValues.userFilters.contains(userFilter.toLowerCase(Locale.ENGLISH)),
+                                SettingValues.domainFilters.contains(domainFilter.toLowerCase(Locale.ENGLISH)),
+                                SettingValues.alwaysExternal.contains(domainFilter.toLowerCase(Locale.ENGLISH)),
+                                SettingValues.flairFilters.contains(SettingValues.flairFilterKey(flairSub, flair))
                             };
 
                             oldChosen = chosen.clone();
@@ -236,50 +295,52 @@ public class SubmissionBottomSheetActions {
                                 boolean filtered = false;
                                 SharedPreferences.Editor e = SettingValues.prefs.edit();
                                 if (chosen[0] && chosen[0] != oldChosen[0]) {
-                                    SettingValues.subredditFilters.add(submission.getSubredditName().toLowerCase(Locale.ENGLISH).trim());
+                                    SettingValues.subredditFilters.add(subFilter.toLowerCase(Locale.ENGLISH).trim());
                                     filtered = true;
                                     e.putStringSet(SettingValues.PREF_SUBREDDIT_FILTERS, SettingValues.subredditFilters);
                                 } else if (!chosen[0] && chosen[0] != oldChosen[0]) {
-                                    SettingValues.subredditFilters.remove(submission.getSubredditName().toLowerCase(Locale.ENGLISH).trim());
+                                    SettingValues.subredditFilters.remove(subFilter.toLowerCase(Locale.ENGLISH).trim());
                                     filtered = false;
                                     e.putStringSet(SettingValues.PREF_SUBREDDIT_FILTERS, SettingValues.subredditFilters);
                                     e.apply();
                                 }
 
                                 if (chosen[1] && chosen[1] != oldChosen[1]) {
-                                    SettingValues.userFilters.add(submission.getAuthor().toLowerCase(Locale.ENGLISH).trim());
+                                    SettingValues.userFilters.add(userFilter.toLowerCase(Locale.ENGLISH).trim());
                                     filtered = true;
                                     e.putStringSet(SettingValues.PREF_USER_FILTERS, SettingValues.userFilters);
                                 } else if (!chosen[1] && chosen[1] != oldChosen[1]) {
-                                    SettingValues.userFilters.remove(submission.getAuthor().toLowerCase(Locale.ENGLISH).trim());
+                                    SettingValues.userFilters.remove(userFilter.toLowerCase(Locale.ENGLISH).trim());
                                     filtered = false;
                                     e.putStringSet(SettingValues.PREF_USER_FILTERS, SettingValues.userFilters);
                                     e.apply();
                                 }
 
                                 if (chosen[2] && chosen[2] != oldChosen[2]) {
-                                    SettingValues.domainFilters.add(submission.getDomain().toLowerCase(Locale.ENGLISH).trim());
+                                    SettingValues.domainFilters.add(domainFilter.toLowerCase(Locale.ENGLISH).trim());
                                     filtered = true;
                                     e.putStringSet(SettingValues.PREF_DOMAIN_FILTERS, SettingValues.domainFilters);
                                 } else if (!chosen[2] && chosen[2] != oldChosen[2]) {
-                                    SettingValues.domainFilters.remove(submission.getDomain().toLowerCase(Locale.ENGLISH).trim());
+                                    SettingValues.domainFilters.remove(domainFilter.toLowerCase(Locale.ENGLISH).trim());
                                     filtered = false;
                                     e.putStringSet(SettingValues.PREF_DOMAIN_FILTERS, SettingValues.domainFilters);
                                     e.apply();
                                 }
 
                                 if (chosen[3] && chosen[3] != oldChosen[3]) {
-                                    SettingValues.alwaysExternal.add(submission.getDomain().toLowerCase(Locale.ENGLISH).trim());
+                                    SettingValues.alwaysExternal.add(domainFilter.toLowerCase(Locale.ENGLISH).trim());
+                                    ContentType.invalidateTypeCache();
                                     e.putStringSet(SettingValues.PREF_ALWAYS_EXTERNAL, SettingValues.alwaysExternal);
                                     e.apply();
                                 } else if (!chosen[3] && chosen[3] != oldChosen[3]) {
-                                    SettingValues.alwaysExternal.remove(submission.getDomain().toLowerCase(Locale.ENGLISH).trim());
+                                    SettingValues.alwaysExternal.remove(domainFilter.toLowerCase(Locale.ENGLISH).trim());
+                                    ContentType.invalidateTypeCache();
                                     e.putStringSet(SettingValues.PREF_ALWAYS_EXTERNAL, SettingValues.alwaysExternal);
                                     e.apply();
                                 }
 
-                                if (chosen.length > 4 && !flair.isEmpty()) {
-                                    String s = (baseSub + ":" + flair).toLowerCase(Locale.ENGLISH).trim();
+                                if (chosen.length > 4 && !flair.isEmpty() && !flairSub.isEmpty()) {
+                                    String s = SettingValues.flairFilterKey(flairSub, flair);
 
                                     if (chosen[4] && chosen[4] != oldChosen[4]) {
                                         SettingValues.flairFilters.add(s);
@@ -296,54 +357,46 @@ public class SubmissionBottomSheetActions {
                                 if (filtered) {
                                     e.apply();
 
-                                    RecyclerView.Adapter<?> adapter = recyclerview.getAdapter();
-                                    if (adapter == null) {
-                                        return;
-                                    }
-
-                                    // Operate on the list the adapter is actually displaying;
-                                    // the captured reference can be stale after a refresh.
-                                    final List<T> livePosts = resolveLivePosts(recyclerview, posts);
-
-                                    ArrayList<Contribution> toRemove = new ArrayList<>();
-
-                                    for (Contribution s : livePosts) {
-                                        if (s instanceof Submission && PostMatch.doesMatch((Submission) s)) {
-                                            toRemove.add(s);
-                                        }
-                                    }
-
-                                    OfflineSubreddit s = OfflineSubreddit.getSubreddit(baseSub, false, mContext);
-
-                                    for (Contribution remove : toRemove) {
-                                        final int pos = livePosts.indexOf(remove);
-                                        if (pos < 0) {
-                                            continue;
-                                        }
-                                        livePosts.remove(pos);
-                                        if (baseSub != null && s.submissions != null) {
-                                            // The offline cache is a separate list that may not
-                                            // be index-aligned with the live feed, so match by
-                                            // identity instead of reusing the display index.
-                                            final int offlinePos = s.submissions.indexOf(remove);
-                                            if (offlinePos >= 0) {
-                                                s.hideMulti(offlinePos);
-                                            }
-                                        }
-                                        // Header/spacer at position 0; the helper applies the
-                                        // offset and falls back to a full reset if this
-                                        // removal empties the list (no transient inconsistent
-                                        // state to reconcile afterwards).
-                                        notifyRemovedOrReset(adapter, livePosts, pos);
-                                    }
-
-                                    s.writeToMemoryNoStorage();
+                                    removeMatchingPosts(
+                                            recyclerview, posts, baseSub, mContext, PostMatch::doesMatch);
                                 }
                             }).setNegativeButton(R.string.btn_cancel, null));
 
                         break;
+                    case 66:
+                    case 65:
+                        {
+                            final boolean keep = which == 66;
+                            if (mega != null) {
+                                applyToMegareddit(
+                                        mContext,
+                                        holder,
+                                        recyclerview,
+                                        posts,
+                                        baseSub,
+                                        mega,
+                                        postSubreddit,
+                                        keep);
+                            } else {
+                                // From r/all, where no one Megareddit is in context.
+                                pickMegareddit(
+                                        mContext,
+                                        holder,
+                                        recyclerview,
+                                        posts,
+                                        baseSub,
+                                        postSubreddit,
+                                        keep);
+                            }
+                        }
+
+                        break;
                     case 3:
                         saveSubmission(submission, mContext, holder, full);
+
+                        break;
+                    case 64:
+                        categorizeSaved(submission, holder.itemView, mContext);
 
                         break;
                     case 5:
@@ -396,7 +449,8 @@ public class SubmissionBottomSheetActions {
                         } else {
                             ReadLater.setReadLater(submission, false);
                             if (isReadLater || !Authentication.didOnline) {
-                                final RecyclerView.Adapter<?> adapter = recyclerview.getAdapter();
+                                final RecyclerView.Adapter<?> adapter =
+                                        recyclerview == null ? null : recyclerview.getAdapter();
 
                                 // Operate on the list the adapter is actually displaying; the
                                 // captured reference can be stale after a refresh.
@@ -435,7 +489,9 @@ public class SubmissionBottomSheetActions {
                                                 // Re-resolve at click time in case a refresh
                                                 // swapped in a new adapter list.
                                                 final RecyclerView.Adapter<?> undoAdapter =
-                                                        recyclerview.getAdapter();
+                                                        recyclerview == null
+                                                                ? null
+                                                                : recyclerview.getAdapter();
                                                 if (undoAdapter != null) {
                                                     final List<T> undoList =
                                                             resolveLivePosts(recyclerview, livePosts);
@@ -454,7 +510,7 @@ public class SubmissionBottomSheetActions {
                                 Snackbar s2 = Snackbar.make(holder.itemView, "Removed from read later", Snackbar.LENGTH_SHORT);
                                 LayoutUtils.showSnackbar(s2);
                             }
-                            OfflineSubreddit.newSubreddit(CommentCacheAsync.SAVED_SUBMISSIONS).deleteFromMemory(submission.getFullName());
+                            OfflineSubreddit.newSubreddit(CommentCacheAsync.SAVED_SUBMISSIONS).deleteFromMemory(MiscUtil.orEmpty(submission.getFullName()));
                         }
 
                         break;
@@ -477,10 +533,10 @@ final AlertDialog reportDialog =
                         new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
-                                            RadioGroup reasonGroup = reportView.findViewById(R.id.report_reasons);
+                                            RadioGroup reasonGroup = reportView.requireViewById(R.id.report_reasons);
                                             String reportReason;
                                             if (reasonGroup.getCheckedRadioButtonId() == R.id.report_other) {
-                                                reportReason = ((EditText) reportView.findViewById(R.id.input_report_reason)).getText().toString();
+                                                reportReason = ((EditText) reportView.requireViewById(R.id.input_report_reason)).getText().toString();
                                             } else {
                                                 reportReason = ((RadioButton) reasonGroup.findViewById(reasonGroup.getCheckedRadioButtonId())).getText().toString();
                                             }
@@ -490,16 +546,16 @@ final AlertDialog reportDialog =
                                     }
                                 ).create();
 
-                        final RadioGroup reasonGroup = reportView.findViewById(R.id.report_reasons);
+                        final RadioGroup reasonGroup = reportView.requireViewById(R.id.report_reasons);
 
                         reasonGroup.setOnCheckedChangeListener(
                             new RadioGroup.OnCheckedChangeListener() {
                                 @Override
                                 public void onCheckedChanged(RadioGroup group, int checkedId) {
                                     if (checkedId == R.id.report_other) {
-                                        reportView.findViewById(R.id.input_report_reason).setVisibility(View.VISIBLE);
+                                        reportView.requireViewById(R.id.input_report_reason).setVisibility(View.VISIBLE);
                                     } else {
-                                        reportView.findViewById(R.id.input_report_reason).setVisibility(View.GONE);
+                                        reportView.requireViewById(R.id.input_report_reason).setVisibility(View.GONE);
                                     }
                                 }
                             }
@@ -508,8 +564,11 @@ final AlertDialog reportDialog =
                         // Load sub's report reasons and show the appropriate ones
                         new AsyncTask<Void, Void, Ruleset>() {
                             @Override
-                            protected Ruleset doInBackground(Void... voids) {
+                            protected @Nullable Ruleset doInBackground(Void... voids) {
                                 try {
+                                    if (Authentication.reddit == null) {
+                                        return null;
+                                    }
                                     return Authentication.reddit.getRules(
                                             submission.getSubredditName());
                                 } catch (RuntimeException e) {
@@ -519,8 +578,8 @@ final AlertDialog reportDialog =
                             }
 
                             @Override
-                            protected void onPostExecute(Ruleset rules) {
-                                reportView.findViewById(R.id.report_loading).setVisibility(View.GONE);
+                            protected void onPostExecute(@Nullable Ruleset rules) {
+                                reportView.requireViewById(R.id.report_loading).setVisibility(View.GONE);
                                 if (rules == null) {
                                     // Could not load rules (offline); leave the dialog as-is
                                     return;
@@ -567,7 +626,7 @@ final AlertDialog reportDialog =
 
                         break;
                     case 6:
-                        ClipboardUtil.copyToClipboard(mContext, "Link", submission.getUrl());
+                        ClipboardUtil.copyToClipboard(mContext, "Link", MiscUtil.orEmpty(submission.getUrl()));
                         Toast.makeText(mContext, R.string.submission_link_copied, Toast.LENGTH_SHORT).show();
 
                         break;
@@ -620,7 +679,7 @@ final AlertDialog reportDialog =
                         final MaterialProgressDialog recoverProgress =
                                 new MaterialProgressDialog.Builder(mContext)
                                         .title(R.string.recover_post)
-                                        .content(R.string.recover_post_loading)
+                                        .content(R.string.recover_loading)
                                         .progress(true, 0)
                                         .cancelable(false)
                                         .show();
@@ -650,9 +709,12 @@ final AlertDialog reportDialog =
                                 PostRecovery.store(submission, result);
                                 // Re-render the cached title with the recovered one.
                                 SubmissionCache.updateTitle(submission, mContext);
-                                // A recovered link flips is_self/url on the node, so the cached
-                                // info line (domain) is now stale — refresh it to match.
-                                if (result.url != null) {
+                                // A recovered link flips is_self/url on the node, a recovered author
+                                // replaces the "[deleted]" byline, and a recovered author flair adds
+                                // its badge — all on the info line — so refresh it to match.
+                                if (result.url != null
+                                        || result.author != null
+                                        || !result.authorFlair.isEmpty()) {
                                     SubmissionCache.updateInfoSpannable(
                                             submission, mContext, baseSub);
                                 }
@@ -664,6 +726,15 @@ final AlertDialog reportDialog =
                         }.execute();
                         break;
                 }
+            }
+        });
+        // Long press on the author: the profile's user options (message, follow, block...).
+        b.longListener((dialog, which) -> {
+            if (which == 1) {
+                Intent i = new Intent(mContext, Profile.class);
+                i.putExtra(Profile.EXTRA_PROFILE, author);
+                i.putExtra(Profile.EXTRA_USER_OPTIONS, true);
+                mContext.startActivity(i);
             }
         });
         b.show();
@@ -777,25 +848,23 @@ final AlertDialog reportDialog =
                         BlendModeUtil.tintImageViewAsSrcAtop((ImageView) holder.save, ContextCompat.getColor(mContext, R.color.md_amber_500));
                         holder.save.setContentDescription(mContext.getString(R.string.btn_unsave));
                         s = Snackbar.make(holder.itemView, R.string.submission_info_saved, Snackbar.LENGTH_LONG);
-                        if (Authentication.me.hasGold()) {
-                            s.setAction(
-                                    R.string.category_categorize,
-                                    new View.OnClickListener() {
-                                        @Override
-                                        public void onClick(View v) {
-                                            categorizeSaved(submission, holder.itemView, mContext);
-                                        }
-                                    });
-                        }
+                        s.setAction(
+                                R.string.tag_tag_action,
+                                new View.OnClickListener() {
+                                    @Override
+                                    public void onClick(View v) {
+                                        categorizeSaved(submission, holder.itemView, mContext);
+                                    }
+                                });
 
                         AnimatorUtil.setFlashAnimation(holder.itemView, holder.save, ContextCompat.getColor(mContext, R.color.md_amber_500));
                     } else {
                         s = Snackbar.make(holder.itemView, R.string.submission_info_unsaved, Snackbar.LENGTH_SHORT);
                         final int getTintColor =
-                                holder.itemView.getTag(holder.itemView.getId()) != null
+                                (holder.itemView.getTag(holder.itemView.getId()) != null
                                                         && holder.itemView
                                                                 .getTag(holder.itemView.getId())
-                                                                .equals("none")
+                                                                .equals("none"))
                                                 || full
                                         ? Palette.getCurrentTintColor(mContext)
                                         : Palette.getWhiteTintColor();
@@ -804,134 +873,40 @@ final AlertDialog reportDialog =
                     }
                     LayoutUtils.showSnackbar(s);
                 } catch (Exception ignored) {
-
+                    // Snackbar needs a view still in a window; the
+                    // save itself already went through.
                 }
             }
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
+    /**
+     * Tag a saved submission. Reddit's saved-categories feature is gone, so this no longer writes
+     * anything to the network -- it edits Slide's own store. See {@link SavedTags}.
+     */
     public static void categorizeSaved(
-            final Submission submission, View itemView, final Context mContext) {
-        new AsyncTask<Void, Void, List<String>>() {
-
-            Dialog d;
-
-            @Override
-            public void onPreExecute() {
-                d = new MaterialProgressDialog.Builder(mContext).progress(true, 100).title(R.string.profile_category_loading).content(R.string.misc_please_wait).show().getDialog();
-            }
-
-            @Override
-            protected List<String> doInBackground(Void... params) {
-                try {
-                    List<String> categories = new ArrayList<String>(new net.dean.jraw.managers.AccountManager(Authentication.reddit).getSavedCategories());
-                    categories.add("New category");
-                    return categories;
-                } catch (Exception e) {
-                    LogUtil.e(e, "SubmissionBottomSheetActions.doInBackground failed");
-                    return new ArrayList<String>() {
-                        {
-                            add("New category");
-                        }
-                    };
-                    // sub probably has no flairs?
-                }
-            }
-
-            @Override
-            public void onPostExecute(final List<String> data) {
-                try {
-                    new MaterialAlertDialogBuilder(new ContextThemeWrapper(mContext, new ColorPreferences(mContext).getFontStyle().getBaseId())).setTitle(R.string.sidebar_select_flair).setItems(data.toArray(new CharSequence[0]), new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface listDialog, int which) {
-                            final String t = data.get(which);
-                            if (which == data.size() - 1) {
-                                new MaterialInputDialog.Builder(mContext)
-                                    .title(R.string.category_set_name)
-                                    .input(mContext.getString(R.string.category_set_name_hint), null, null)
-                                    .positiveText(R.string.btn_set)
-                                    .onPositive(
-                                        new MaterialInputDialog.ButtonCallback() {
-                                            @Override
-                                            public void onClick(MaterialInputDialog dialog) {
-                                                final String flair = dialog.getInputEditText().getText().toString();
-                                                new AsyncTask<Void, Void, Boolean>() {
-                                                    @Override
-                                                    protected Boolean doInBackground(Void... params) {
-                                                        try {
-                                                            new net.dean.jraw.managers.AccountManager(Authentication.reddit).save(submission, flair);
-                                                            return true;
-                                                        } catch (ApiException | RuntimeException e) {
-                                                            LogUtil.e(e, "SubmissionBottomSheetActions.doInBackground failed");
-
-                                                            return false;
-                                                        }
-                                                    }
-
-                                                    @Override
-                                                    protected void onPostExecute(Boolean done) {
-                                                        Snackbar s;
-                                                        if (done) {
-                                                            if (itemView != null) {
-                                                                s = Snackbar.make(itemView, R.string.submission_info_saved, Snackbar.LENGTH_SHORT);
-                                                                LayoutUtils.showSnackbar(s);
-                                                            }
-                                                        } else {
-                                                            if (itemView != null) {
-                                                                s = Snackbar.make(itemView, R.string.category_set_error, Snackbar.LENGTH_SHORT);
-                                                                LayoutUtils.showSnackbar(s);
-                                                            }
-                                                        }
-                                                    }
-                                                }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-                                            }
-                                        }).negativeText(R.string.btn_cancel).show();
-                            } else {
-                                new AsyncTask<Void, Void, Boolean>() {
-                                    @Override
-                                    protected Boolean doInBackground(Void... params) {
-                                        try {
-                                            new net.dean.jraw.managers.AccountManager(Authentication.reddit).save(submission, t);
-
-                                            return true;
-                                        } catch (ApiException | RuntimeException e) {
-                                            LogUtil.e(e, "SubmissionBottomSheetActions.doInBackground failed");
-
-                                            return false;
-                                        }
-                                    }
-
-                                    @Override
-                                    protected void onPostExecute(Boolean done) {
-                                        Snackbar s;
-                                        if (done) {
-                                            if (itemView != null) {
-                                                s = Snackbar.make(itemView, R.string.submission_info_saved, Snackbar.LENGTH_SHORT);
-                                                LayoutUtils.showSnackbar(s);
-                                            }
-                                        } else {
-                                            if (itemView != null) {
-                                                s = Snackbar.make(itemView, R.string.category_set_error, Snackbar.LENGTH_SHORT);
-                                                LayoutUtils.showSnackbar(s);
-                                            }
-                                        }
-                                    }
-                                }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-                            }
-                        }
-                    }).show();
-
-                    if (d != null) {
-                        d.dismiss();
+            final Submission submission, @Nullable View itemView, final Context mContext) {
+        SavedTagDialogs.showTagPicker(
+                mContext,
+                submission,
+                () -> {
+                    if (itemView != null) {
+                        LayoutUtils.showSnackbar(
+                                Snackbar.make(
+                                        itemView,
+                                        R.string.submission_info_saved,
+                                        Snackbar.LENGTH_SHORT));
                     }
-                } catch (Exception e) {
-                    LogUtil.e(e, "Failed to dismiss flair dialog");
-                }
-            }
-        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+                });
     }
 
-    public static <T extends Contribution> void hideSubmission(final Submission submission, final List<T> posts, final String baseSub, final RecyclerView recyclerview, Context c) {
+    public static <T extends Contribution> void hideSubmission(final Submission submission, final List<T> posts, final @Nullable String baseSub, final @Nullable RecyclerView recyclerview, Context c) {
+        // No RecyclerView means this card is not in a feed (the peek view), so there is no row
+        // to remove and no anchor for the undo snackbar.
+        if (recyclerview == null) {
+            return;
+        }
+
         final RecyclerView.Adapter<?> adapter = recyclerview.getAdapter();
         if (adapter == null) {
             return;
@@ -1009,6 +984,164 @@ final AlertDialog reportDialog =
     }
 
     /**
+     * Asks which Megareddit to add {@code subreddit} to, and adds it. Offered from r/all, where the
+     * listing itself belongs to no Megareddit; with only one to choose from there is nothing to
+     * ask, so it is applied straight away.
+     */
+    private static <T extends Contribution> void pickMegareddit(
+            final Activity mContext,
+            final SubmissionViewHolder holder,
+            final @Nullable RecyclerView recyclerview,
+            final List<T> posts,
+            final @Nullable String baseSub,
+            final String subreddit,
+            final boolean keep) {
+        final List<Megareddit> all = Megareddits.getAll();
+        if (all.isEmpty()) {
+            return;
+        }
+        if (all.size() == 1) {
+            applyToMegareddit(
+                    mContext, holder, recyclerview, posts, baseSub, all.get(0), subreddit, keep);
+            return;
+        }
+
+        final String[] names = new String[all.size()];
+        for (int i = 0; i < all.size(); i++) {
+            names[i] = all.get(i).getName();
+        }
+
+        DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
+                .setTitle(
+                        keep
+                                ? R.string.megareddit_pick_positive
+                                : R.string.megareddit_pick_negative)
+                .setItems(
+                        names,
+                        (dialog, which) ->
+                                applyToMegareddit(
+                                        mContext,
+                                        holder,
+                                        recyclerview,
+                                        posts,
+                                        baseSub,
+                                        all.get(which),
+                                        subreddit,
+                                        keep))
+                .setNegativeButton(R.string.btn_cancel, null));
+    }
+
+    /**
+     * Adds {@code subreddit} to {@code mega}'s positive or negative list. Dropping it only clears
+     * the posts on screen when they are that Megareddit's own: r/all is not filtered by one.
+     */
+    private static <T extends Contribution> void applyToMegareddit(
+            final Activity mContext,
+            final SubmissionViewHolder holder,
+            final @Nullable RecyclerView recyclerview,
+            final List<T> posts,
+            final @Nullable String baseSub,
+            final Megareddit mega,
+            final String subreddit,
+            final boolean keep) {
+        final boolean changed =
+                keep
+                        ? Megareddits.addPositive(mega.key(), subreddit)
+                        : Megareddits.addNegative(mega.key(), subreddit);
+        if (!changed) {
+            return;
+        }
+
+        if (!keep && baseSub != null && Megareddits.isKey(baseSub)) {
+            // Later pages are filtered by the loader, which reads the definition afresh; what is
+            // already on screen goes now.
+            removeMatchingPosts(
+                    recyclerview,
+                    posts,
+                    baseSub,
+                    mContext,
+                    post -> subreddit.equalsIgnoreCase(post.getSubredditName()));
+        }
+
+        showMegaredditSnackbar(
+                recyclerview,
+                holder,
+                mContext.getString(
+                        keep
+                                ? R.string.megareddit_added_positive
+                                : R.string.megareddit_added_negative,
+                        subreddit));
+    }
+
+    /**
+     * Takes every loaded post that {@code matches} out of the feed on screen and out of its offline
+     * copy, so that a filter just added applies to what is already showing.
+     */
+    private static <T extends Contribution> void removeMatchingPosts(
+            final @Nullable RecyclerView recyclerview,
+            final List<T> posts,
+            final @Nullable String baseSub,
+            final Activity mContext,
+            final Predicate<Submission> matches) {
+        RecyclerView.Adapter<?> adapter = recyclerview == null ? null : recyclerview.getAdapter();
+        if (adapter == null) {
+            return;
+        }
+
+        // Operate on the list the adapter is actually displaying;
+        // the captured reference can be stale after a refresh.
+        final List<T> livePosts = resolveLivePosts(recyclerview, posts);
+
+        ArrayList<Contribution> toRemove = new ArrayList<>();
+
+        for (Contribution s : livePosts) {
+            if (s instanceof Submission && matches.test((Submission) s)) {
+                toRemove.add(s);
+            }
+        }
+
+        OfflineSubreddit s = OfflineSubreddit.getSubreddit(baseSub, false, mContext);
+
+        for (Contribution remove : toRemove) {
+            final int pos = livePosts.indexOf(remove);
+            if (pos < 0) {
+                continue;
+            }
+            livePosts.remove(pos);
+            if (baseSub != null && s.submissions != null) {
+                // The offline cache is a separate list that may not
+                // be index-aligned with the live feed, so match by
+                // identity instead of reusing the display index.
+                final int offlinePos = s.submissions.indexOf(remove);
+                if (offlinePos >= 0) {
+                    s.hideMulti(offlinePos);
+                }
+            }
+            // Header/spacer at position 0; the helper applies the
+            // offset and falls back to a full reset if this
+            // removal empties the list (no transient inconsistent
+            // state to reconcile afterwards).
+            notifyRemovedOrReset(adapter, livePosts, pos);
+        }
+
+        s.writeToMemoryNoStorage();
+
+        // The Megareddits screen counts what its tab is showing, and no feed update reports a
+        // removal done here.
+        if (mContext instanceof MegaredditOverview && baseSub != null) {
+            ((MegaredditOverview) mContext).onFeedCountChanged(baseSub, livePosts.size());
+        }
+    }
+
+    private static void showMegaredditSnackbar(
+            final @Nullable RecyclerView recyclerview,
+            final SubmissionViewHolder holder,
+            final String text) {
+        final View anchor = recyclerview != null ? recyclerview : holder.itemView;
+        LayoutUtils.showSnackbar(Snackbar.make(anchor, text, Snackbar.LENGTH_SHORT));
+    }
+
+    /**
      * Resolves the list the adapter is actually displaying. A pull-to-refresh
      * reassigns {@code SubredditPosts.posts} to a brand-new list object, so a
      * reference captured by a menu/undo closure at bind time can point at a stale
@@ -1018,8 +1151,9 @@ final AlertDialog reportDialog =
      */
     @SuppressWarnings("unchecked")
     private static <T extends Contribution> List<T> resolveLivePosts(
-            final RecyclerView recyclerview, final List<T> captured) {
-        final RecyclerView.Adapter<?> adapter = recyclerview.getAdapter();
+            final @Nullable RecyclerView recyclerview, final List<T> captured) {
+        final RecyclerView.Adapter<?> adapter =
+                recyclerview == null ? null : recyclerview.getAdapter();
         if (adapter instanceof me.edgan.redditslide.Adapters.SubmissionAdapter) {
             final List<Submission> live =
                     ((me.edgan.redditslide.Adapters.SubmissionAdapter) adapter).dataSet.posts;
@@ -1079,7 +1213,8 @@ final AlertDialog reportDialog =
                     Snackbar.make(contextView, R.string.msg_report_sent, Snackbar.LENGTH_SHORT);
                     LayoutUtils.showSnackbar(s);
                 } catch (Exception ignored) {
-
+                    // Snackbar needs a view still in a window; the
+                    // report was already sent.
                 }
             }
         }

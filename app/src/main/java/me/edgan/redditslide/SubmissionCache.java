@@ -9,36 +9,146 @@ import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 import android.util.TypedValue;
+import androidx.annotation.Nullable;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.WeakHashMap;
 import me.edgan.redditslide.Adapters.CommentAdapterHelper;
-import me.edgan.redditslide.Toolbox.ToolboxUI;
+import me.edgan.redditslide.Flair.RichFlairParser;
+import me.edgan.redditslide.Flair.Richtext;
+import me.edgan.redditslide.Views.RichFlairSpan;
 import me.edgan.redditslide.Views.RoundedBackgroundSpan;
 import me.edgan.redditslide.Visuals.FontPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.CompatUtil;
+import me.edgan.redditslide.util.FlairEmojiUtil;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.PostRecovery;
+import me.edgan.redditslide.util.StringUtil;
 import me.edgan.redditslide.util.TimeUtils;
 import net.dean.jraw.models.DistinguishedStatus;
+import net.dean.jraw.models.Flair;
 import net.dean.jraw.models.Submission;
 
 /** Created by carlo_000 on 4/22/2016. */
 public class SubmissionCache {
-    private static WeakHashMap<String, SpannableStringBuilder> titles;
-    private static WeakHashMap<String, SpannableStringBuilder> info;
-    private static WeakHashMap<String, SpannableStringBuilder> crosspost;
+    private static WeakHashMap<String, SpannableStringBuilder> titles = new WeakHashMap<>();
+    private static WeakHashMap<String, SpannableStringBuilder> info = new WeakHashMap<>();
+    private static WeakHashMap<String, SpannableStringBuilder> crosspost = new WeakHashMap<>();
+
+    /** fullname -> {source selftext_html, mode, rendered preview}. See getSelftextPreview. */
+    private static WeakHashMap<String, String[]> selftextPreviews = new WeakHashMap<>();
+
+    /**
+     * The first line of a self post's body — ellipsized to its first {@link
+     * SettingValues#CARD_TEXT_ELLIPSIZE_CHARS} characters when {@link
+     * SettingValues#cardTextEllipsize} is on — unescaped for the card's preview TextView. Cached
+     * because building it runs a full Html.fromHtml parse, and the feed did that on every bind of
+     * every self post. Keyed on the source html and the mode too, so an edited post or a flipped
+     * setting re-renders on its own.
+     *
+     * @param skipImageLines the card is drawing the body's inlined image as its lead image, so the
+     *     line holding that image is not the preview — the first line with words on it is, and any
+     *     link to a reddit image left in it comes out. Without this, a post that opens with a
+     *     pasted image has an empty preview and the card shows the picture and none of the text.
+     */
+    public static String getSelftextPreview(Submission submission, boolean skipImageLines) {
+        final String source = submission.getDataNode().path("selftext_html").asText("");
+        final String mode =
+                (SettingValues.cardTextEllipsize ? "ellipsized" : "paragraph")
+                        + (skipImageLines ? "+noimg" : "");
+        final String[] cached = selftextPreviews.get(submission.getFullName());
+        if (cached != null && cached[0].equals(source) && cached[1].equals(mode)) {
+            return cached[2];
+        }
+
+        String preview = null;
+        if (skipImageLines) {
+            for (final String line : source.split("\n")) {
+                if (line.trim().isEmpty()) {
+                    continue;
+                }
+                final String text = CompatUtil.fromHtml(line).toString();
+                if (!StringUtil.isOnlyRedditImageLinks(text)) {
+                    preview = StringUtil.withoutRedditImageLinks(text);
+                    break;
+                }
+            }
+            if (preview == null) {
+                // Every line was an image the lead image is already showing.
+                preview = "";
+            }
+        } else {
+            final String firstLine =
+                    source.substring(
+                            0, source.contains("\n") ? source.indexOf("\n") : source.length());
+            preview = CompatUtil.fromHtml(firstLine).toString();
+        }
+        preview = preview.replace("<sup>", "<sup><small>").replace("</sup>", "</small></sup>");
+        if (SettingValues.cardTextEllipsize) {
+            preview = StringUtil.ellipsizeHtml(preview, SettingValues.CARD_TEXT_ELLIPSIZE_CHARS);
+        }
+        selftextPreviews.put(submission.getFullName(), new String[] {source, mode, preview});
+        return preview;
+    }
+
+    /** fullname -> {source selftext_html, "1" if the body opens with an image}. */
+    private static WeakHashMap<String, String[]> selftextImageFirst = new WeakHashMap<>();
+
+    /**
+     * Whether the first line of the body with anything on it is a link to a reddit-hosted image
+     * and nothing else — the shape of a post written as its picture and then its words. The card
+     * follows that order: the lead image it drew from the body goes above the preview text rather
+     * than below it. Cached like {@link #getSelftextPreview}, and for the same reason.
+     */
+    public static boolean selftextStartsWithImage(Submission submission) {
+        final String source = submission.getDataNode().path("selftext_html").asText("");
+        final String[] cached = selftextImageFirst.get(submission.getFullName());
+        if (cached != null && cached[0].equals(source)) {
+            return "1".equals(cached[1]);
+        }
+        boolean imageFirst = false;
+        for (final String line : source.split("\n")) {
+            if (line.trim().isEmpty()) {
+                continue;
+            }
+            imageFirst = StringUtil.isOnlyRedditImageLinks(CompatUtil.fromHtml(line).toString());
+            break;
+        }
+        selftextImageFirst.put(
+                submission.getFullName(), new String[] {source, imageFirst ? "1" : "0"});
+        return imageFirst;
+    }
+
+    /**
+     * Whether the card's selftext preview goes under its lead image rather than above it — the
+     * middle-image card is the one with a seat on each side.
+     *
+     * <p>A card leads with its picture, the way the comments screen does (image, title, body): a
+     * preview reddit built from a link in the body is the post's picture, not a line of the body,
+     * so the words follow it wherever the link sat. The one exception is a picture the card took
+     * out of the body itself — that one keeps the body's own order, and only goes first when the
+     * body opened with it. No picture, nothing to be under: the preview stays in its usual seat.
+     *
+     * @param leadImageShown the card is drawing a big lead image for this post
+     * @param leadIsInlineImage that image came out of the body, via {@code media_metadata}
+     */
+    public static boolean selftextPreviewBelowLeadImage(
+            Submission submission, boolean leadImageShown, boolean leadIsInlineImage) {
+        return leadImageShown && (!leadIsInlineImage || selftextStartsWithImage(submission));
+    }
 
     public static void cacheSubmissions(
-            List<Submission> submissions, Context mContext, String baseSub) {
+            List<Submission> submissions, Context mContext, @Nullable String baseSub) {
         cacheInfo(submissions, mContext, baseSub);
     }
 
-    public static SpannableStringBuilder getCrosspostLine(Submission s, Context mContext) {
-        if (crosspost == null) crosspost = new WeakHashMap<>();
+    /** Null when the submission is not a crosspost. */
+    @Nullable public static SpannableStringBuilder getCrosspostLine(Submission s, Context mContext) {
         if (crosspost.containsKey(s.getFullName())) {
             return crosspost.get(s.getFullName());
         } else {
@@ -46,39 +156,67 @@ public class SubmissionCache {
         }
     }
 
-    private static void cacheInfo(List<Submission> submissions, Context mContext, String baseSub) {
-        if (titles == null) titles = new WeakHashMap<>();
-        if (info == null) info = new WeakHashMap<>();
-        if (crosspost == null) crosspost = new WeakHashMap<>();
+    private static void cacheInfo(
+            List<Submission> submissions, Context mContext, @Nullable String baseSub) {
+
+        // Re-apply any recovered link before anything else reads these nodes. The cached info line
+        // (domain, content-type) has to reflect the recovery rather than the removed-state node,
+        // and recovery also empties the stale richtext flair — which the warm pass below would
+        // otherwise spend the list's own time downloading emoji for, only to never draw them.
+        for (Submission submission : submissions) {
+            PostRecovery.reapplyRecoveredLink(submission);
+        }
+
+        // Warm every richtext-flair emoji in the batch. This runs on the feed's background thread,
+        // so by the time the spannables below are built the bitmaps are in memory and the flair
+        // paints in the same frame as the rest of the card, with no reflow as images arrive.
+        warmFlairEmoji(submissions, mContext);
 
         for (Submission submission : submissions) {
-            // Re-apply any recovered link before building the spannables so the cached info line
-            // (domain, content-type) reflects the recovery rather than the removed-state node.
-            PostRecovery.reapplyRecoveredLink(submission);
             titles.put(submission.getFullName(), getTitleSpannable(submission, mContext));
             info.put(submission.getFullName(), getInfoSpannable(submission, mContext, baseSub));
             crosspost.put(submission.getFullName(), getCrosspostLine(submission, mContext));
         }
     }
 
-    public static void updateInfoSpannable(Submission changed, Context mContext, String baseSub) {
-        if (info == null) info = new WeakHashMap<>();
+    /**
+     * Downloads the emoji of every richtext flair in a batch — the posts' own flair and their
+     * authors' — into the shared image cache. Must be called from a background thread; it blocks.
+     */
+    private static void warmFlairEmoji(List<Submission> submissions, Context mContext) {
+        // Ordered and de-duplicated: a subreddit's flairs reuse the same handful of emoji, so a
+        // page of posts is usually a few distinct URLs however many posts it holds.
+        final LinkedHashSet<String> urls = new LinkedHashSet<>();
+
+        for (Submission submission : submissions) {
+            final JsonNode node = submission.getDataNode();
+
+            urls.addAll(
+                    RichFlairParser.emojiUrls(
+                            RichFlairParser.from(node, RichFlairParser.LINK_FLAIR_RICHTEXT)));
+            urls.addAll(
+                    RichFlairParser.emojiUrls(
+                            RichFlairParser.from(node, RichFlairParser.AUTHOR_FLAIR_RICHTEXT)));
+        }
+
+        FlairEmojiUtil.preloadBlocking(mContext, urls);
+    }
+
+    public static void updateInfoSpannable(
+            Submission changed, Context mContext, @Nullable String baseSub) {
         info.put(changed.getFullName(), getInfoSpannable(changed, mContext, baseSub));
     }
 
     public static void updateTitleFlair(Submission s, String flair, Context c) {
-        if (titles == null) titles = new WeakHashMap<>();
         titles.put(s.getFullName(), getTitleSpannable(s, flair, c));
     }
 
     /** Re-render the cached title (e.g. after recovering the original from the archive). */
     public static void updateTitle(Submission s, Context c) {
-        if (titles == null) titles = new WeakHashMap<>();
         titles.put(s.getFullName(), getTitleSpannable(s, c));
     }
 
     public static SpannableStringBuilder getTitleLine(Submission s, Context mContext) {
-        if (titles == null) titles = new WeakHashMap<>();
         if (titles.containsKey(s.getFullName())) {
             SpannableStringBuilder title = titles.get(s.getFullName());
             if (title != null) {
@@ -93,8 +231,7 @@ public class SubmissionCache {
     }
 
     public static SpannableStringBuilder getInfoLine(
-            Submission s, Context mContext, String baseSub) {
-        if (info == null) info = new WeakHashMap<>();
+            Submission s, Context mContext, @Nullable String baseSub) {
         if (info.containsKey(s.getFullName())) {
             SpannableStringBuilder infoLine = info.get(s.getFullName());
             if (infoLine != null) {
@@ -108,6 +245,7 @@ public class SubmissionCache {
         return infoLine;
     }
 
+    @Nullable
     private static SpannableStringBuilder getCrosspostSpannable(Submission s, Context mContext) {
         String spacer = mContext.getString(R.string.submission_properties_seperator);
         SpannableStringBuilder titleString = new SpannableStringBuilder("Crosspost" + spacer);
@@ -120,13 +258,11 @@ public class SubmissionCache {
         json = json.get("crosspost_parent_list").get(0);
 
         if (json.has("subreddit")) {
-            String subname = json.get("subreddit").asText().toLowerCase(Locale.ENGLISH);
+            String subname = json.path("subreddit").asText().toLowerCase(Locale.ENGLISH);
             SpannableStringBuilder subreddit = new SpannableStringBuilder("/r/" + subname + spacer);
 
-            if ((SettingValues.colorSubName
-                            && Palette.getColor(subname) != Palette.getDefaultColor())
-                    || (SettingValues.colorSubName
-                            && Palette.getColor(subname) != Palette.getDefaultColor())) {
+            if (SettingValues.colorSubName
+                    && Palette.getColor(subname) != Palette.getDefaultColor()) {
                 if (!SettingValues.colorEverywhere) {
                     subreddit.setSpan(
                             new ForegroundColorSpan(Palette.getColor(subname)),
@@ -145,9 +281,9 @@ public class SubmissionCache {
         }
 
         SpannableStringBuilder author =
-                new SpannableStringBuilder(json.get("author").asText() + " ");
+                new SpannableStringBuilder(json.path("author").asText() + " ");
 
-        int authorcolor = Palette.getFontColorUser(json.get("author").asText());
+        int authorcolor = Palette.getFontColorUser(json.path("author").asText());
 
         if (authorcolor != 0) {
             author.setSpan(
@@ -158,10 +294,10 @@ public class SubmissionCache {
         }
         titleString.append(author);
 
-        if (UserTags.isUserTagged(json.get("author").asText())) {
+        if (UserTags.isUserTagged(json.path("author").asText())) {
             SpannableStringBuilder pinned =
                     new SpannableStringBuilder(
-                            " " + UserTags.getUserTag(json.get("author").asText()) + " ");
+                            " " + UserTags.getUserTag(json.path("author").asText()) + " ");
             pinned.setSpan(
                     new RoundedBackgroundSpan(
                             mContext, android.R.color.white, R.color.md_blue_500, false),
@@ -171,7 +307,7 @@ public class SubmissionCache {
             titleString.append(pinned);
         }
 
-        if (UserSubscriptions.friends.contains(json.get("author").asText())) {
+        if (SavedUsers.isFriend(json.path("author").asText())) {
             SpannableStringBuilder pinned =
                     new SpannableStringBuilder(
                             " " + mContext.getString(R.string.profile_friend) + " ");
@@ -187,7 +323,7 @@ public class SubmissionCache {
     }
 
     private static SpannableStringBuilder getInfoSpannable(
-            Submission submission, Context mContext, String baseSub) {
+            Submission submission, Context mContext, @Nullable String baseSub) {
         String spacer = mContext.getString(R.string.submission_properties_seperator);
         SpannableStringBuilder titleString = new SpannableStringBuilder();
 
@@ -247,14 +383,16 @@ public class SubmissionCache {
 
         titleString.append(spacer);
 
-        SpannableStringBuilder author =
-                new SpannableStringBuilder(" " + submission.getAuthor() + " ");
-        int authorcolor = Palette.getFontColorUser(submission.getAuthor());
+        // Prefer an author restored by "Recover post": Reddit reports "[deleted]" once the poster
+        // deletes their account, and everything below (badge, colour, tag, friend) should key off
+        // the real name.
+        final String authorName = PostRecovery.getDisplayAuthor(submission);
+        SpannableStringBuilder author = new SpannableStringBuilder(" " + authorName + " ");
+        int authorcolor = Palette.getFontColorUser(authorName);
 
-        if (submission.getAuthor() != null) {
+        if (authorName != null) {
             if (Authentication.name != null
-                    && submission
-                            .getAuthor()
+                    && authorName
                             .toLowerCase(Locale.ENGLISH)
                             .equals(Authentication.name.toLowerCase(Locale.ENGLISH))) {
                 author.setSpan(
@@ -292,15 +430,65 @@ public class SubmissionCache {
                         Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
             titleString.append(author);
+
+            // The poster's author flair, next to their name. Reddit clears it when the account is
+            // deleted, so "Recover post" restores it from the archive; this also surfaces it for any
+            // ordinary post whose author carries one. JRAW's getAuthorFlair() dereferences both
+            // author_flair_* fields, so guard on their presence — a node without them (e.g. a
+            // crosspost parent) would otherwise NPE on the feed's hot path.
+            JsonNode authorNode = submission.getDataNode();
+            Flair authorFlair =
+                    (authorNode != null
+                                    && authorNode.has("author_flair_text")
+                                    && authorNode.has("author_flair_css_class"))
+                            ? submission.getAuthorFlair()
+                            : null;
+            // The richtext form of the same flair, which is where the emoji live.
+            final List<Richtext> authorSegments =
+                    RichFlairParser.from(authorNode, RichFlairParser.AUTHOR_FLAIR_RICHTEXT);
+
+            if (RichFlairParser.hasEmoji(authorSegments)) {
+                TypedValue typedValue = new TypedValue();
+                Resources.Theme theme = mContext.getTheme();
+                theme.resolveAttribute(R.attr.activity_background, typedValue, false);
+                int flairBg = typedValue.data;
+                theme.resolveAttribute(R.attr.fontColor, typedValue, false);
+                int flairFont = typedValue.data;
+
+                titleString.append(" ");
+                titleString.append(
+                        RichFlairSpan.chip(authorSegments, flairFont, flairBg, false, mContext));
+            } else if (authorFlair != null
+                    && authorFlair.getText() != null
+                    && !authorFlair.getText().isEmpty()) {
+                TypedValue typedValue = new TypedValue();
+                Resources.Theme theme = mContext.getTheme();
+                theme.resolveAttribute(R.attr.activity_background, typedValue, false);
+                int flairBg = typedValue.data;
+                theme.resolveAttribute(R.attr.fontColor, typedValue, false);
+                int flairFont = typedValue.data;
+                SpannableStringBuilder authorFlairChip =
+                        new SpannableStringBuilder(
+                                " " + CompatUtil.fromHtml(authorFlair.getText()) + " ");
+                // Full size (half=false) to match the other byline chips (self/OP/mod, user tag,
+                // friend) and the comment author-flair chip; the title line uses half=true because it
+                // sits beside a large title, but the info line does not.
+                authorFlairChip.setSpan(
+                        new RoundedBackgroundSpan(flairFont, flairBg, false, mContext),
+                        0,
+                        authorFlairChip.length(),
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                titleString.append(" ");
+                titleString.append(authorFlairChip);
+            }
         }
 
         /*todo maybe?  titleString.append(((comment.hasBeenEdited() && comment.getEditDate() != null) ? " *" + TimeUtils.getTimeAgo(comment.getEditDate().getTime(), mContext) : ""));
         titleString.append("  ");*/
 
-        if (UserTags.isUserTagged(submission.getAuthor())) {
+        if (UserTags.isUserTagged(authorName)) {
             SpannableStringBuilder pinned =
-                    new SpannableStringBuilder(
-                            " " + UserTags.getUserTag(submission.getAuthor()) + " ");
+                    new SpannableStringBuilder(" " + UserTags.getUserTag(authorName) + " ");
             pinned.setSpan(
                     new RoundedBackgroundSpan(
                             mContext, android.R.color.white, R.color.md_blue_500, false),
@@ -311,7 +499,7 @@ public class SubmissionCache {
             titleString.append(pinned);
         }
 
-        if (UserSubscriptions.friends.contains(submission.getAuthor())) {
+        if (SavedUsers.isFriend(authorName)) {
             SpannableStringBuilder pinned =
                     new SpannableStringBuilder(
                             " " + mContext.getString(R.string.profile_friend) + " ");
@@ -324,9 +512,6 @@ public class SubmissionCache {
             titleString.append(" ");
             titleString.append(pinned);
         }
-
-        ToolboxUI.appendToolboxNote(
-                mContext, titleString, submission.getSubredditName(), submission.getAuthor());
 
         /* too big, might add later todo
         if (submission.getAuthorFlair() != null && submission.getAuthorFlair().getText() != null && !submission.getAuthorFlair().getText().isEmpty()) {
@@ -404,10 +589,6 @@ public class SubmissionCache {
                     text = mContext.getString(R.string.type_vid);
                     break;
 
-                case EMBEDDED:
-                    text = mContext.getString(R.string.type_emb);
-                    break;
-
                 case NONE_URL:
                     text = mContext.getString(R.string.type_link);
                     break;
@@ -458,7 +639,10 @@ public class SubmissionCache {
                                             mContext.getResources()
                                                     .getQuantityString(
                                                             R.plurals.comments,
-                                                            submission.getCommentCount())));
+                                                            submission.getCommentCount() == null
+                                                                    ? 0
+                                                                    : submission
+                                                                            .getCommentCount())));
             s.setSpan(
                     new StyleSpan(Typeface.BOLD), 0, s.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
@@ -474,7 +658,7 @@ public class SubmissionCache {
             titleString.append(
                     CommentAdapterHelper.createRemovedLine(
                             (submission.getBannedBy() == null)
-                                    ? Authentication.name
+                                    ? Authentication.nameOrEmpty()
                                     : submission.getBannedBy(),
                             mContext));
         } else if (approved.contains(submission.getFullName())
@@ -483,7 +667,7 @@ public class SubmissionCache {
             titleString.append(
                     CommentAdapterHelper.createApprovedLine(
                             (submission.getApprovedBy() == null)
-                                    ? Authentication.name
+                                    ? Authentication.nameOrEmpty()
                                     : submission.getApprovedBy(),
                             mContext));
         }
@@ -492,7 +676,7 @@ public class SubmissionCache {
     }
 
     private static SpannableStringBuilder getTitleSpannable(
-            Submission submission, String flairOverride, Context mContext) {
+            Submission submission, @Nullable String flairOverride, Context mContext) {
         SpannableStringBuilder titleString = new SpannableStringBuilder();
         String recoveredTitle = PostRecovery.getRecoveredTitle(submission.getFullName());
         titleString.append(
@@ -503,7 +687,8 @@ public class SubmissionCache {
             SpannableStringBuilder pinned =
                     new SpannableStringBuilder(
                             "\u00A0"
-                                    + mContext.getString(R.string.submission_stickied).toUpperCase()
+                                    + mContext.getString(R.string.submission_stickied)
+                                            .toUpperCase(Locale.getDefault())
                                     + "\u00A0");
             pinned.setSpan(
                     new RoundedBackgroundSpan(
@@ -553,7 +738,7 @@ public class SubmissionCache {
             titleString.append(" ");
             titleString.append(pinned);
         }
-        if (submission.getDataNode().get("spoiler").asBoolean()) {
+        if (submission.getDataNode().path("spoiler").asBoolean()) {
             SpannableStringBuilder pinned = new SpannableStringBuilder("\u00A0SPOILER\u00A0");
             pinned.setSpan(
                     new RoundedBackgroundSpan(
@@ -564,7 +749,7 @@ public class SubmissionCache {
             titleString.append(" ");
             titleString.append(pinned);
         }
-        if (submission.getDataNode().get("is_original_content").asBoolean()) {
+        if (submission.getDataNode().path("is_original_content").asBoolean()) {
             SpannableStringBuilder pinned = new SpannableStringBuilder("\u00A0OC\u00A0");
             pinned.setSpan(
                     new RoundedBackgroundSpan(
@@ -576,8 +761,27 @@ public class SubmissionCache {
             titleString.append(pinned);
         }
 
-        if (submission.getSubmissionFlair().getText() != null
-                        && !submission.getSubmissionFlair().getText().isEmpty()
+        // Reddit's modern flair shape, which can mix text runs with emoji images. Only taken when
+        // there is actually an emoji to draw: a text-only flair falls through to the plain branch
+        // below and its pill lands on exactly the same pixels as before.
+        //
+        // A flairOverride comes from updateTitleFlair after the user picks a flair, and that pick
+        // has no richtext until the post is refetched, so an override always wins.
+        final List<Richtext> flairSegments =
+                RichFlairParser.from(submission.getDataNode(), RichFlairParser.LINK_FLAIR_RICHTEXT);
+
+        if (flairOverride == null && RichFlairParser.hasEmoji(flairSegments)) {
+            TypedValue typedValue = new TypedValue();
+            Resources.Theme theme = mContext.getTheme();
+            theme.resolveAttribute(R.attr.activity_background, typedValue, false);
+            int color = typedValue.data;
+            theme.resolveAttribute(R.attr.fontColor, typedValue, false);
+            int font = typedValue.data;
+
+            titleString.append(" ");
+            titleString.append(RichFlairSpan.chip(flairSegments, font, color, true, mContext));
+        } else if ((submission.getSubmissionFlair().getText() != null
+                        && !submission.getSubmissionFlair().getText().isEmpty())
                 || flairOverride != null
                 || (submission.getSubmissionFlair().getCssClass() != null)) {
             TypedValue typedValue = new TypedValue();

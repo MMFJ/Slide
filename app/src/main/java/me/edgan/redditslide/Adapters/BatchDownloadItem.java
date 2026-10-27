@@ -44,7 +44,7 @@ public class BatchDownloadItem {
      * Used for visual duplicate detection across different upload URLs.
      * May be null if the thumbnail was unavailable or hashing failed.
      */
-    public String thumbnailHash;
+    @androidx.annotation.Nullable public String thumbnailHash;
 
     public enum State {
         CHECKED,     // visible, selected for download (default)

@@ -6,7 +6,9 @@ import androidx.appcompat.widget.SwitchCompat;
 
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class SettingsMarkdownFragment {
 
     private final Activity context;
@@ -17,7 +19,7 @@ public class SettingsMarkdownFragment {
 
     public void Bind() {
         final SwitchCompat newRedditSwitch =
-                context.findViewById(R.id.settings_markdown_newReddit);
+                context.requireViewById(R.id.settings_markdown_newReddit);
         newRedditSwitch.setChecked(SettingValues.markdownNewReddit);
         newRedditSwitch.setOnCheckedChangeListener(
                 (buttonView, isChecked) -> {

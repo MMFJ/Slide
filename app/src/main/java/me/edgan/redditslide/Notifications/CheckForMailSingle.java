@@ -11,6 +11,7 @@ import android.content.res.Resources;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.text.Html;
+import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import java.util.ArrayList;
@@ -19,17 +20,21 @@ import me.edgan.redditslide.Activities.Inbox;
 import me.edgan.redditslide.Activities.OpenContent;
 import me.edgan.redditslide.Adapters.MarkAsReadService;
 import me.edgan.redditslide.Authentication;
+import me.edgan.redditslide.InboxCount;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.util.LogUtil;
 import net.dean.jraw.models.Message;
 import net.dean.jraw.paginators.InboxPaginator;
+import net.dean.jraw.paginators.Paginator;
 import org.apache.commons.text.StringEscapeUtils;
 
 public class CheckForMailSingle extends BroadcastReceiver {
 
     public static final String SUBS_TO_GET = "SUBREDDIT_NOTIFS";
+    // Set by onReceive, which is the only entry point into this receiver.
+    @SuppressWarnings("NullAway.Init")
     private Context c;
 
     @Override
@@ -153,13 +158,18 @@ public class CheckForMailSingle extends BroadcastReceiver {
                                     message.getSubreddit());
                 }
                 Intent openPIBase;
-                if (message.isComment()) {
+                // lastIndexOf is -1 for an absent context, and substring(0, -1) throws — out of a
+                // BroadcastReceiver, while the notification is being built. A comment with no
+                // context has no permalink to open, so it falls back to the inbox like any other
+                // message.
+                final String context =
+                        message.isComment() ? message.getDataNode().path("context").asText() : "";
+                final int lastSlash = context.lastIndexOf("/");
+                if (lastSlash > 0) {
                     openPIBase = new Intent(c, OpenContent.class);
-                    String context = message.getDataNode().get("context").asText();
                     openPIBase.putExtra(
                             OpenContent.EXTRA_URL,
-                            "https://reddit.com"
-                                    + context.substring(0, context.lastIndexOf("/")));
+                            "https://reddit.com" + context.substring(0, lastSlash));
                     openPIBase.setAction(message.getSubject());
                 } else {
                     openPIBase = new Intent(c, Inbox.class);
@@ -214,15 +224,29 @@ public class CheckForMailSingle extends BroadcastReceiver {
         }
 
         @Override
+        @Nullable
         protected List<Message> doInBackground(Void... params) {
             try {
                 if (Authentication.isLoggedIn && Authentication.didOnline) {
+                    final int generation = InboxCount.generation();
+
                     InboxPaginator unread = new InboxPaginator(Authentication.reddit, "unread");
+                    // The badge's stored unread count is the length of this listing, so ask for
+                    // the page cap: an inbox with more unread than that counts as that many.
+                    unread.setLimit(Paginator.RECOMMENDED_MAX_LIMIT);
 
                     List<Message> messages = new ArrayList<>();
                     if (unread.hasNext()) {
                         messages.addAll(unread.next());
                     }
+
+                    // Written here rather than only on the badge's own fetch so a poll while the
+                    // app is backgrounded still reaches a running drawer, through the same
+                    // observer, without a second request. Dropped if something read mail while
+                    // this was in flight, and stamped either way so a resume straight after a
+                    // poll does not ask reddit for the same listing again.
+                    InboxCount.setFromFetch(Reddit.appRestart, messages.size(), generation);
+                    InboxCount.markFetched();
 
                     return messages;
                 }

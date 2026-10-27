@@ -4,18 +4,19 @@ import android.os.Bundle;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.TextView;
-
+import androidx.annotation.Nullable;
 import androidx.appcompat.widget.PopupMenu;
-
 import me.edgan.redditslide.Activities.BaseActivityAnim;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.util.MiscUtil;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 3/5/2015. */
+@NullMarked
 public class SettingsViewType extends BaseActivityAnim {
 
-    public void onCreate(Bundle savedInstanceState) {
+    @Override public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         applyColorTheme();
         setContentView(R.layout.activity_settings_viewtype);
@@ -25,7 +26,7 @@ public class SettingsViewType extends BaseActivityAnim {
         setupAppBar(R.id.toolbar, R.string.settings_view_type, true, true);
 
         // View type multi choice
-        ((TextView) findViewById(R.id.currentViewType))
+        ((TextView) requireViewById(R.id.currentViewType))
                 .setText(
                         SettingValues.single
                                 ? (SettingValues.commentPager
@@ -33,7 +34,7 @@ public class SettingsViewType extends BaseActivityAnim {
                                         : getString(R.string.view_type_none))
                                 : getString(R.string.view_type_tabs));
 
-        findViewById(R.id.viewtype)
+        requireViewById(R.id.viewtype)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -44,7 +45,7 @@ public class SettingsViewType extends BaseActivityAnim {
 
                                 popup.setOnMenuItemClickListener(
                                         new PopupMenu.OnMenuItemClickListener() {
-                                            public boolean onMenuItemClick(MenuItem item) {
+                                            @Override public boolean onMenuItemClick(MenuItem item) {
                                                 int itemId = item.getItemId();
                                                 if (itemId == R.id.tabs) {
                                                     SettingValues.single = false;
@@ -82,7 +83,7 @@ public class SettingsViewType extends BaseActivityAnim {
                                                                     true)
                                                             .apply();
                                                 }
-                                                ((TextView) findViewById(R.id.currentViewType))
+                                                ((TextView) requireViewById(R.id.currentViewType))
                                                         .setText(
                                                                 SettingValues.single
                                                                         ? (SettingValues

@@ -19,7 +19,9 @@ import android.view.ViewGroup.LayoutParams;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
+import androidx.annotation.VisibleForTesting;
 import androidx.core.content.ContextCompat;
 import androidx.media.AudioAttributesCompat;
 import androidx.media.AudioFocusRequestCompat;
@@ -48,33 +50,48 @@ import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.util.BlendModeUtil;
 import me.edgan.redditslide.util.GifUtils;
 import me.edgan.redditslide.util.NetworkUtil;
+import org.jspecify.annotations.NullMarked;
 
 /**
- * ExoVideoView that uses a TextureView (with a cached SurfaceTexture) so that when recycled
- * (e.g., when scrolling in the gallery) the video decoder's surface is reused and the video does
- * not go blank.
+ * ExoVideoView that renders into a TextureView. Each instance owns its own player, TextureView and
+ * SurfaceTexture, so several of these can be on screen at once (the video rows of a vertical album,
+ * for example) and each renders its own video.
+ *
+ * <p>Detaching releases the player and reattaching rebuilds an empty one, so a reusable host (a
+ * RecyclerView row) has to reload after a detach. Do not infer that from the player's own state: a
+ * load is asynchronous, so "no media yet" and "media released" look identical and a host checking
+ * only the player reloads on top of a load already in flight. Track the url you asked for instead,
+ * clear it on detach, and clear it again from
+ * {@link me.edgan.redditslide.util.GifUtils.AsyncLoadGif#onError()} when the load fails.
  */
+@NullMarked
 @OptIn(markerClass = UnstableApi.class)
 public class ExoVideoView extends RelativeLayout {
     private static final String TAG = "ExoVideoView";
 
     private Context context;
-    private SimpleExoPlayer player;
+    @Nullable private SimpleExoPlayer player;
     private DefaultTrackSelector trackSelector;
-    private PlayerControlView playerUI;
+    @Nullable private PlayerControlView playerUI;
+    // The listener currently registered on the player by a load, so the next load can replace it
+    // instead of stacking another one. Null whenever no listener is registered, including after the
+    // player has been released.
+    @Nullable private Player.Listener registeredListener;
+    private boolean uiEnabled = true;
+    private boolean verticalMode = false;
+    private boolean scrubEnabled = false;
     private boolean muteAttached = false;
     private boolean hqAttached = false;
-    private boolean speedAttached = false;
     private float[] speedOptions = {0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
     private int currentSpeedIndex = 3; // Normal (1.0x) default
-    private AudioFocusHelper audioFocusHelper;
+    @Nullable private AudioFocusHelper audioFocusHelper;
     private Handler handler = new Handler(Looper.getMainLooper());
-    private Runnable hideControlsRunnable;
+    @Nullable private Runnable hideControlsRunnable;
     private boolean hasAudio = false; // Track whether current video has audio
 
     private ScaleGestureDetector scaleGestureDetector;
     private float scaleFactor = 1.0f;
-    private AspectRatioFrameLayout videoFrame;
+    @Nullable private AspectRatioFrameLayout videoFrame;
 
     // Variables for panning
     private float lastTouchX;
@@ -100,18 +117,20 @@ public class ExoVideoView extends RelativeLayout {
     private float rotationScaleFactor = 1.0f; // Scale factor applied for rotation auto-zoom
     private boolean userZoomed = false; // True once the user has pinch-zoomed
 
-    // Static variable to hold the saved SurfaceTexture.
-    private static SurfaceTexture sSavedSurfaceTexture;
     // The TextureView used for video playback.
-    private TextureView videoTextureView;
+    @Nullable private TextureView videoTextureView;
+    // A SurfaceTexture the TextureView handed back while a player could still be rendering into it;
+    // freed in onDetachedFromWindow once stop() has released that player.
+    @Nullable private SurfaceTexture pendingSurfaceRelease;
 
     public interface OnPlaybackStateChangedListener {
         void onPlaybackStateChanged(boolean isPlaying);
     }
 
-    private OnPlaybackStateChangedListener playbackStateChangedListener;
+    @Nullable private OnPlaybackStateChangedListener playbackStateChangedListener;
 
-    public void setOnPlaybackStateChangedListener(OnPlaybackStateChangedListener listener) {
+    public void setOnPlaybackStateChangedListener(
+            @Nullable OnPlaybackStateChangedListener listener) {
         this.playbackStateChangedListener = listener;
     }
 
@@ -119,21 +138,63 @@ public class ExoVideoView extends RelativeLayout {
         this(context, null, true);
     }
 
-    public ExoVideoView(final Context context, final boolean ui) {
-        this(context, null, ui);
-    }
-
-    public ExoVideoView(final Context context, final AttributeSet attrs) {
+    public ExoVideoView(final Context context, final @Nullable AttributeSet attrs) {
         this(context, attrs, true);
     }
 
-    public ExoVideoView(final Context context, final AttributeSet attrs, final boolean ui) {
+    /**
+     * @param ui whether this view may build transport controls. Every instance in the app comes from
+     *     XML inflation and so passes true; the controls are additionally suppressed for list rows
+     *     (see {@link #markVerticalListRow()}) and for the hosts {@link #isVerticalMode()} knows.
+     */
+    public ExoVideoView(
+            final Context context, final @Nullable AttributeSet attrs, final boolean ui) {
         super(context, attrs);
         this.context = context;
+        this.uiEnabled = ui;
         setupPlayer();
-        if (ui && !isVerticalMode()) {
-            setupUI();
+        // setupUI() is deliberately not called here. A list row only learns that it is one
+        // (markVerticalListRow) after it has been inflated, so building the controls now would
+        // inflate media3's whole control layout once per row just to throw it away. The first
+        // attach builds them, by which point the mode is known.
+    }
+
+    /**
+     * Declares that this view is a row in a vertical album/gallery list, where tapping opens
+     * MediaView instead of playing inline and the transport controls are never shown. Callers that
+     * inflate this view into a list row should say so here rather than relying on
+     * {@link #isVerticalMode()}, which can only recognise the two activities it knows by name and so
+     * misses the album lists embedded in Shadowbox and CommentsScreen.
+     *
+     * <p>One-way: this discards any controls that already exist and stops them being rebuilt.
+     */
+    public void markVerticalListRow() {
+        verticalMode = true;
+        if (playerUI != null) {
+            if (handler != null && hideControlsRunnable != null) {
+                handler.removeCallbacks(hideControlsRunnable);
+                hideControlsRunnable = null;
+            }
+            playerUI.setPlayer(null);
+            removeView(playerUI);
+            playerUI = null;
+            setOnClickListener(null);
         }
+    }
+
+    /**
+     * Enables the horizontal swipe-to-seek gesture, which is off by default.
+     *
+     * <p>MediaView is the only caller, deliberately. This used to be decided by excluding a list of
+     * activity names, which meant the gesture was silently on in every host that happened not to be
+     * on the list, and those are all hosts where a horizontal drag means something else:
+     * MediaFragment (Shadowbox pages between posts), MediaFragmentComment (CommentsScreen pages
+     * between posts), and PeekMediaView / ForceTouchLink (transient previews with no seeking).
+     * Opting in is safer than opting out here: a host that forgets to opt in loses a gesture, while
+     * a host that forgets to opt out steals paging.
+     */
+    public void setScrubEnabled(final boolean enabled) {
+        scrubEnabled = enabled;
     }
 
     @Override
@@ -143,9 +204,9 @@ public class ExoVideoView extends RelativeLayout {
         if (player == null) {
             Log.d(TAG, "Player is null on attach; reinitializing player.");
             setupPlayer();
-            if (playerUI == null && !isVerticalMode()) {
-                setupUI();
-            }
+        }
+        if (uiEnabled && playerUI == null && !isVerticalMode()) {
+            setupUI();
         }
     }
 
@@ -153,6 +214,10 @@ public class ExoVideoView extends RelativeLayout {
     protected void onDetachedFromWindow() {
         // Pause playback when view is detached
         stop();
+
+        // Now that the player is released, nothing can be rendering into the SurfaceTexture the
+        // TextureView handed back on its own (earlier) detach, so it is safe to free.
+        releasePendingSurface();
 
         // Cancel pending hide runnable
         if (handler != null && hideControlsRunnable != null) {
@@ -162,7 +227,19 @@ public class ExoVideoView extends RelativeLayout {
         super.onDetachedFromWindow();
     }
 
-    /** Initializes the player and sets up a TextureView that reuses its SurfaceTexture. */
+    private void releasePendingSurface() {
+        if (pendingSurfaceRelease != null) {
+            Log.d(TAG, "Releasing deferred SurfaceTexture: "
+                    + System.identityHashCode(pendingSurfaceRelease));
+            pendingSurfaceRelease.release();
+            pendingSurfaceRelease = null;
+        }
+    }
+
+    /**
+     * Initializes the player and gives it a fresh TextureView to render into. Runs again on reattach,
+     * because detaching releases the player.
+     */
     private void setupPlayer() {
         // Create a track selector with bitrate settings.
         trackSelector = new DefaultTrackSelector(context);
@@ -178,14 +255,35 @@ public class ExoVideoView extends RelativeLayout {
                     trackSelector.buildUponParameters().setForceHighestSupportedBitrate(true));
         }
 
-        // Release any existing player.
+        // Release any existing player. Detach the controls from it first: once released, it must not
+        // be called into, and PlayerControlView.setPlayer() removes its listener from whatever it
+        // currently holds.
         if (player != null) {
+            if (playerUI != null) {
+                playerUI.setPlayer(null);
+            }
             player.release();
             player = null;
+            registeredListener = null;
+        }
+
+        // Drop the frame a previous setup added. Every setupPlayer() call ends in addView(frame),
+        // so re-running it on reattach would otherwise stack a second TextureView on top of a dead
+        // one.
+        if (videoFrame != null) {
+            removeView(videoFrame);
+            videoFrame = null;
         }
 
         // Create the player.
         player = new SimpleExoPlayer.Builder(context).setTrackSelector(trackSelector).build();
+
+        // Re-point any existing controls at the new player. setupUI() binds them once, but this
+        // method runs again on every reattach, so without this the controls would keep driving the
+        // player that stop() released.
+        if (playerUI != null) {
+            playerUI.setPlayer(player);
+        }
 
         // Create an AspectRatioFrameLayout to size the video correctly.
         AspectRatioFrameLayout frame = new AspectRatioFrameLayout(context);
@@ -265,15 +363,16 @@ public class ExoVideoView extends RelativeLayout {
             public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
                 // If controls are visible when play state changes,
                 // reset the hide timer accordingly.
-                if (playerUI != null && playerUI.isVisible() && handler != null) {
+                final Runnable hideRunnable = hideControlsRunnable;
+                if (playerUI != null && playerUI.isVisible() && handler != null && hideRunnable != null) {
                     Log.d(TAG, "PlayWhenReady changed while UI visible. New state=" + playWhenReady);
                     // Cancel any pending hide task
                     Log.d(TAG, "PlayWhenReady Listener: Cancelling any pending hide runnable.");
-                    handler.removeCallbacks(hideControlsRunnable);
+                    handler.removeCallbacks(hideRunnable);
                     // If starting to play, schedule a new hide task
                     if (playWhenReady) {
                         Log.d(TAG, "PlayWhenReady Listener: Scheduling hide runnable (delay 1000ms).");
-                        handler.postDelayed(hideControlsRunnable, 1000);
+                        handler.postDelayed(hideRunnable, 1000);
                     } else {
                         Log.d(TAG, "PlayWhenReady Listener: Not scheduling hide runnable (paused).");
                     }
@@ -310,15 +409,11 @@ public class ExoVideoView extends RelativeLayout {
         videoTextureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override
             public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
+                // Nothing to do: the player was already pointed at this TextureView by
+                // setVideoTextureView below, and each view now owns its own texture. Kept for the
+                // lifecycle trace, and because the listener is needed for the destroy callback.
                 Log.d(TAG, "onSurfaceTextureAvailable: surface=" + surface +
                         " (" + System.identityHashCode(surface) + "), width=" + width + ", height=" + height);
-                if (sSavedSurfaceTexture != null) {
-                    Log.d(TAG, "Reattaching saved SurfaceTexture: " + System.identityHashCode(sSavedSurfaceTexture));
-                    videoTextureView.setSurfaceTexture(sSavedSurfaceTexture);
-                } else {
-                    sSavedSurfaceTexture = surface;
-                    Log.d(TAG, "Saving new SurfaceTexture: " + System.identityHashCode(surface));
-                }
             }
 
             @Override
@@ -331,7 +426,22 @@ public class ExoVideoView extends RelativeLayout {
             public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
                 Log.d(TAG, "onSurfaceTextureDestroyed: surface=" + surface +
                         " (" + System.identityHashCode(surface) + ")");
-                // Return false to indicate that we are managing the SurfaceTexture lifecycle.
+                // Any texture still pending from an earlier TextureView belongs to a player that
+                // has since been released, so it can go now.
+                releasePendingSurface();
+
+                if (player == null) {
+                    // Nothing can be rendering into it (setupPlayer() releases the player before it
+                    // drops the old frame), so let the framework free it right away.
+                    return true;
+                }
+
+                // A ViewGroup detaches its children before its own onDetachedFromWindow runs, so
+                // this fires while the player is still alive and possibly still rendering. Keep the
+                // texture and free it in onDetachedFromWindow, just after stop(). Asking the player
+                // to drop it here instead (clearVideoTextureView) would block the main thread on the
+                // playback thread once per row leaving the screen.
+                pendingSurfaceRelease = surface;
                 return false;
             }
 
@@ -345,7 +455,10 @@ public class ExoVideoView extends RelativeLayout {
         frame.addView(videoTextureView);
         player.setVideoTextureView(videoTextureView);
 
-        addView(frame);
+        // Index 0: the video has to stay the bottom-most child. Appending would put it above a
+        // playerUI that an earlier setupUI() added, hiding the transport controls behind the
+        // (opaque) TextureView every time this runs again on reattach.
+        addView(frame, 0);
 
         // Configure player options.
         player.setRepeatMode(Player.REPEAT_MODE_ALL);
@@ -360,21 +473,32 @@ public class ExoVideoView extends RelativeLayout {
     }
 
     private void setupUI() {
+        // Nothing to build if the host owns the tap gesture. Checked before anything is created:
+        // this runs at first attach rather than at construction, so a host that installed its own
+        // handler right after inflating would otherwise get controls that nothing can ever show.
+        if (hasOnClickListeners()) {
+            return;
+        }
+
         playerUI = new PlayerControlView(context);
         playerUI.setPlayer(player);
         playerUI.setVisibility(View.GONE);
         playerUI.setShowTimeoutMs(-1);  // Ensure built-in timeout is disabled
 
         // Add the player UI with proper positioning constraints
+        // The bottom margin lifts the seek bar clear of the @id/gifheader button bar that every host
+        // using this view pins to the bottom (activity_media.xml, submission_gifcard_album.xml).
+        // Both are dimens, paired in dimens.xml, so the margin cannot drift below the bar.
         RelativeLayout.LayoutParams playerUIParams = new RelativeLayout.LayoutParams(
                 LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
         playerUIParams.addRule(ALIGN_PARENT_BOTTOM, TRUE);
-        playerUIParams.bottomMargin = (int) (64 * context.getResources().getDisplayMetrics().density);
-        addView(playerUI);
+        playerUIParams.bottomMargin =
+                context.getResources().getDimensionPixelSize(R.dimen.video_controls_bottom_margin);
+        addView(playerUI, playerUIParams);
 
         // Dynamically resize the play/pause button to 50% of the short side dimension
         playerUI.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            View playPause = playerUI.findViewById(R.id.exo_play_pause);
+            View playPause = v.findViewById(R.id.exo_play_pause);
             if (playPause != null) {
                 int width = right - left;
                 int height = bottom - top;
@@ -405,10 +529,11 @@ public class ExoVideoView extends RelativeLayout {
 
         setOnClickListener((v) -> {
             // Ensure playerUI, player, and handler are not null
-            if (playerUI == null || player == null || handler == null) return;
+            final Runnable hideRunnable = hideControlsRunnable;
+            if (playerUI == null || player == null || handler == null || hideRunnable == null) return;
 
             // Always remove pending runnable when screen is tapped
-            handler.removeCallbacks(hideControlsRunnable);
+            handler.removeCallbacks(hideRunnable);
 
             if (playerUI.isVisible()) {
                 // If visible, just hide.
@@ -419,7 +544,7 @@ public class ExoVideoView extends RelativeLayout {
                 boolean isPlaying = player.getPlayWhenReady();
                 if (isPlaying) {
                     // If playing, schedule the hide runnable.
-                    handler.postDelayed(hideControlsRunnable, 2000);
+                    handler.postDelayed(hideRunnable, 2000);
                 }
             }
         });
@@ -427,8 +552,17 @@ public class ExoVideoView extends RelativeLayout {
 
     /**
      * Sets the player's URI and prepares for playback.
+     *
+     * <p>Rebuilds the player first if a previous load released it. That is not hypothetical: the
+     * failure path of {@link me.edgan.redditslide.util.GifUtils.AsyncLoadGif} calls
+     * {@link #stop()}, which releases and nulls the player, and then lets its caller retry. Only a
+     * detach/attach cycle rebuilds it otherwise — and a RecyclerView rebind is not one, since a
+     * scrapped row is detached from its parent without {@code onDetachedFromWindow}. Without this the
+     * retried load would be dropped here, registering no listener and so never hiding the row's
+     * progress bar: a spinner over media that never arrives.
      */
-    public void setVideoURI(Uri uri, VideoType type, Player.Listener listener) {
+    public void setVideoURI(
+            @Nullable Uri uri, VideoType type, @Nullable Player.Listener listener) {
         Log.d(TAG, "setVideoURI() called with uri: " + (uri != null ? uri.toString() : "null"));
         // Reset rotation and video dimensions when loading new video
         currentRotation = 0;
@@ -438,14 +572,23 @@ public class ExoVideoView extends RelativeLayout {
         scaleFactor = 1.0f;
         userZoomed = false;
 
+        // Only while attached: a detached view has no use for a player, gets one from
+        // onAttachedToWindow when it needs one, and would have nothing to release it again.
+        if (player == null && isAttachedToWindow()) {
+            Log.d(TAG, "Player was released by an earlier load; rebuilding for this one.");
+            setupPlayer();
+        }
+
         // Ensure player and uri are not null before proceeding
         if (player != null && uri != null) {
             DataSource.Factory downloader =
                     new OkHttpDataSource.Factory(Reddit.client)
-                            .setDefaultRequestProperties(GifUtils.AsyncLoadGif.makeHeaderMap(uri.getHost()));
+                            .setDefaultRequestProperties(
+                                    GifUtils.AsyncLoadGif.makeHeaderMap(
+                                            uri.getHost() == null ? "" : uri.getHost()));
             DataSource.Factory cacheDataSourceFactory =
                     new CacheDataSource.Factory()
-                            .setCache(Reddit.videoCache)
+                            .setCache(Reddit.getVideoCache())
                             .setUpstreamDataSourceFactory(downloader);
 
             MediaSource videoSource;
@@ -467,6 +610,14 @@ public class ExoVideoView extends RelativeLayout {
 
             player.setMediaSource(videoSource);
             player.prepare();
+
+            // Replace the listener from a previous load on this player rather than stacking another
+            // one: a retry after a playback error reuses the same player, and every stacked listener
+            // means another callback for the same event.
+            if (registeredListener != null) {
+                player.removeListener(registeredListener);
+            }
+            registeredListener = listener;
             if (listener != null) {
                 player.addListener(listener);
             }
@@ -511,6 +662,7 @@ public class ExoVideoView extends RelativeLayout {
             player.stop();
             player.release();
             player = null;
+            registeredListener = null;
         }
         // Ensure audioFocusHelper is not null before losing focus and only if video had audio
         if (audioFocusHelper != null && hasAudio) {
@@ -522,6 +674,15 @@ public class ExoVideoView extends RelativeLayout {
         if (handler != null && hideControlsRunnable != null) {
             handler.removeCallbacks(hideControlsRunnable);
         }
+    }
+
+    /**
+     * Whether this view currently holds a player. Only the tests ask: production code calls the
+     * playback methods, every one of which already no-ops without one.
+     */
+    @VisibleForTesting
+    public boolean hasPlayer() {
+        return player != null;
     }
 
     /** Seeks to a specified position (in milliseconds). */
@@ -815,11 +976,11 @@ public class ExoVideoView extends RelativeLayout {
 
     /** Helper class to manage audio focus. */
     private class AudioFocusHelper implements AudioManager.OnAudioFocusChangeListener {
-        private AudioManager manager;
+        @Nullable private AudioManager manager;
         private boolean wasPlaying;
-        private AudioFocusRequestCompat request;
+        @Nullable private AudioFocusRequestCompat request;
 
-        AudioFocusHelper(AudioManager manager) {
+        AudioFocusHelper(@Nullable AudioManager manager) {
             // Only proceed if manager is not null
             if (manager != null) {
                 this.manager = manager;
@@ -880,24 +1041,53 @@ public class ExoVideoView extends RelativeLayout {
     }
 
     /**
+     * Whether the horizontal swipe-to-seek gesture applies to this view right now: the host opted in
+     * (the full-screen viewer, never a gallery or list row where a horizontal swipe has to page or
+     * scroll), there is a seekbar for it to move, and the view is neither zoomed nor mid-pinch.
+     *
+     * <p>Its own method, and visible, only so it can be tested: the rest of {@link #handleScrub}
+     * needs a loaded video with a known duration before it does anything observable, so the gate
+     * cannot be reached through a touch event in a unit test. It stays in guard position at the top
+     * of that method — a predicate, not a value handed to something that has already acted on it.
+     */
+    @VisibleForTesting
+    public boolean canScrub(final boolean scalingInProgress) {
+        return scrubEnabled
+                && playerUI != null
+                && scaleFactor <= 1.0f
+                && !scalingInProgress
+                && player != null;
+    }
+
+    /**
      * Handles the horizontal swipe-to-seek (scrub) gesture. Dragging left/right moves the
      * playback position back/forward, mapping a full-width drag to the full video duration.
      *
-     * <p>Only active in the full-screen viewer (when {@code playerUI} exists), when the video is
-     * not pinch-zoomed, and when the horizontal movement clearly dominates the vertical movement
-     * (so vertical swipe-to-dismiss is preserved).
+     * <p>Runs only where {@link #canScrub} allows it, and only when the horizontal movement clearly
+     * dominates the vertical movement (so vertical swipe-to-dismiss is preserved).
      *
      * @return true if this event was consumed by the scrub gesture (so it should not be treated as
      *     a tap).
      */
     private boolean handleScrub(MotionEvent event, int action, boolean scalingInProgress) {
-        // Only scrub in the full-screen viewer, never in any gallery (where horizontal swipes
-        // page between items), and only when not zoomed and not pinching.
-        if (isGalleryContext()
-                || playerUI == null
-                || scaleFactor > 1.0f
-                || scalingInProgress
-                || player == null) {
+        // The end of a gesture is handled whatever canScrub() says by then. A scrub that started
+        // while it allowed one has put CLOSEST_SYNC on the player and turned the parent's touch
+        // interception off, and both have to be undone even if a second finger or a pinch-zoom has
+        // since closed the gate — otherwise every later seek snaps to a keyframe for the life of
+        // the player. Returns false either way: only a MOVE ever consumed the event.
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            endScrub();
+            return false;
+        }
+
+        if (!canScrub(scalingInProgress)) {
+            return false;
+        }
+
+        // canScrub() has already established this, but it is a separate method so the checker
+        // cannot carry the fact across.
+        final SimpleExoPlayer scrubPlayer = player;
+        if (scrubPlayer == null) {
             return false;
         }
 
@@ -906,7 +1096,7 @@ public class ExoVideoView extends RelativeLayout {
             case MotionEvent.ACTION_MOVE: {
                 if (event.getPointerCount() != 1) break;
 
-                final long duration = player.getDuration();
+                final long duration = scrubPlayer.getDuration();
                 if (duration <= 0) break; // Unknown/zero duration (e.g. live) — nothing to scrub.
 
                 final float dx = event.getX() - scrubStartX;
@@ -920,9 +1110,9 @@ public class ExoVideoView extends RelativeLayout {
                         && Math.abs(dx) > Math.abs(dy) * 1.5f) {
                     isScrubbing = true;
                     wasScrubbing = true;
-                    scrubStartPosition = player.getCurrentPosition();
+                    scrubStartPosition = scrubPlayer.getCurrentPosition();
                     // Snap to keyframes while dragging so live preview stays responsive.
-                    player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
+                    scrubPlayer.setSeekParameters(SeekParameters.CLOSEST_SYNC);
                     // Keep the seekbar controls on screen for the whole scrub.
                     showControls();
                     if (getParent() != null) {
@@ -937,7 +1127,7 @@ public class ExoVideoView extends RelativeLayout {
                     long delta = (long) ((dx / width) * duration);
                     scrubTargetPosition =
                             Math.max(0, Math.min(duration, scrubStartPosition + delta));
-                    player.seekTo(scrubTargetPosition);
+                    scrubPlayer.seekTo(scrubTargetPosition);
                     // The seekbar (PlayerControlView) follows the player position automatically,
                     // so seeking is all the visual feedback we need.
                     showControls();
@@ -945,23 +1135,31 @@ public class ExoVideoView extends RelativeLayout {
                 }
                 break;
             }
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_CANCEL: {
-                if (isScrubbing) {
-                    // Restore exact seeking and land precisely on the chosen position.
-                    player.setSeekParameters(SeekParameters.DEFAULT);
-                    player.seekTo(scrubTargetPosition);
-                    // Let the controls fall back to their normal auto-hide behavior.
-                    scheduleControlsHide();
-                    if (getParent() != null) {
-                        getParent().requestDisallowInterceptTouchEvent(false);
-                    }
-                    isScrubbing = false;
-                }
-                break;
-            }
         }
         return scrubHandled;
+    }
+
+    /**
+     * Undoes what a scrub in flight set up, and does nothing when there is no scrub in flight.
+     *
+     * <p>Separate from the gate on purpose: what has to be cleared is decided by whether a scrub
+     * started, not by whether one would be allowed to start now.
+     */
+    private void endScrub() {
+        if (!isScrubbing) {
+            return;
+        }
+        isScrubbing = false;
+        if (player != null) {
+            // Restore exact seeking and land precisely on the chosen position.
+            player.setSeekParameters(SeekParameters.DEFAULT);
+            player.seekTo(scrubTargetPosition);
+        }
+        // Let the controls fall back to their normal auto-hide behavior.
+        scheduleControlsHide();
+        if (getParent() != null) {
+            getParent().requestDisallowInterceptTouchEvent(false);
+        }
     }
 
     /** Shows the seekbar controls and keeps them on screen (cancels any pending auto-hide). */
@@ -990,7 +1188,7 @@ public class ExoVideoView extends RelativeLayout {
         if (scaleGestureDetector == null) return super.onTouchEvent(event);
 
         // Pass event to scale detector FIRST
-        boolean scaleHandledByDetector = scaleGestureDetector.onTouchEvent(event);
+        scaleGestureDetector.onTouchEvent(event);
         boolean scalingInProgress = scaleGestureDetector.isInProgress();
 
         final int action = event.getActionMasked();
@@ -1238,36 +1436,26 @@ public class ExoVideoView extends RelativeLayout {
         return currentRotation;
     }
 
+    /**
+     * Whether the transport controls should be suppressed for this view.
+     *
+     * <p>The activity-name check is not dead weight next to {@link #markVerticalListRow()}: the list
+     * rows mark themselves, but the Album and RedditGallery activities also host a non-row
+     * ExoVideoView — RedditGallery's own full-screen Gif fragment — which has always had its controls
+     * suppressed this way. Removing the check would start showing controls there. It matches on the
+     * activity's simple name, so it covers only those two: AlbumPager and TumblrPager are separate
+     * activities and their Gif pages have always shown the controls.
+     */
     private boolean isVerticalMode() {
+        if (verticalMode) {
+            return true;
+        }
         // Get the context's activity
         Context context = getContext();
         while (context instanceof ContextWrapper) {
             if (context instanceof Activity) {
                 String activityName = context.getClass().getSimpleName();
                 return activityName.equals("Album") || activityName.equals("RedditGallery");
-            }
-            context = ((ContextWrapper) context).getBaseContext();
-        }
-        return false;
-    }
-
-    /**
-     * Returns true when this view lives inside any gallery host activity. Galleries use horizontal
-     * swipes to page between items, so the horizontal scrub gesture must be disabled there. This
-     * covers both the vertical-list galleries (Album, RedditGallery) and the horizontal-swipe pager
-     * galleries (AlbumPager, RedditGalleryPager, Gallery), which would otherwise have a player UI
-     * and incorrectly enable scrubbing.
-     */
-    private boolean isGalleryContext() {
-        Context context = getContext();
-        while (context instanceof ContextWrapper) {
-            if (context instanceof Activity) {
-                String activityName = context.getClass().getSimpleName();
-                return activityName.equals("Album")
-                        || activityName.equals("AlbumPager")
-                        || activityName.equals("RedditGallery")
-                        || activityName.equals("RedditGalleryPager")
-                        || activityName.equals("Gallery");
             }
             context = ((ContextWrapper) context).getBaseContext();
         }

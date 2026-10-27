@@ -2,13 +2,15 @@ package me.edgan.redditslide;
 
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
+import androidx.annotation.Nullable;
+
 import java.util.Calendar;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 import me.edgan.redditslide.Views.CreateCardView;
-import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.ui.settings.SettingsHandlingFragment;
+import me.edgan.redditslide.util.PrefUtil;
 import me.edgan.redditslide.util.SortingUtil;
 import net.dean.jraw.models.CommentSort;
 import net.dean.jraw.paginators.Sorting;
@@ -56,6 +58,8 @@ public class SettingValues {
     public static final String PREF_DRAFTS = "drafts";
     public static final String PREF_SUBREDDIT_FILTERS = "subredditFilters";
     public static final String PREF_ABBREVIATE_SCORES = "abbreviateScores";
+    public static final String PREF_HIBERNATE = "hibernate";
+    public static final String PREF_HIBERNATE_RESUME = "hibernateResume";
     public static final String PREF_HIDE_POST_AWARDS = "hidePostAwards";
     public static final String PREF_HIDE_COMMENT_AWARDS = "hideCommentAwards";
     public static final String PREF_FLAIR_FILTERS = "subFlairFilters";
@@ -85,6 +89,7 @@ public class SettingValues {
     public static final String PREF_HIDE_SUBREDDIT_TABS = "hideSubredditTabs";
     public static final String PREF_SHOW_DOMAIN = "showDomain";
     public static final String PREF_CARD_TEXT = "cardText";
+    public static final String PREF_CARD_TEXT_ELLIPSIZE = "cardTextEllipsize";
     public static final String PREF_ZOOM_DEFAULT = "zoomDefault";
     public static final String PREF_SUBREDDIT_SEARCH_METHOD = "subredditSearchMethod";
     public static final String PREF_BACK_BUTTON_BEHAVIOR = "backButtonBehavior";
@@ -117,17 +122,18 @@ public class SettingValues {
     public static final String PREF_THUMBNAIL_FLAGS = "thumbnailFlags";
     public static final String PREF_IMAGE = "image";
     public static final String PREF_SELFTEXT_IMAGE_COMMENT = "selftextImageComment";
-    public static final String SYNCCIT_AUTH = "SYNCCIT_AUTH";
-    public static final String SYNCCIT_NAME = "SYNCCIT_NAME";
     public static final String PREF_BLUR = "blur";
     public static final String PREF_ALBUM_SWIPE = "albumswipe";
+    public static final String PREF_GALLERY_GRID = "galleryGrid";
     public static final String PREF_COMMENT_NAV = "commentVolumeNav";
     public static final String PREF_COLOR_COMMENT_DEPTH = "colorCommentDepth";
     public static final String PREF_MARKDOWN_NEW_REDDIT = "markdownNewReddit";
+    public static final String PREF_MEGAREDDIT_POST_COUNT = "megaredditPostCount";
     public static final String COMMENT_DEPTH = "commentDepth";
     public static final String COMMENT_COUNT = "commentcount";
     public static final String PREF_USER_FILTERS = "userFilters";
     public static final String PREF_FILTER_OLD_POSTS = "filterOldPosts";
+    public static final String PREF_FILTER_OLD_POSTS_DAYS = "filterOldPostsDays";
     public static final String PREF_COLOR_ICON = "colorIcon";
     public static final String PREF_PEEK = "peek";
     public static final String PREF_NO_PREVIEW_IMAGE_LONGCLICK = "noPreviewImageLongClick";
@@ -139,12 +145,6 @@ public class SettingValues {
     public static final String PREF_LONG_LINK = "shareLongLink";
     public static final String PREF_SELECTED_BROWSER = "selectedBrowser";
     public static final String PREF_SELECTED_DRAWER_ITEMS = "selectedDrawerItems";
-    public static final String PREF_MOD_REMOVAL_TYPE = "removalReasonType";
-    public static final String PREF_MOD_TOOLBOX_ENABLED = "toolboxEnabled";
-    public static final String PREF_MOD_TOOLBOX_MESSAGE = "toolboxMessageType";
-    public static final String PREF_MOD_TOOLBOX_STICKY = "toolboxSticky";
-    public static final String PREF_MOD_TOOLBOX_LOCK = "toolboxLock";
-    public static final String PREF_MOD_TOOLBOX_MODMAIL = "toolboxModmail";
     public static final String PREF_ALWAYS_SHOW_FAB = "alwaysShowFAB";
     public static final String PREF_HIGH_COLORSPACE_IMAGES = "highMemoryImages";
     public static final String PREF_WIDE_COLOR_GAMUT = "wideColorGamut";
@@ -159,33 +159,72 @@ public class SettingValues {
     public static final String PREF_REDDIT_ENABLE_OVERRIDES = "redditEnableOverrides";
     public static final String PREF_DIALOG_COLORED_BORDER = "dialogColoredBorder";
 
-    public static String imageSaveLocation;
+    public static final String PREF_COLLAPSE_BLOCKED_USERS = "collapseBlockedUsers";
+
+    public static String imageSaveLocation = "";
     public static String redditClientIdOverride = "";
     public static String redditRedirectUriOverride = "";
     public static String redditUserAgentOverride = "";
     public static boolean redditEnableOverrides = false;
+    // NullAway.Init on this group and the two below: setAllValues assigns each of them
+    // unconditionally, and Reddit.doMainStuff calls it from Application.onCreate before any
+    // activity, service or receiver in the app can run. Their defaults live there, as the string
+    // passed to getString, rather than being duplicated as an initializer that could drift.
+    @SuppressWarnings("NullAway.Init")
     public static CreateCardView.CardEnum defaultCardView;
+
+    @SuppressWarnings("NullAway.Init") // assigned in setAllValues
     public static Sorting defaultSorting;
+
+    @SuppressWarnings("NullAway.Init") // assigned in setAllValues
     public static Sorting frontpageSorting;
+
+    @SuppressWarnings("NullAway.Init") // assigned in setAllValues
     public static TimePeriod timePeriod;
+
+    @SuppressWarnings("NullAway.Init") // assigned in setAllValues
     public static CommentSort defaultCommentSorting;
     public static boolean middleImage;
-    public static boolean bigPicEnabled;
+    // volatile: read from the background feed-preload thread (PhotoLoader.feedDecodeSize) as well as
+    // the main thread, so both must observe the current value to pick a consistent decode size.
+    public static volatile boolean bigPicEnabled;
     public static boolean bigPicCropped;
     public static boolean bigPicLetterboxed;
+    // Draw a gallery post's images as a grid of thumbnails instead of a single lead image.
+    // volatile for the same reason as bigPicEnabled: PhotoLoader's background preload reads it to
+    // decide whether to warm the grid's tiles or the one lead image.
+    public static volatile boolean galleryGrid;
+    @SuppressWarnings("NullAway.Init") // assigned in setAllValues
     public static ColorMatchingMode colorMatchingMode;
+
+    @SuppressWarnings("NullAway.Init") // assigned in setAllValues
     public static ColorIndicator colorIndicator;
-    public static Palette.ThemeEnum theme;
+
+    @SuppressWarnings("NullAway.Init") // assigned in setAllValues
     public static SharedPreferences prefs;
     public static boolean expandedToolbar;
     public static boolean single;
     public static boolean swap;
     public static boolean album;
     public static boolean cache;
+
+    /**
+     * Resume the whole screen stack, its content and its scroll position on a cold start, instead
+     * of always launching into the first tab with a fresh network load. Off by default: it changes
+     * what the app does on every launch, and a user who has not asked for it should not get it.
+     */
+    public static boolean hibernate;
+
+    /**
+     * The quick toggle in the main overflow menu, which switches resuming off and on without a trip
+     * to Settings. On by default so that enabling the feature in Settings gives a working feature;
+     * it means nothing on its own, only in combination with {@link #hibernate}.
+     */
+    public static boolean hibernateResume;
+
     public static boolean expandedSettings;
     public static boolean fabComments;
     public static boolean largeDepth;
-    public static boolean cacheDefault;
     public static boolean image;
     public static boolean video;
     public static boolean upvotePercentage;
@@ -196,9 +235,13 @@ public class SettingValues {
     public static boolean commentAutoHide;
     public static boolean showCollapseExpand;
     public static boolean fullCommentOverride;
-    public static boolean lowResAlways;
-    public static boolean noImages;
-    public static boolean lowResMobile;
+    // volatile: read from the background feed-preload thread (PhotoLoader.resolveFeedImageUrl picks
+    // the low-res image URL) as well as the main thread, so both must observe the current value.
+    public static volatile boolean lowResAlways;
+    // volatile: gates the feed image preload on background threads (SubredditPosts/MultiredditPosts
+    // data-saving check, CommentCacheAsync) as well as being read on the main thread.
+    public static volatile boolean noImages;
+    public static volatile boolean lowResMobile;
     public static boolean blurCheck;
     public static boolean readerNight;
     public static boolean swipeAnywhere;
@@ -216,6 +259,12 @@ public class SettingValues {
     public static boolean hqgif;
     public static boolean colorCommentDepth;
     public static boolean markdownNewReddit;
+
+    /**
+     * Whether a Megareddit's tab carries the number of r/all posts the last Subreddits count found,
+     * as {@code CuteAnimals(33)}. Off by default: the number is only as fresh as that count.
+     */
+    public static boolean megaredditPostCount;
     public static boolean commentVolumeNav;
     public static boolean postNav;
     public static boolean cropImage;
@@ -242,16 +291,13 @@ public class SettingValues {
 
     public static int previews;
 
-    public static String synccitName;
-    public static String synccitAuth;
-
-    public static Set<String> titleFilters;
-    public static Set<String> textFilters;
-    public static Set<String> domainFilters;
-    public static Set<String> subredditFilters;
-    public static Set<String> flairFilters;
-    public static Set<String> alwaysExternal;
-    public static Set<String> userFilters;
+    public static Set<String> titleFilters = new HashSet<>();
+    public static Set<String> textFilters = new HashSet<>();
+    public static Set<String> domainFilters = new HashSet<>();
+    public static Set<String> subredditFilters = new HashSet<>();
+    public static Set<String> flairFilters = new HashSet<>();
+    public static Set<String> alwaysExternal = new HashSet<>();
+    public static Set<String> userFilters = new HashSet<>();
 
     public static boolean loadImageLq;
     public static boolean ignoreSubSetting;
@@ -280,7 +326,9 @@ public class SettingValues {
     public static boolean autoTime;
     public static boolean albumSwipe;
     public static boolean switchThumb;
-    public static boolean bigThumbnails;
+    // volatile: read from the background feed-preload thread (PhotoLoader.feedImageWidth) as well as
+    // the main thread, so both must observe the current value to pick a consistent thumbnail size.
+    public static volatile boolean bigThumbnails;
     public static boolean noThumbnails;
     public static boolean commentPager;
     public static boolean alphabetizeOnSubscribe;
@@ -291,9 +339,15 @@ public class SettingValues {
     public static boolean oldSwipeMode;
     public static boolean showDomain;
     public static boolean cardText;
+    // The card's selftext preview: false shows the whole first paragraph, true ellipsizes it to
+    // its first CARD_TEXT_ELLIPSIZE_CHARS characters.
+    public static boolean cardTextEllipsize;
+    public static final int CARD_TEXT_ELLIPSIZE_CHARS = 128;
     public static boolean alwaysZoom;
-    public static boolean lqLow = false;
-    public static boolean lqMid = true;
+    // volatile: read from the background feed-preload thread (PhotoLoader.getLowQualityUrl selects
+    // the low-res variation) as well as the main thread, so both must observe the current value.
+    public static volatile boolean lqLow = false;
+    public static volatile boolean lqMid = true;
     public static boolean lqHigh = false;
     public static boolean lqVideos;
     public static int currentTheme; // current base theme (Light, Dark, Dark blue, etc.)
@@ -309,39 +363,40 @@ public class SettingValues {
     public static boolean commentEmoteAnimation;
     public static boolean highlightCommentOP;
     public static boolean highlightTime;
-    public static String selectedBrowser;
+    public static String selectedBrowser = "";
     public static long selectedDrawerItems;
     public static ForcedState forcedNightModeState = ForcedState.NOT_FORCED;
-    public static boolean toolboxEnabled;
-    public static int removalReasonType;
-    public static int toolboxMessageType;
-    public static boolean toolboxSticky;
-    public static boolean toolboxLock;
-    public static boolean toolboxModmail;
     public static boolean alwaysShowFAB;
     public static boolean alwaysBlackStatusbar;
     public static boolean subredditFiltersTillRestart;
     public static boolean subredditFilterPrefixMatching;
+    public static boolean collapseBlockedUsers;
     public static boolean filterOldPosts;
+    public static int filterOldPostsDays;
     public static boolean dialogColoredBorder;
     public static boolean hideSubredditTabs;
 
     public static void setAllValues(SharedPreferences settings) {
         prefs = settings;
 
-        imageSaveLocation = prefs.getString(PREF_IMAGE_SAVE_LOCATION, "");
-        redditClientIdOverride = settings.getString(PREF_REDDIT_CLIENT_ID_OVERRIDE, "");
-        redditRedirectUriOverride = settings.getString(PREF_REDDIT_REDIRECT_URI_OVERRIDE, "");
-        redditUserAgentOverride = settings.getString(PREF_REDDIT_USER_AGENT_OVERRIDE, "");
+        imageSaveLocation = PrefUtil.getString(prefs, PREF_IMAGE_SAVE_LOCATION, "");
+        redditClientIdOverride =
+                PrefUtil.getString(settings, PREF_REDDIT_CLIENT_ID_OVERRIDE, "");
+        redditRedirectUriOverride =
+                PrefUtil.getString(settings, PREF_REDDIT_REDIRECT_URI_OVERRIDE, "");
+        redditUserAgentOverride =
+                PrefUtil.getString(settings, PREF_REDDIT_USER_AGENT_OVERRIDE, "");
         redditEnableOverrides = settings.getBoolean(PREF_REDDIT_ENABLE_OVERRIDES, false);
         defaultCardView =
                 CreateCardView.CardEnum.valueOf(
-                        settings.getString("defaultCardViewNew", "LARGE").toUpperCase());
+                        PrefUtil.getString(settings, "defaultCardViewNew", "LARGE")
+                                .toUpperCase(Locale.ENGLISH));
         middleImage = settings.getBoolean("middleCard", true);
 
         bigPicCropped = settings.getBoolean("bigPicCropped", false);
         bigPicLetterboxed = settings.getBoolean("bigPicLetterboxed", false);
         bigPicEnabled = settings.getBoolean("bigPicEnabled", true);
+        galleryGrid = settings.getBoolean(PREF_GALLERY_GRID, false);
 
         alwaysShowFAB = settings.getBoolean("alwaysShowFAB", false);
 
@@ -349,14 +404,18 @@ public class SettingValues {
 
         colorMatchingMode =
                 ColorMatchingMode.valueOf(
-                        settings.getString("ccolorMatchingModeNew", "MATCH_EXTERNALLY"));
+                        PrefUtil.getString(
+                                settings, "ccolorMatchingModeNew", "MATCH_EXTERNALLY"));
         colorIndicator =
-                ColorIndicator.valueOf(settings.getString("colorIndicatorNew", "CARD_BACKGROUND"));
-        defaultSorting = Sorting.valueOf(settings.getString("defaultSorting", "HOT"));
-        frontpageSorting = Sorting.valueOf(settings.getString("frontpageSorting", "BEST"));
-        timePeriod = TimePeriod.valueOf(settings.getString("timePeriod", "DAY"));
+                ColorIndicator.valueOf(
+                        PrefUtil.getString(settings, "colorIndicatorNew", "CARD_BACKGROUND"));
+        defaultSorting = Sorting.valueOf(PrefUtil.getString(settings, "defaultSorting", "HOT"));
+        frontpageSorting =
+                Sorting.valueOf(PrefUtil.getString(settings, "frontpageSorting", "BEST"));
+        timePeriod = TimePeriod.valueOf(PrefUtil.getString(settings, "timePeriod", "DAY"));
         defaultCommentSorting =
-                CommentSort.valueOf(settings.getString("defaultCommentSortingNew", "CONFIDENCE"));
+                CommentSort.valueOf(
+                        PrefUtil.getString(settings, "defaultCommentSortingNew", "CONFIDENCE"));
         showNSFWContent = prefs.getBoolean(PREF_SHOW_NSFW_CONTENT, false);
         hideNSFWCollection = prefs.getBoolean(PREF_HIDE_NSFW_COLLECTION, true);
         ignoreSubSetting = prefs.getBoolean(PREF_IGNORE_SUB_SETTINGS, true);
@@ -413,11 +472,13 @@ public class SettingValues {
         autoTime = prefs.getBoolean(PREF_AUTOTHEME, false);
         colorBack = prefs.getBoolean(PREF_COLOR_BACK, false);
         cardText = prefs.getBoolean(PREF_CARD_TEXT, false);
+        cardTextEllipsize = prefs.getBoolean(PREF_CARD_TEXT_ELLIPSIZE, false);
         colorNavBar = prefs.getBoolean(PREF_COLOR_NAV_BAR, false);
         shareLongLink = prefs.getBoolean(PREF_LONG_LINK, false);
         colorEverywhere = prefs.getBoolean(PREF_COLOR_EVERYWHERE, true);
         colorCommentDepth = prefs.getBoolean(PREF_COLOR_COMMENT_DEPTH, true);
         markdownNewReddit = prefs.getBoolean(PREF_MARKDOWN_NEW_REDDIT, true);
+        megaredditPostCount = prefs.getBoolean(PREF_MEGAREDDIT_POST_COUNT, false);
         alwaysZoom = prefs.getBoolean(PREF_ZOOM_DEFAULT, true);
         collapseComments = prefs.getBoolean(PREF_COLLAPSE_COMMENTS, false);
         collapseCommentsDefault = prefs.getBoolean(PREF_COLLAPSE_COMMENTS_DEFAULT, false);
@@ -458,24 +519,29 @@ public class SettingValues {
         alphabetizeOnSubscribe = prefs.getBoolean(PREF_ALPHABETIZE_SUBSCRIBE, false);
 
         commentPager = prefs.getBoolean(PREF_COMMENT_PAGER, false);
-        // Remove the old boolean preference for smallTag to prevent ClassCastException
-        // Remove the old boolean preference for smallTag to prevent ClassCastException
-        if (prefs.contains("smallTag") && (prefs.getAll().get("smallTag") instanceof Boolean)) {
-            prefs.edit().remove("smallTag").apply();
+        // Remove the old boolean preference for smallTag to prevent ClassCastException.
+        // Probe the key directly rather than via getAll(), which copies the whole SETTINGS map
+        // (one entry per visited subreddit) on the launch thread just to read one value.
+        if (prefs.contains("smallTag")) {
+            try {
+                prefs.getBoolean("smallTag", false);
+                prefs.edit().remove("smallTag").apply();
+            } catch (ClassCastException ignored) {
+                // Not a Boolean, so not the stale preference; leave it alone.
+            }
         }
         smallTag = prefs.getInt(PREF_SMALL_TAG_DROPDOWN, 0);
         swap = prefs.getBoolean(PREF_SWAP, false);
         hideSelftextLeadImage = prefs.getBoolean(PREF_SELFTEXT_IMAGE_COMMENT, false);
         image = prefs.getBoolean(PREF_IMAGE, true);
         cache = true;
-        cacheDefault = false;
+        hibernate = prefs.getBoolean(PREF_HIBERNATE, false);
+        hibernateResume = prefs.getBoolean(PREF_HIBERNATE_RESUME, true);
         storeHistory = prefs.getBoolean(PREF_STORE_HISTORY, true);
         upvotePercentage = prefs.getBoolean(PREF_UPVOTE_PERCENTAGE, false);
         storeNSFWHistory = prefs.getBoolean(PREF_STORE_NSFW_HISTORY, false);
         scrollSeen = prefs.getBoolean(PREF_SCROLL_SEEN, false);
         debugBreakReauth = prefs.getBoolean(PREF_DEBUG_BREAK_REAUTH, false);
-        synccitName = prefs.getString(SYNCCIT_NAME, "");
-        synccitAuth = prefs.getString(SYNCCIT_AUTH, "");
         notifSound = prefs.getBoolean(PREF_SOUND_NOTIFS, false);
         pauseOnAudioFocus = prefs.getBoolean(PREF_PAUSE_ON_AUDIO_FOCUS, false);
         cookies = prefs.getBoolean(PREF_COOKIES, true);
@@ -495,14 +561,15 @@ public class SettingValues {
 
         // SharedPreferences' StringSets should never be modified, so we duplicate them into a new
         // HashSet
-        titleFilters = new HashSet<>(prefs.getStringSet(PREF_TITLE_FILTERS, new HashSet<>()));
-        textFilters = new HashSet<>(prefs.getStringSet(PREF_TEXT_FILTERS, new HashSet<>()));
-        domainFilters = new HashSet<>(prefs.getStringSet(PREF_DOMAIN_FILTERS, new HashSet<>()));
+        titleFilters = PrefUtil.getMutableStringSet(prefs, PREF_TITLE_FILTERS, new HashSet<>());
+        textFilters = PrefUtil.getMutableStringSet(prefs, PREF_TEXT_FILTERS, new HashSet<>());
+        domainFilters = PrefUtil.getMutableStringSet(prefs, PREF_DOMAIN_FILTERS, new HashSet<>());
         subredditFilters =
-                new HashSet<>(prefs.getStringSet(PREF_SUBREDDIT_FILTERS, new HashSet<>()));
-        alwaysExternal = new HashSet<>(prefs.getStringSet(PREF_ALWAYS_EXTERNAL, new HashSet<>()));
-        flairFilters = new HashSet<>(prefs.getStringSet(PREF_FLAIR_FILTERS, new HashSet<>()));
-        userFilters = new HashSet<>(prefs.getStringSet(PREF_USER_FILTERS, new HashSet<>()));
+                PrefUtil.getMutableStringSet(prefs, PREF_SUBREDDIT_FILTERS, new HashSet<>());
+        alwaysExternal =
+                PrefUtil.getMutableStringSet(prefs, PREF_ALWAYS_EXTERNAL, new HashSet<>());
+        flairFilters = PrefUtil.getMutableStringSet(prefs, PREF_FLAIR_FILTERS, new HashSet<>());
+        userFilters = PrefUtil.getMutableStringSet(prefs, PREF_USER_FILTERS, new HashSet<>());
 
         portraitColumns = prefs.getInt(PREF_PORTRAIT_COLUMNS, 1);
         singleColumnMultiWindow = prefs.getBoolean(PREF_SINGLE_COLUMN_MULTI, false);
@@ -511,7 +578,13 @@ public class SettingValues {
         cropImage = prefs.getBoolean(PREF_CROP_IMAGE, true);
         switchThumb = prefs.getBoolean(PREF_SWITCH_THUMB, true);
         bigThumbnails = prefs.getBoolean(PREF_BIG_THUMBS, false);
-        noThumbnails = prefs.getBoolean(PREF_NO_THUMB, false);
+        // The no-thumbnail picture mode is exclusive with the three big-picture modes
+        // (setNoThumbnails turns all of them off), so a stored true alongside bigPicEnabled
+        // can only be a leftover from the setters that used to persist it. Honouring it
+        // there sized every thumbnail to 0dp while the Picture mode row still read "Big
+        // picture", so a post with no preview image (a selftext post whose only image is
+        // inline) drew nothing at all.
+        noThumbnails = prefs.getBoolean(PREF_NO_THUMB, false) && !bigPicEnabled;
 
         swipeAnywhere = true; // override this always now
         album = prefs.getBoolean(PREF_ALBUM, true);
@@ -532,22 +605,34 @@ public class SettingValues {
         colorIcon = prefs.getBoolean(PREF_COLOR_ICON, false);
         peek = prefs.getBoolean(PREF_PEEK, false);
         noPreviewImageLongClick = prefs.getBoolean(PREF_NO_PREVIEW_IMAGE_LONGCLICK, true);
-        selectedBrowser = prefs.getString(PREF_SELECTED_BROWSER, "");
+        selectedBrowser = PrefUtil.getString(prefs, PREF_SELECTED_BROWSER, "");
         selectedDrawerItems = prefs.getLong(PREF_SELECTED_DRAWER_ITEMS, -1);
-
-        toolboxEnabled = prefs.getBoolean(PREF_MOD_TOOLBOX_ENABLED, false);
-        removalReasonType = prefs.getInt(PREF_MOD_REMOVAL_TYPE, RemovalReasonType.SLIDE.ordinal());
-        toolboxMessageType =
-                prefs.getInt(PREF_MOD_TOOLBOX_MESSAGE, ToolboxRemovalMessageType.COMMENT.ordinal());
-        toolboxSticky = prefs.getBoolean(PREF_MOD_TOOLBOX_STICKY, false);
-        toolboxLock = prefs.getBoolean(PREF_MOD_TOOLBOX_LOCK, false);
-        toolboxModmail = prefs.getBoolean(PREF_MOD_TOOLBOX_MODMAIL, false);
 
         subredditFiltersTillRestart = prefs.getBoolean(PREF_SUBREDDIT_FILTERS_TILL_RESTART, true);
         subredditFilterPrefixMatching = prefs.getBoolean(PREF_SUBREDDIT_FILTER_PREFIX_MATCHING, false);
+        collapseBlockedUsers = prefs.getBoolean(PREF_COLLAPSE_BLOCKED_USERS, false);
         filterOldPosts = prefs.getBoolean(PREF_FILTER_OLD_POSTS, false);
+        filterOldPostsDays = prefs.getInt(PREF_FILTER_OLD_POSTS_DAYS, 30);
         dialogColoredBorder = prefs.getBoolean(PREF_DIALOG_COLORED_BORDER, false);
         hideSubredditTabs = prefs.getBoolean(PREF_HIDE_SUBREDDIT_TABS, false);
+    }
+
+    /**
+     * The entry a "filter this flair in this subreddit" row is stored under in {@link
+     * #flairFilters}: the subreddit and the flair, each lowercased and trimmed on its own, joined
+     * by a colon.
+     *
+     * <p>One helper for every site on purpose. The read-back that pre-checks the filter dialog's
+     * box and the write behind it used to build this string differently — the write lowercased and
+     * trimmed the joined string, so a flair with leading whitespace ended up under a key the read
+     * never asked for and the box opened unchecked while the filter was live. Trimming each half
+     * before the join also stops a whitespace-only flair from producing a bare {@code
+     * "subreddit:"}, which {@link PostMatch#doesMatch} has to skip.
+     */
+    public static String flairFilterKey(String subreddit, String flair) {
+        return subreddit.toLowerCase(Locale.ENGLISH).trim()
+                + ":"
+                + flair.toLowerCase(Locale.ENGLISH).trim();
     }
 
     public static void setPicsEnabled(String sub, boolean checked) {
@@ -558,13 +643,13 @@ public class SettingValues {
         prefs.edit().remove("picsenabled" + sub.toLowerCase(Locale.ENGLISH)).apply();
     }
 
-    public static boolean isPicsEnabled(String subreddit) {
+    public static boolean isPicsEnabled(@Nullable String subreddit) {
         if (subreddit == null) return bigPicEnabled;
         return prefs.getBoolean(
                 "picsenabled" + subreddit.toLowerCase(Locale.ENGLISH), bigPicEnabled);
     }
 
-    public static boolean isSelftextEnabled(String subreddit) {
+    public static boolean isSelftextEnabled(@Nullable String subreddit) {
         if (subreddit == null) return cardText;
         return prefs.getBoolean(
                 "cardtextenabled" + subreddit.toLowerCase(Locale.ENGLISH), cardText);
@@ -574,6 +659,17 @@ public class SettingValues {
         prefs.edit()
                 .putBoolean("cardtextenabled" + sub.toLowerCase(Locale.ENGLISH), checked)
                 .apply();
+    }
+
+    /**
+     * Whether the hibernate/resume feature should act right now: enabled in Settings
+     * ({@link #hibernate}) and not switched off from the main overflow menu
+     * ({@link #hibernateResume}).
+     *
+     * @return true if the app should record and restore where the user left off.
+     */
+    public static boolean hibernateActive() {
+        return hibernate && hibernateResume;
     }
 
     public static boolean getIsNSFWEnabled() {
@@ -618,9 +714,13 @@ public class SettingValues {
                 .apply();
     }
 
-    public static CommentSort getCommentSorting(String sub) {
+    public static CommentSort getCommentSorting(@Nullable String sub) {
+        // Matches hasCommentSort: with no subreddit there is no per-subreddit override to read,
+        // so this is the same answer as a subreddit that never had one set.
+        if (sub == null) return defaultCommentSorting;
         return CommentSort.valueOf(
-                prefs.getString(
+                PrefUtil.getString(
+                        prefs,
                         "defaultComment" + sub.toLowerCase(Locale.ENGLISH),
                         defaultCommentSorting.name()));
     }
@@ -639,14 +739,16 @@ public class SettingValues {
         String subreddit = sub.toLowerCase(Locale.ENGLISH);
         if (sub.equals("frontpage")) {
             return Sorting.valueOf(
-                    prefs.getString(
+                    PrefUtil.getString(
+                            prefs,
                             "frontpageSort" + sub.toLowerCase(Locale.ENGLISH),
                             SortingUtil.frontpageSorting.name()));
         } else if (SortingUtil.sorting.containsKey(subreddit)) {
             return SortingUtil.sorting.get(subreddit);
         } else {
             return Sorting.valueOf(
-                    prefs.getString(
+                    PrefUtil.getString(
+                            prefs,
                             "defaultSort" + sub.toLowerCase(Locale.ENGLISH),
                             SortingUtil.defaultSorting.name()));
         }
@@ -658,7 +760,8 @@ public class SettingValues {
             return SortingUtil.times.get(subreddit);
         } else {
             return TimePeriod.valueOf(
-                    prefs.getString(
+                    PrefUtil.getString(
+                            prefs,
                             "defaultTime" + sub.toLowerCase(Locale.ENGLISH),
                             SortingUtil.timePeriod.name()));
         }
@@ -711,37 +814,30 @@ public class SettingValues {
 
     public static Sorting getBaseSubmissionSort(String sub) {
         return Sorting.valueOf(
-                prefs.getString(
+                PrefUtil.getString(
+                        prefs,
                         "defaultSort" + sub.toLowerCase(Locale.ENGLISH),
                         SortingUtil.defaultSorting.name()));
     }
 
     public static TimePeriod getBaseTimePeriod(String sub) {
         return TimePeriod.valueOf(
-                prefs.getString(
+                PrefUtil.getString(
+                        prefs,
                         "defaultTime" + sub.toLowerCase(Locale.ENGLISH),
                         SortingUtil.timePeriod.name()));
     }
 
-    public static boolean hasSort(String subreddit) {
+    public static boolean hasSort(@Nullable String subreddit) {
+        // No subreddit means no per-subreddit override to find, the same as one that was never
+        // set. Concatenating a null would look for a key spelled "defaultSortnull".
+        if (subreddit == null) return false;
         return prefs.contains("defaultSort" + subreddit.toLowerCase(Locale.ENGLISH));
     }
 
-    public static boolean hasCommentSort(String subreddit) {
+    public static boolean hasCommentSort(@Nullable String subreddit) {
+        if (subreddit == null) return false;
         return prefs.contains("defaultComment" + subreddit.toLowerCase(Locale.ENGLISH));
-    }
-
-    public enum RemovalReasonType {
-        SLIDE,
-        TOOLBOX,
-        REDDIT
-    }
-
-    public enum ToolboxRemovalMessageType {
-        COMMENT,
-        PM,
-        BOTH,
-        NONE
     }
 
     public enum ColorIndicator {

@@ -10,6 +10,7 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import androidx.activity.result.ActivityResultLauncher;
+import androidx.annotation.Nullable;
 import androidx.appcompat.widget.Toolbar;
 import com.canhub.cropper.CropImageContract;
 import com.canhub.cropper.CropImageContractOptions;
@@ -24,27 +25,28 @@ import java.io.IOException;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.Views.CanvasView;
-import me.edgan.redditslide.Views.DoEditorActions;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.BlendModeUtil;
 import me.edgan.redditslide.util.FileUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 5/27/2015. */
+@NullMarked
 public class Draw extends BaseActivity {
 
+    @SuppressWarnings("NullAway.Init") // DoEditorActions assigns Draw.uri before starting this activity
     public static Uri uri;
-    public static DoEditorActions editor;
     CanvasView drawView;
     View color;
-    Bitmap bitmap;
+    @Nullable Bitmap bitmap;
     boolean enabled;
     private final ActivityResultLauncher<CropImageContractOptions> cropImageLauncher =
             registerForActivityResult(new CropImageContract(), this::cropImageResult);
 
     @Override
-    public void onCreate(Bundle savedInstance) {
+    public void onCreate(@Nullable Bundle savedInstance) {
         overrideSwipeFromAnywhere();
         disableSwipeBackLayout();
         super.onCreate(savedInstance);
@@ -52,15 +54,15 @@ public class Draw extends BaseActivity {
         setContentView(R.layout.activity_draw);
         MiscUtil.setupOldSwipeModeBackground(this, getWindow().getDecorView());
 
-        drawView = (CanvasView) findViewById(R.id.paintView);
+        drawView = (CanvasView) requireViewById(R.id.paintView);
         drawView.setBaseColor(Color.parseColor("#303030"));
-        color = findViewById(R.id.color);
+        color = requireViewById(R.id.color);
         CropImageOptions cropImageOptions = new CropImageOptions();
         cropImageOptions.guidelines = CropImageView.Guidelines.ON;
         final CropImageContractOptions options =
                 new CropImageContractOptions(uri, cropImageOptions);
         cropImageLauncher.launch(options);
-        setSupportActionBar((Toolbar) findViewById(R.id.toolbar));
+        setSupportActionBar((Toolbar) requireViewById(R.id.toolbar));
         setupAppBar(R.id.toolbar, "", true, Color.parseColor("#212121"), R.id.toolbar);
     }
 
@@ -76,6 +78,13 @@ public class Draw extends BaseActivity {
             getOnBackPressedDispatcher().onBackPressed();
         }
         if (id == R.id.done && enabled) {
+            // CanvasView.getBitmap() wraps getDrawingCache(), which is null until the view has
+            // been measured and drawn -- Bitmap.createBitmap(null) then threw the NPE the catch
+            // below swallowed. Decide before opening a file rather than after.
+            final Bitmap drawn = drawView.getBitmap();
+            if (drawn == null) {
+                return super.onOptionsItemSelected(item);
+            }
             File image; // image to share
             // check to see if the cache/shared_images directory is present
             final File imagesDir =
@@ -96,7 +105,7 @@ public class Draw extends BaseActivity {
                     // convert image to png
                     out = new FileOutputStream(image);
                     Bitmap.createBitmap(
-                                    drawView.getBitmap(),
+                                    drawn,
                                     0,
                                     (int) drawView.height,
                                     (int) drawView.right,
@@ -117,7 +126,7 @@ public class Draw extends BaseActivity {
                         finish();
                     }
                 }
-            } catch (IOException | NullPointerException e) {
+            } catch (IOException e) {
                 LogUtil.e(e, "Draw.onOptionsItemSelected failed");
                 // todo error Toast.makeText(this, getString(R.string.err_share_image),
                 // Toast.LENGTH_LONG).show();
@@ -137,8 +146,9 @@ public class Draw extends BaseActivity {
     }
 
     private void cropImageResult(final CropImageView.CropResult result) {
-        if (result.isSuccessful()) {
-            bitmap = result.getBitmap(this).copy(Bitmap.Config.RGB_565, true);
+        final Bitmap cropped = result.isSuccessful() ? result.getBitmap(this) : null;
+        if (cropped != null) {
+            bitmap = cropped.copy(Bitmap.Config.RGB_565, true);
             BlendModeUtil.tintDrawableAsModulate(color.getBackground(), getLastColor());
             color.setOnClickListener(v -> showColorPicker());
             drawView.drawBitmap(bitmap);

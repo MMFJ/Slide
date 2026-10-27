@@ -29,10 +29,13 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import me.edgan.redditslide.ActionStates;
+import me.edgan.redditslide.Flair.RichFlairParser;
+import me.edgan.redditslide.Flair.Richtext;
 import me.edgan.redditslide.R;
+import me.edgan.redditslide.SavedUsers;
 import me.edgan.redditslide.SettingValues;
-import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.UserTags;
+import me.edgan.redditslide.Views.RichFlairSpan;
 import me.edgan.redditslide.Views.RoundedBackgroundSpan;
 import me.edgan.redditslide.Visuals.FontPreferences;
 import me.edgan.redditslide.markdown.MarkdownImages;
@@ -53,6 +56,7 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
     private String search = "";
 
     /// ... other methods
+    @SuppressWarnings("NullAway.Init") // assigned in publishResults
     private List<CommentNode> dataSet;
 
     public CommentAdapterSearch(Context mContext, List<CommentNode> dataSet) {
@@ -116,7 +120,7 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
 
         String scoreText;
         if (comment.isScoreHidden()) {
-            scoreText = "[" + mContext.getString(R.string.misc_score_hidden).toUpperCase() + "]";
+            scoreText = "[" + mContext.getString(R.string.misc_score_hidden).toUpperCase(Locale.getDefault()) + "]";
         } else {
             scoreText = String.format(Locale.getDefault(), "%d", comment.getScore() + offset);
         }
@@ -151,11 +155,11 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
                         : ""));
         titleString.append("  ");
 
-        if (comment.getDataNode().get("stickied").asBoolean()) {
+        if (comment.getDataNode().path("stickied").asBoolean()) {
             SpannableStringBuilder pinned =
                     new SpannableStringBuilder(
                             "\u00A0"
-                                    + mContext.getString(R.string.submission_stickied).toUpperCase()
+                                    + mContext.getString(R.string.submission_stickied).toUpperCase(Locale.getDefault())
                                     + "\u00A0");
             pinned.setSpan(
                     new RoundedBackgroundSpan(
@@ -202,7 +206,7 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
                     comment.getTimesPlatinized(),
                     R.drawable.platinum);
         }
-        if (UserSubscriptions.friends.contains(comment.getAuthor())) {
+        if (SavedUsers.isFriend(MiscUtil.orEmpty(comment.getAuthor()))) {
             SpannableStringBuilder pinned =
                     new SpannableStringBuilder(
                             "\u00A0" + mContext.getString(R.string.profile_friend) + "\u00A0");
@@ -215,7 +219,26 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
             titleString.append(pinned);
             titleString.append(" ");
         }
-        if (comment.getAuthorFlair() != null
+        // Reddit's modern flair shape, which can mix text runs with emoji images. Only taken when
+        // there is an emoji to draw; a text-only flair keeps the plain pill below unchanged.
+        final List<Richtext> authorSegments =
+                RichFlairParser.from(comment.getDataNode(), RichFlairParser.AUTHOR_FLAIR_RICHTEXT);
+
+        if (RichFlairParser.hasEmoji(authorSegments)) {
+            TypedValue typedValue = new TypedValue();
+            Resources.Theme theme = mContext.getTheme();
+            theme.resolveAttribute(R.attr.activity_background, typedValue, true);
+            int color = typedValue.data;
+
+            titleString.append(
+                    RichFlairSpan.chip(
+                            authorSegments,
+                            holder.firstTextView.getCurrentTextColor(),
+                            color,
+                            false,
+                            mContext));
+            titleString.append(" ");
+        } else if (comment.getAuthorFlair() != null
                 && comment.getAuthorFlair().getText() != null
                 && !comment.getAuthorFlair().getText().isEmpty()) {
             TypedValue typedValue = new TypedValue();
@@ -237,6 +260,7 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
             titleString.append(" ");
         }
         holder.content.setText(titleString);
+        RichFlairSpan.refill(holder.content);
     }
 
     @Override
@@ -250,9 +274,9 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
         doScoreText(holder, comment, 0);
 
         if (baseNode.isTopLevel()) {
-            holder.itemView.findViewById(R.id.next).setVisibility(View.VISIBLE);
+            holder.itemView.requireViewById(R.id.next).setVisibility(View.VISIBLE);
         } else {
-            holder.itemView.findViewById(R.id.next).setVisibility(View.GONE);
+            holder.itemView.requireViewById(R.id.next).setVisibility(View.GONE);
         }
 
         String body = SubmissionParser.replaceProcessingImgPlaceholders(
@@ -272,13 +296,13 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
 
         if (SettingValues.markdownNewReddit) {
             setViewsMarkdown(
-                    comment.getDataNode().get("body").asText(),
+                    comment.getDataNode().path("body").asText(),
                     comment.getDataNode().path("body_html").asText(""),
                     comment.getDataNode(),
-                    comment.getSubredditName(),
+                    MiscUtil.orEmpty(comment.getSubredditName()),
                     holder);
         } else {
-            setViews(body, comment.getSubredditName(), holder);
+            setViews(body, MiscUtil.orEmpty(comment.getSubredditName()), holder);
         }
 
         holder.childrenNumber.setVisibility(View.GONE);
@@ -308,10 +332,9 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
                     }
                 });
 
-        holder.itemView.findViewById(R.id.dot).setVisibility(View.VISIBLE);
+        holder.itemView.requireViewById(R.id.dot).setVisibility(View.VISIBLE);
 
         if (baseNode.getDepth() - 1 > 0) {
-            View v = holder.itemView.findViewById(R.id.dot);
             int i22 = baseNode.getDepth() - 2;
             if (i22 % 5 == 0) {
                 holder.dot.setBackgroundColor(
@@ -332,7 +355,7 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
                 holder.dot.setBackgroundColor(ContextCompat.getColor(mContext, R.color.md_red_500));
             }
         } else {
-            holder.itemView.findViewById(R.id.dot).setVisibility(View.GONE);
+            holder.itemView.requireViewById(R.id.dot).setVisibility(View.GONE);
         }
     }
 
@@ -435,7 +458,7 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
                     final Comment comment = user.getComment();
                     final String body =
                             StringEscapeUtils.unescapeHtml4(
-                                    comment.getBody().toLowerCase(Locale.ENGLISH));
+                                    MiscUtil.orEmpty(comment.getBody()).toLowerCase(Locale.ENGLISH));
                     final String author =
                             comment.getAuthor() == null
                                     ? ""
@@ -453,8 +476,9 @@ public class CommentAdapterSearch extends RecyclerView.Adapter<RecyclerView.View
         @Override
         protected void publishResults(CharSequence constraint, FilterResults results) {
 
-            adapter.dataSet = new ArrayList<>();
-            adapter.dataSet.addAll((ArrayList<CommentNode>) results.values);
+            // results.values is the same filteredList this filter just built, but FilterResults
+            // types it as Object; copying the typed field instead avoids casting it back.
+            adapter.dataSet = new ArrayList<>(filteredList);
             adapter.notifyDataSetChanged();
         }
     }

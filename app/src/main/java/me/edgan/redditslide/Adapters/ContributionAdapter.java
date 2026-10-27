@@ -14,6 +14,7 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import com.devspark.robototextview.RobotoTypefaces;
@@ -38,6 +39,7 @@ import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.markdown.MarkdownImages;
 import me.edgan.redditslide.util.CompatUtil;
 import me.edgan.redditslide.util.MiscUtil;
+import me.edgan.redditslide.util.SavedCommentActions;
 import me.edgan.redditslide.util.SubmissionParser;
 import me.edgan.redditslide.util.TimeUtils;
 import net.dean.jraw.models.Comment;
@@ -56,10 +58,17 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
     public GeneralPosts dataSet;
 
     // Search/filter state
-    private ArrayList<Contribution> originalData = null;
-    private ArrayList<Contribution> filteredData = null;
-    private String currentQuery = null;
-    private String currentWhere = null;
+    /**
+     * The rows a search narrowed the listing down to, or {@code null} when no search is running.
+     *
+     * <p>The listing itself stays in {@code dataSet.posts} throughout. It used to be overwritten
+     * with this subset, which is why a search had to load the whole history before it could filter
+     * anything: the first filtered page became the list the next page appended to, and the rest of
+     * the listing was gone.
+     */
+    @Nullable private ArrayList<Contribution> filteredData = null;
+    @Nullable private String currentQuery = null;
+    @Nullable private String currentWhere = null;
 
     public ContributionAdapter(Activity mContext, GeneralPosts dataSet, RecyclerView listView) {
         this.mContext = mContext;
@@ -79,23 +88,27 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
     }
 
     private final int LOADING_SPINNER = 5;
+    /** Shown in place of the footer when a search is active and has matched nothing. */
+    private static final int NO_RESULTS = 7;
     private final int NO_MORE = 3;
 
     @Override
     public int getItemViewType(int position) {
-        if (position == 0 && !dataSet.posts.isEmpty()) {
+        final ArrayList<Contribution> rows = visible();
+        if (position == 0) {
             return SPACER;
-        } else if (!dataSet.posts.isEmpty()) {
-            position -= 1;
         }
-        // When filter is active, footer is not shown (handled in getItemCount)
-        // Otherwise show loading spinner or no more message
-        if (position == dataSet.posts.size() && !dataSet.posts.isEmpty() && !dataSet.nomore) {
-            return LOADING_SPINNER;
-        } else if (position == dataSet.posts.size() && dataSet.nomore) {
-            return NO_MORE;
+        position -= 1;
+        if (position == rows.size()) {
+            // "No results" is a conclusion, so it waits until there is nothing left to page. A
+            // search whose first hit is deep in the history would otherwise open by announcing it
+            // had found nothing, while the strip beside it was still counting posts.
+            if (isNarrowed() && rows.isEmpty() && dataSet.nomore) {
+                return NO_RESULTS;
+            }
+            return dataSet.nomore ? NO_MORE : LOADING_SPINNER;
         }
-        if (dataSet.posts.get(position) instanceof Comment) return COMMENT;
+        if (rows.get(position) instanceof Comment) return COMMENT;
 
         return 2;
     }
@@ -124,9 +137,14 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
                     LayoutInflater.from(viewGroup.getContext())
                             .inflate(R.layout.nomoreposts, viewGroup, false);
             return new SubmissionFooterViewHolder(v);
+        } else if (i == NO_RESULTS) {
+            View v =
+                    LayoutInflater.from(viewGroup.getContext())
+                            .inflate(R.layout.nosearchresults, viewGroup, false);
+            return new SubmissionFooterViewHolder(v);
         } else {
             View v = CreateCardView.CreateView(viewGroup);
-            return new SubmissionViewHolder(v);
+            return new CardSubmissionViewHolder(v);
         }
     }
 
@@ -144,9 +162,8 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
     public void onBindViewHolder(final RecyclerView.ViewHolder firstHolder, final int pos) {
         int i = pos != 0 ? pos - 1 : pos;
 
-        if (firstHolder instanceof SubmissionViewHolder) {
-            final SubmissionViewHolder holder = (SubmissionViewHolder) firstHolder;
-            final Submission submission = (Submission) dataSet.posts.get(i);
+        if (firstHolder instanceof CardSubmissionViewHolder holder) {
+            final Submission submission = (Submission) visible().get(i);
             CreateCardView.resetColorCard(holder.itemView);
             if (submission.getSubredditName() != null)
                 CreateCardView.colorCard(
@@ -168,7 +185,7 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
                                     titleText,
                                     firstHolder.itemView,
                                     ContributionAdapter.this,
-                                    dataSet.posts,
+                                    visible(),
                                     listView);
                             return true;
                         }
@@ -180,7 +197,7 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
                             mContext,
                             false,
                             false,
-                            dataSet.posts,
+                            visible(),
                             listView,
                             false,
                             false,
@@ -202,9 +219,19 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
-                                final int pos = dataSet.posts.indexOf(submission);
-                                final Contribution old = dataSet.posts.get(pos);
-                                dataSet.posts.remove(submission);
+                                final int pos = visible().indexOf(submission);
+                                if (pos < 0) {
+                                    // Already gone -- a page that landed between this bind and
+                                    // this tap re-filtered the list out from under the row.
+                                    return;
+                                }
+                                final Contribution old = visible().get(pos);
+                                visible().remove(submission);
+                                // Unhiding has to drop the row from the listing too, or a search
+                                // that is cleared afterwards puts it straight back on screen.
+                                if (filteredData != null) {
+                                    dataSet.posts.remove(submission);
+                                }
                                 notifyItemRemoved(pos + 1);
 
                                 Hidden.undoHidden(old);
@@ -219,7 +246,7 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
                             url = url.replace("?ref=search_posts", "");
                             OpenRedditLink.openUrl(mContext, url, true);
                             if (SettingValues.storeHistory) {
-                                if (SettingValues.storeNSFWHistory && submission.isNsfw()
+                                if ((SettingValues.storeNSFWHistory && submission.isNsfw())
                                         || !submission.isNsfw())
                                     HasSeen.addSeen(submission.getFullName());
                             }
@@ -231,12 +258,12 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
         } else if (firstHolder instanceof ProfileCommentViewHolder) {
             // IS COMMENT
             ProfileCommentViewHolder holder = (ProfileCommentViewHolder) firstHolder;
-            final Comment comment = (Comment) dataSet.posts.get(i);
+            final Comment comment = (Comment) visible().get(i);
 
             String scoreText;
             if (comment.isScoreHidden()) {
                 scoreText =
-                        "[" + mContext.getString(R.string.misc_score_hidden).toUpperCase() + "]";
+                        "[" + mContext.getString(R.string.misc_score_hidden).toUpperCase(Locale.getDefault()) + "]";
             } else {
                 scoreText = String.format(Locale.getDefault(), "%d", comment.getScore());
             }
@@ -305,7 +332,7 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
 
                 // Highlight search terms in subreddit name
                 if (hasActiveFilter() && currentQuery != null) {
-                    String[] searchTerms = currentQuery.trim().toLowerCase(Locale.getDefault()).split("\\s+");
+                    String[] searchTerms = ContributionFilter.parseTerms(currentQuery);
                     for (String term : searchTerms) {
                         if (term.isEmpty()) continue;
                         Pattern pattern = Pattern.compile(Pattern.quote(term), Pattern.CASE_INSENSITIVE);
@@ -328,18 +355,19 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
             if (SettingValues.markdownNewReddit) {
                 // New Reddit-style: render the raw markdown body via Markwon (issue #179).
                 setViewsMarkdown(
-                        comment.getBody(),
+                        MiscUtil.orEmpty(comment.getBody()),
                         comment.getDataNode().path("body_html").asText(""),
                         comment.getDataNode(),
-                        comment.getSubredditName(),
-                        holder);
+                        MiscUtil.orEmpty(comment.getSubredditName()),
+                        holder,
+                        hasActiveFilter() ? currentQuery : null);
             } else {
                 // Pass search query for highlighting comment body
                 setViews(
                         SubmissionParser.replaceProcessingImgPlaceholders(
                                 comment.getDataNode().path("body_html").asText(""),
                                 comment.getDataNode()),
-                        comment.getSubredditName(),
+                        MiscUtil.orEmpty(comment.getSubredditName()),
                         holder,
                         hasActiveFilter() ? currentQuery : null);
             }
@@ -392,6 +420,29 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
                 holder.title.setText(CompatUtil.fromHtml(comment.getAuthor()));
             }
 
+            // Comment rows had no menu at all before this, so a saved comment could never be
+            // tagged after the fact. The button is the same one the submission cards carry, in the
+            // same place; long-press opens it too, matching how a submission row behaves.
+            // An unsave only takes the row out of a listing that is the saved listing; on the
+            // profile's other comment tabs the row belongs there either way.
+            final SavedCommentActions.OnUnsaved onUnsaved =
+                    dataSet instanceof ContributionPostsSaved
+                            ? ContributionAdapter.this::removeContribution
+                            : null;
+            final View.OnClickListener openSheet =
+                    v ->
+                            SavedCommentActions.showBottomSheet(
+                                    mContext, comment, firstHolder.itemView, onUnsaved);
+            holder.menu.setVisibility(View.VISIBLE);
+            holder.menu.setOnClickListener(openSheet);
+            holder.itemView.setOnLongClickListener(
+                    new View.OnLongClickListener() {
+                        @Override
+                        public boolean onLongClick(View v) {
+                            openSheet.onClick(v);
+                            return true;
+                        }
+                    });
             holder.itemView.setOnClickListener(
                     new View.OnClickListener() {
                         @Override
@@ -419,12 +470,12 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
             firstHolder.itemView.setLayoutParams(
                     new LinearLayout.LayoutParams(
                             firstHolder.itemView.getWidth(),
-                            mContext.findViewById(R.id.header).getHeight()));
+                            mContext.requireViewById(R.id.header).getHeight()));
             if (listView.getLayoutManager() instanceof CatchStaggeredGridLayoutManager) {
                 CatchStaggeredGridLayoutManager.LayoutParams layoutParams =
                         new CatchStaggeredGridLayoutManager.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
-                                mContext.findViewById(R.id.header).getHeight());
+                                mContext.requireViewById(R.id.header).getHeight());
                 layoutParams.setFullSpan(true);
                 firstHolder.itemView.setLayoutParams(layoutParams);
             }
@@ -446,12 +497,23 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
             String bodyHtml,
             JsonNode dataNode,
             String subredditName,
-            ProfileCommentViewHolder holder) {
+            ProfileCommentViewHolder holder,
+            @Nullable String searchQuery) {
+        // Render the body without renderInto's own search highlight: that one uses the
+        // subreddit color and is reserved for the in-thread comment search. Apply the
+        // same highlight the post title uses instead, so title and body colors match.
         MarkdownImages.renderInto(
                 holder.content, holder.overflow, subredditName, rawMarkdown, bodyHtml, dataNode);
+
+        if (searchQuery != null && !searchQuery.trim().isEmpty()) {
+            CharSequence body = holder.content.getText();
+            if (body != null && body.length() > 0) {
+                holder.content.setText(highlightSearchTerms(body, searchQuery));
+            }
+        }
     }
 
-    private void setViews(String rawHTML, String subredditName, ProfileCommentViewHolder holder, String searchQuery) {
+    private void setViews(String rawHTML, String subredditName, ProfileCommentViewHolder holder, @Nullable String searchQuery) {
         if (rawHTML.isEmpty()) {
             return;
         }
@@ -488,18 +550,75 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
         }
     }
 
+    /**
+     * The rows on screen: the search's hits while one is active, otherwise the whole listing.
+     *
+     * <p>Every render path reads through here so that narrowing the view never narrows the listing
+     * the loader is still paging into.
+     */
+    private ArrayList<Contribution> visible() {
+        final ArrayList<Contribution> filtered = filteredData;
+        if (filtered != null) {
+            return filtered;
+        }
+        // The loader only assigns dataSet.posts on a page that brought rows back, so a filter that
+        // has matched nothing leaves it null indefinitely -- not just before the first load.
+        // Answering with an empty list rather than null keeps that state readable as "nothing to
+        // show", which is what it is, instead of an NPE waiting at every caller.
+        final ArrayList<Contribution> all = dataSet.posts;
+        return all != null ? all : new ArrayList<>();
+    }
+
+    /**
+     * Drop a row the user acted itself out of -- unsaving a comment from the Saved tab. Mirrors the
+     * unhide path: when a search filter is active the item has to leave the backing listing too, or
+     * clearing the search puts it straight back on screen.
+     */
+    private void removeContribution(Contribution contribution) {
+        final int pos = visible().indexOf(contribution);
+        if (pos < 0) {
+            // Already gone -- a reload landed between the sheet opening and the tap.
+            return;
+        }
+        visible().remove(contribution);
+        if (filteredData != null) {
+            dataSet.posts.remove(contribution);
+        }
+        if (visible().isEmpty()) {
+            // Emptying the list changes more than one row. Unnarrowed it reports zero rows, so the
+            // spacer and footer go with the last item and a lone notifyItemRemoved would leave
+            // RecyclerView expecting two rows the adapter no longer has -- which it reports as
+            // corruption. Narrowed the count holds at two, but the footer becomes the "no results"
+            // row, which is a different view type at the same position. A full rebind is the one
+            // answer that is right for both.
+            notifyDataSetChanged();
+        } else {
+            notifyItemRemoved(pos + 1);
+        }
+    }
+
     @Override
     public int getItemCount() {
+        if (isNarrowed()) {
+            // This sits above the null check below on purpose: a filter that matched nothing never
+            // got dataSet.posts assigned, so that check would answer "no rows at all" and swallow
+            // the "no results" row.
+            if (visible().isEmpty()) {
+                // A search that has matched nothing so far still needs a row to say so; without
+                // one the screen is blank, which reads exactly like a search that never finished.
+                //
+                // A loader-side filter is the other way round. It narrows on a fresh load, where
+                // the refresh layout is already spinning, so a footer spinner here would put a
+                // second one on screen beside it -- that case waits until there is a conclusion
+                // to state, and draws only the "no results" row.
+                return hasActiveFilter() || dataSet.nomore ? 2 : 0;
+            }
+            return visible().size() + 2;
+        }
         if (dataSet.posts == null || dataSet.posts.isEmpty()) {
             return 0;
-        } else {
-            // When filter is active, don't show the loading/no more footer
-            if (hasActiveFilter()) {
-                return dataSet.posts.size() + 1; // Only include spacer, no footer
-            } else {
-                return dataSet.posts.size() + 2; // Include spacer and footer
-            }
         }
+        return dataSet.posts.size() + 2; // Include spacer and footer
     }
 
     @Override
@@ -517,16 +636,33 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
      * Re-applies filter if one is active.
      */
     public void onDataUpdated() {
-        if (hasActiveFilter() && currentQuery != null && currentWhere != null) {
-            // Update original data to include newly loaded items
-            if (dataSet.posts != null && !dataSet.posts.isEmpty()) {
-                // Always update originalData with the new unfiltered data
-                originalData = new ArrayList<>(dataSet.posts);
-                // Re-apply filter to the new data
-                filteredData = ContributionFilter.filterContributions(originalData, currentQuery, currentWhere);
-                dataSet.posts = filteredData;
-            }
+        if (hasActiveFilter() && currentQuery != null && dataSet.posts != null) {
+            // Re-filter the listing as it now stands, so each page the loader brings in adds its
+            // hits to what is already on screen.
+            filteredData =
+                    ContributionFilter.filterContributions(
+                            dataSet.posts, currentQuery, currentWhere);
         }
+    }
+
+    /**
+     * As {@link #onDataUpdated()}, for a loader that knows which rows it just appended.
+     *
+     * <p>Filtering runs on the main thread and reads every field of every row, body text included.
+     * Re-filtering the whole listing after each page makes that quadratic in the length of the
+     * history -- a thousand-post tab paged in tens re-walks a hundred thousand rows -- so a load
+     * that only added to the list only filters what it added.
+     *
+     * @param added the rows this load appended, or {@code null} if it replaced the list instead
+     */
+    public void onDataUpdated(@Nullable List<Contribution> added) {
+        if (added == null || filteredData == null || !hasActiveFilter() || currentQuery == null) {
+            onDataUpdated();
+            return;
+        }
+        filteredData.addAll(
+                ContributionFilter.filterContributions(
+                        new ArrayList<>(added), currentQuery, currentWhere));
     }
 
     /**
@@ -545,32 +681,22 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
         currentQuery = query;
         currentWhere = where;
 
-        // Store original data if this is the first filter
-        if (originalData == null && dataSet.posts != null && !dataSet.posts.isEmpty()) {
-            originalData = new ArrayList<>(dataSet.posts);
-        }
-
-        // Apply filter if we have data to filter
-        if (originalData != null && !originalData.isEmpty()) {
-            filteredData = ContributionFilter.filterContributions(originalData, query, where);
-            dataSet.posts = filteredData;
-            notifyDataSetChanged();
-        }
-        // If no data yet, the filter will be applied when data loads via onDataUpdated()
+        filteredData =
+                dataSet.posts == null
+                        ? new ArrayList<>()
+                        : ContributionFilter.filterContributions(dataSet.posts, query, where);
+        notifyDataSetChanged();
     }
 
     /**
      * Clears the active search filter and restores original data.
      */
     public void clearFilter() {
-        // Always clear the query state, even if originalData is null
-        // This prevents the filter from being re-applied when new data loads
+        // Always clear the query state, so the filter is not re-applied when new data loads
         currentQuery = null;
         currentWhere = null;
 
-        if (originalData != null) {
-            dataSet.posts = originalData;
-            originalData = null;
+        if (filteredData != null) {
             filteredData = null;
             notifyDataSetChanged();
         }
@@ -583,6 +709,18 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
      */
     public boolean hasActiveFilter() {
         return currentQuery != null && !currentQuery.trim().isEmpty();
+    }
+
+    /**
+     * Whether the rows on screen are a narrowed view of the listing -- by the search box here, or
+     * by a filter the loader applied before the rows ever arrived. Either way an empty result is an
+     * answer rather than a list that has not loaded, so it gets the "no results" row.
+     *
+     * <p>Only the row count and the footer's type read this. Search highlighting still keys off
+     * {@link #hasActiveFilter()}, because there is no query to highlight in the loader's case.
+     */
+    private boolean isNarrowed() {
+        return hasActiveFilter() || dataSet.isNarrowed();
     }
 
     /**
@@ -602,7 +740,7 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
      *
      * @return The current query string, or null if no filter is active
      */
-    public String getCurrentQuery() {
+    public @Nullable String getCurrentQuery() {
         return currentQuery;
     }
 
@@ -628,8 +766,8 @@ public class ContributionAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
 
         String textString = text.toString();
 
-        // Split query into individual terms
-        String[] searchTerms = query.trim().toLowerCase(Locale.getDefault()).split("\\s+");
+        // Split the query the same way the matcher does, so a quoted phrase highlights as one run
+        String[] searchTerms = ContributionFilter.parseTerms(query);
 
         // Highlight each term
         for (String term : searchTerms) {

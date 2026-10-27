@@ -60,16 +60,15 @@ public class BatchDownloadFragment extends Fragment {
     private static final String ARG_USERNAME = "username";
 
     // ---- views ----
-    private View promptView;
-    private View loadingView;
-    private TextView loadingText;
-    private SwipeRefreshLayout swipeRefreshLayout;
-    private RecyclerView recyclerView;
-    private View actionBar;
-    private Button typBtn;        // opens Type filter dialog
-    private ImageButton selectAllBtn;
-    private Button downloadBtn;
-    private Button loadMoreBtn;   // injected into the action bar in updateLoadMoreFooter
+    @Nullable private View promptView;
+    @Nullable private View loadingView;
+    @Nullable private SwipeRefreshLayout swipeRefreshLayout;
+    @Nullable private RecyclerView recyclerView;
+    @Nullable private View actionBar;
+    @Nullable private Button typBtn;        // opens Type filter dialog
+    @Nullable private ImageButton selectAllBtn;
+    @Nullable private Button downloadBtn;
+    @Nullable private Button loadMoreBtn;   // injected into the action bar in updateLoadMoreFooter
 
     // ---- action-bar filter state ----
     private boolean showImages = true;
@@ -82,10 +81,10 @@ public class BatchDownloadFragment extends Fragment {
     private boolean markUpvote = false;
 
     // ---- fetch state ----
-    private String username;
-    private BatchDownloadAdapter adapter;
-    private UserProfilePaginator paginator; // retained between "Load more" taps
-    private FetchMediaPostsTask currentTask;
+    private String username = "";
+    @Nullable private BatchDownloadAdapter adapter;
+    @Nullable private UserProfilePaginator paginator; // retained between "Load more" taps
+    @Nullable private FetchMediaPostsTask currentTask;
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -98,7 +97,7 @@ public class BatchDownloadFragment extends Fragment {
         username = (args != null) ? args.getString(ARG_USERNAME, "") : "";
     }
 
-    @Nullable
+    @NonNull
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
                              @Nullable ViewGroup container,
@@ -108,7 +107,6 @@ public class BatchDownloadFragment extends Fragment {
 
         promptView   = v.findViewById(R.id.batch_dl_prompt);
         loadingView  = v.findViewById(R.id.batch_dl_loading);
-        loadingText  = v.findViewById(R.id.batch_dl_loading_text);
         swipeRefreshLayout = v.findViewById(R.id.batch_dl_swipe_refresh);
         recyclerView = v.findViewById(R.id.batch_dl_list);
         actionBar    = v.findViewById(R.id.batch_dl_action_bar);
@@ -122,7 +120,8 @@ public class BatchDownloadFragment extends Fragment {
             markUpvote = SettingValues.prefs.getBoolean("batch_dl_mark_upvote", false);
         }
 
-        swipeRefreshLayout.setColorSchemeColors(Palette.getColors(username, getContext()));
+        Context ctx = v.getContext();
+        swipeRefreshLayout.setColorSchemeColors(Palette.getColors(username, ctx));
         swipeRefreshLayout.setProgressViewOffset(
                 false,
                 Constants.TAB_HEADER_VIEW_OFFSET - Constants.PTR_OFFSET_TOP,
@@ -198,16 +197,19 @@ public class BatchDownloadFragment extends Fragment {
                 BatchDownloadService.downloadQueue = queue;
 
                 // Start the service
-                Intent startIntent = new Intent(getContext(), BatchDownloadService.class);
+                Context context = v.getContext();
+                Intent startIntent = new Intent(context, BatchDownloadService.class);
                 startIntent.setAction(BatchDownloadService.ACTION_START);
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    getContext().startForegroundService(startIntent);
+                    context.startForegroundService(startIntent);
                 } else {
-                    getContext().startService(startIntent);
+                    context.startService(startIntent);
                 }
 
-                downloadBtn.setEnabled(false);
-                downloadBtn.setText("0/" + queue.size());
+                if (downloadBtn != null) {
+                    downloadBtn.setEnabled(false);
+                    downloadBtn.setText("0/" + queue.size());
+                }
             }
         });
 
@@ -235,7 +237,7 @@ public class BatchDownloadFragment extends Fragment {
                 if (id != null && adapter != null) {
                     adapter.markDone(id);
                     for (BatchDownloadItem item : adapter.getAllItems()) {
-                        if (item.submission.getId().equals(id)) {
+                        if (id.equals(item.submission.getId())) {
                             if (markRead) {
                                 HasSeen.addSeen(item.submission.getFullName());
                             }
@@ -323,12 +325,20 @@ public class BatchDownloadFragment extends Fragment {
     private enum State { IDLE, LOADING, READY }
 
     private void showState(State state) {
-        promptView.setVisibility(state == State.IDLE ? View.VISIBLE : View.GONE);
-        loadingView.setVisibility(state == State.LOADING ? View.VISIBLE : View.GONE);
-        swipeRefreshLayout.setVisibility(state == State.READY ? View.VISIBLE : View.GONE);
+        if (promptView != null) {
+            promptView.setVisibility(state == State.IDLE ? View.VISIBLE : View.GONE);
+        }
+        if (loadingView != null) {
+            loadingView.setVisibility(state == State.LOADING ? View.VISIBLE : View.GONE);
+        }
+        if (swipeRefreshLayout != null) {
+            swipeRefreshLayout.setVisibility(state == State.READY ? View.VISIBLE : View.GONE);
+        }
         // Action bar shown only when there is content
         if (state == State.READY && adapter != null && adapter.getItemCount() > 0) {
-            actionBar.setVisibility(View.VISIBLE);
+            if (actionBar != null) {
+                actionBar.setVisibility(View.VISIBLE);
+            }
         }
     }
 
@@ -512,16 +522,23 @@ public class BatchDownloadFragment extends Fragment {
                 // First fetch
                 if (results.isEmpty()) {
                     // Show "no media found" in the prompt area
-                    TextView promptText = promptView.findViewById(R.id.batch_dl_prompt_text);
-                    if (promptText != null) {
-                        promptText.setText(R.string.batch_dl_no_media);
+                    if (promptView != null) {
+                        TextView promptText = promptView.findViewById(R.id.batch_dl_prompt_text);
+                        if (promptText != null) {
+                            promptText.setText(R.string.batch_dl_no_media);
+                        }
                     }
                     showState(State.IDLE);
                     return;
                 }
-                adapter = new BatchDownloadAdapter(getContext(), results);
-                adapter.setFilter(showImages, showVideos, showVoted, showViewed);
-                recyclerView.setAdapter(adapter);
+                Context ctx = getContext();
+                if (ctx != null) {
+                    adapter = new BatchDownloadAdapter(ctx, results);
+                    adapter.setFilter(showImages, showVideos, showVoted, showViewed);
+                    if (recyclerView != null) {
+                        recyclerView.setAdapter(adapter);
+                    }
+                }
             } else {
                 // Load More append
                 if (adapter != null && !results.isEmpty()) {
@@ -621,7 +638,7 @@ public class BatchDownloadFragment extends Fragment {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 // Action-bar slide hide/show
-                if (actionBar.getVisibility() == View.VISIBLE) {
+                if (actionBar != null && actionBar.getVisibility() == View.VISIBLE) {
                     int barH = actionBar.getHeight();
                     if (barH > 0) {
                         float current = actionBar.getTranslationY();
@@ -646,7 +663,7 @@ public class BatchDownloadFragment extends Fragment {
             @Override
             public void onScrollStateChanged(@NonNull RecyclerView rv, int state) {
                 if (state != RecyclerView.SCROLL_STATE_IDLE) return;
-                if (actionBar.getVisibility() != View.VISIBLE) return;
+                if (actionBar == null || actionBar.getVisibility() != View.VISIBLE) return;
                 int barH = actionBar.getHeight();
                 boolean hide = actionBar.getTranslationY() > barH * 0.6f;
                 actionBar.animate()
@@ -686,7 +703,9 @@ public class BatchDownloadFragment extends Fragment {
             loadMoreBtn.setVisibility(View.VISIBLE);
             loadMoreBtn.setEnabled(true);
             loadMoreBtn.setOnClickListener(v -> {
-                loadMoreBtn.setEnabled(false);
+                if (loadMoreBtn != null) {
+                    loadMoreBtn.setEnabled(false);
+                }
                 loadMorePages(4);
             });
         } else {
@@ -725,11 +744,12 @@ public class BatchDownloadFragment extends Fragment {
      * </ul>
      */
     private static String deriveDedupeKey(Submission sub, ContentType.Type type) {
-        if (type == ContentType.Type.REDDIT_GALLERY) {
-            return sub.getId();
+        String id = sub.getId();
+        if (type == ContentType.Type.REDDIT_GALLERY || id == null) {
+            return id != null ? id : "";
         }
         String url = sub.getUrl();
-        if (url == null) return sub.getId();
+        if (url == null) return id;
         // Strip query string and force lower case
         int q = url.indexOf('?');
         if (q > 0) url = url.substring(0, q);

@@ -5,9 +5,14 @@ import android.graphics.PointF;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 
+import androidx.annotation.Nullable;
+
+import java.util.Objects;
 import me.edgan.redditslide.Views.AnimationBuilder;
 import me.edgan.redditslide.Views.SubsamplingScaleImageView;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class ImageViewGestureListener extends GestureDetector.SimpleOnGestureListener {
 
     private static final String TAG = ImageViewGestureListener.class.getSimpleName();
@@ -21,7 +26,8 @@ public class ImageViewGestureListener extends GestureDetector.SimpleOnGestureLis
     }
 
     @Override
-    public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+    public boolean onFling(
+            @Nullable MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
         if (view.panEnabled
                 && view.readySent && view.vTranslate != null && e1 != null && e2 != null
                 && (Math.abs(e1.getX() - e2.getX()) > 50 || Math.abs(e1.getY() - e2.getY()) > 50)
@@ -51,7 +57,8 @@ public class ImageViewGestureListener extends GestureDetector.SimpleOnGestureLis
 
     @Override
     public boolean onDoubleTap(MotionEvent e) {
-        if (view.zoomEnabled && view.readySent && view.vTranslate != null) {
+        final PointF vTranslate = view.vTranslate;
+        if (view.zoomEnabled && view.readySent && vTranslate != null) {
             // Hacky solution for #15 - after a double tap the GestureDetector gets in a state where the next fling is ignored, so here we replace it with a new one.
             // Use the public method we added to the view.
             view.loader.setGestureDetector(context);
@@ -59,21 +66,31 @@ public class ImageViewGestureListener extends GestureDetector.SimpleOnGestureLis
             if (view.quickScaleEnabled) {
                 // Store quick scale params. This will become either a double tap zoom or a quick scale depending on whether the user swipes.
                 view.vCenterStart = new PointF(e.getX(), e.getY());
-                view.vTranslateStart = new PointF(view.vTranslate.x, view.vTranslate.y);
+                view.vTranslateStart = new PointF(vTranslate.x, vTranslate.y);
                 view.scaleStart = view.scale;
                 view.isQuickScaling = true;
                 view.isZooming = true;
                 view.quickScaleLastDistance = -1F;
-                view.quickScaleSCenter = SubsamplingScaleImageViewStateHelper.viewToSourceCoord(view, view.vCenterStart);
+                // viewToSourceCoord answers null only when vTranslate is null, which the guard
+                // at the top of this method rules out.
+                final PointF quickScaleSCenter =
+                        Objects.requireNonNull(
+                                SubsamplingScaleImageViewStateHelper.viewToSourceCoord(
+                                        view, view.vCenterStart));
+                view.quickScaleSCenter = quickScaleSCenter;
                 view.quickScaleVStart = new PointF(e.getX(), e.getY());
-                view.quickScaleVLastPoint = new PointF(view.quickScaleSCenter.x, view.quickScaleSCenter.y);
+                view.quickScaleVLastPoint = new PointF(quickScaleSCenter.x, quickScaleSCenter.y);
                 view.quickScaleMoved = false;
 
                 // We need to get events in onTouchEvent after this.
                 return false;
             } else {
                 // Start double tap zoom animation.
-                view.doubleTapZoom(SubsamplingScaleImageViewStateHelper.viewToSourceCoord(view, new PointF(e.getX(), e.getY())), new PointF(e.getX(), e.getY()));
+                view.doubleTapZoom(
+                        Objects.requireNonNull(
+                                SubsamplingScaleImageViewStateHelper.viewToSourceCoord(
+                                        view, new PointF(e.getX(), e.getY()))),
+                        new PointF(e.getX(), e.getY()));
 
                 return true;
             }

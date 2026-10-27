@@ -3,6 +3,7 @@ package me.edgan.redditslide.Activities;
 import android.os.Bundle;
 import android.util.Log;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
@@ -27,31 +28,33 @@ import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.util.MiscUtil;
 import net.dean.jraw.models.Submission;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 9/17/2015. */
+@NullMarked
 public class Shadowbox extends FullScreenActivity implements SubmissionDisplay {
     public static final String EXTRA_PROFILE = "profile";
     public static final String EXTRA_PAGE = "page";
     public static final String EXTRA_SUBREDDIT = "subreddit";
     public static final String EXTRA_MULTIREDDIT = "multireddit";
     public PostLoader subredditPosts;
-    public String subreddit;
+    public String subreddit = "";
     int firstPage;
     private int count;
 
     public ViewPager pager;
 
     @Override
-    public void onCreate(Bundle savedInstance) {
+    public void onCreate(@Nullable Bundle savedInstance) {
         overrideSwipeFromAnywhere();
 
-        firstPage = getIntent().getExtras().getInt(EXTRA_PAGE, 0);
-        subreddit = getIntent().getExtras().getString(EXTRA_SUBREDDIT);
-        String multireddit = getIntent().getExtras().getString(EXTRA_MULTIREDDIT);
-        String profile = getIntent().getExtras().getString(EXTRA_PROFILE, "");
+        firstPage = getIntent().getIntExtra(EXTRA_PAGE, 0);
+        subreddit = MiscUtil.orEmpty(getIntent().getStringExtra(EXTRA_SUBREDDIT));
+        String multireddit = getIntent().getStringExtra(EXTRA_MULTIREDDIT);
+        String profile = getIntent().getStringExtra(EXTRA_PROFILE);
 
         if (multireddit != null) {
-            subredditPosts = new MultiredditPosts(multireddit, profile);
+            subredditPosts = new MultiredditPosts(multireddit, MiscUtil.orEmpty(profile));
         } else {
             subredditPosts = new SubredditPosts(subreddit, Shadowbox.this);
         }
@@ -72,7 +75,7 @@ public class Shadowbox extends FullScreenActivity implements SubmissionDisplay {
         count = subredditPosts.getPosts().size();
         Log.d("Shadowbox", "Loaded " + count + " posts from cache, didOnline=" + Authentication.didOnline);
 
-        pager = (ViewPager) findViewById(R.id.content_view);
+        pager = (ViewPager) requireViewById(R.id.content_view);
         submissionsPager = new ShadowboxPagerAdapter(getSupportFragmentManager());
         pager.setAdapter(submissionsPager);
         pager.setCurrentItem(firstPage);
@@ -185,7 +188,6 @@ public class Shadowbox extends FullScreenActivity implements SubmissionDisplay {
                 case EXTERNAL:
                 case SPOILER:
                 case DEVIANTART:
-                case EMBEDDED:
                 case XKCD:
                 case VREDDIT_DIRECT:
                 case VREDDIT_REDIRECT:
@@ -199,21 +201,21 @@ public class Shadowbox extends FullScreenActivity implements SubmissionDisplay {
                                 && submission.getDataNode().has("preview")
                                 && submission
                                         .getDataNode()
-                                        .get("preview")
-                                        .get("images")
-                                        .get(0)
-                                        .get("source")
+                                        .path("preview")
+                                        .path("images")
+                                        .path(0)
+                                        .path("source")
                                         .has("height")) { // Load the preview image which has
                             // probably already been cached in
                             // memory instead of the direct link
                             previewUrl =
                                     submission
                                             .getDataNode()
-                                            .get("preview")
-                                            .get("images")
-                                            .get(0)
-                                            .get("source")
-                                            .get("url")
+                                            .path("preview")
+                                            .path("images")
+                                            .path(0)
+                                            .path("source")
+                                            .path("url")
                                             .asText();
                         }
                         args.putString("contentUrl", submission.getUrl());
@@ -224,7 +226,7 @@ public class Shadowbox extends FullScreenActivity implements SubmissionDisplay {
                     break;
                 case SELF:
                 case NONE:
-                    f = subredditPosts.getPosts().get(i).getSelftext().isEmpty()
+                    f = MiscUtil.orEmpty(subredditPosts.getPosts().get(i).getSelftext()).isEmpty()
                             ? new TitleFull()
                             : new SelftextFull();
                     break;

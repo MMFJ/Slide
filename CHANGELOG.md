@@ -6,6 +6,10 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+8.0.8.0 / 2026-10-26
+===================
+* Merged upstream updates from 7.7.8 through 8.0.8 into mmfj-mod (cygnusx-1-org/Slide version 8.0.8), including Megareddits, multi-reddit editing, gallery posting fix, resume-where-left-off polish, profile search improvements, and dependency upgrades. All MMFJ fork enhancements (Batch Download, MediaView gesture controls, score container upvote target, thumbnail dHash dedup, hot pink icon) are preserved.
+
 7.5.8.0 / 2026-06-12
 ===================
 * Merged upstream updates from 7.5.8 into mmfj-mod (cygnusx-1-org/Slide version 7.5.8), including Android compile target and SDK 36 bumps, dependency library upgrades, media rotation controls, custom filtering lists, bugfixes, and code styling/spotless updates. All MMFJ fork enhancements (Batch Download, gesture controls, score container ripple feedback, and perceptual duplicate detection) are preserved.
@@ -129,6 +133,226 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 ---
 
 ## Upstream (cygnusx-1-org/Slide) Changes
+8.0.8 / 2026-10-21
+=============
+* Fixed Gallery posting is broken #314
+* Implemented Add ability to edit and remove subreddits from multi-reddits #313
+
+8.0.7 / 2026-10-3
+============
+* Fixed Editing an existing comment sometimes doesn't show anything, but the input box #310
+* Fixed the input boxes of other dialogs
+* Fixed drawer list NPE by guarding scroll requests in every layoutChildren pass
+
+8.0.6 / 2026-9-24
+============
+* Fixed Resume where I left off needs some polish #308
+* Modernized the Megareddits screen and stopped needless refreshes
+
+8.0.5 / 2026-9-20
+============
+* Added a Megareddit feature
+
+Megareddits, local only, let you filter r/all to create something like a virtual
+Multireddit. The goal is to bypass the 100 subreddit limit of Multireddits. In
+my testing, as an example I created /mega/cuteanimals.
+
+Megareddits have their own left navigation bar entry about Multireddits, and
+can also be added as tabs.
+
+Megareddits adds a new default for them sort, All. It combines all other sorts
+into one, and deduplicates the posts. The goal is to maximize results.
+
+/mega/cuteanimals uses two positive tags, cat and dog. It uses 10 negative tags,
+and 42 negative subreddits. It uses 130 positive subreddits. Most of the
+positive subreddits are not required to be added, and would still be applied
+by positive tags. Note though that 130 is greater than 100. It proves over
+time a Megareddit will show you more posts than the best possible Multireddit.
+
+1. Positive tags, substrings to match a subreddit name and add those r/all
+posts to the feed
+  - cat matches cats, blackcats, and catholic
+  - dog matches dogs, hotdogs, and dogvideos
+2. Negative tags, substrings to match a subreddit name, and to remove those
+r/all posts from the feed
+  - catholic matches catholic, catholicism, and easterncatholicism
+  - wildcats matches wildcats
+  - catprep matches catpreparation, catprep, and catpreparationchannel
+3. Positive subreddits, literal subreddit names, and add those r/all posts to
+the feed
+  - r/aww
+  - r/bengalcats
+  - r/bigcats
+  - r/bulldogs
+  - r/dogpictures
+  - r/dogvideos
+4. Negative subreddits, literal subreddit names, and remove those r/all posts
+from the feed
+  - r/batcat
+  - r/catwoman1966
+  - r/dojacat
+  - r/wobbledogs
+  - r/internetwatchdogs
+  - r/dogowners
+
+Additional features in the overflow menu are Subreddits, Import, Export, and
+Export All.
+
+Subreddits does a full scan of as much of r/all to list subreddits that match
+the positive tags. Then it lets you add those subreddits to the positive or
+negative subreddits lists.
+
+Import, Export, and Export All are about being able to backup and restore
+Megareddits. The exports are written as JSON files. It also lets you share
+your Megareddit with others, or them with you.
+
+8.0.4 / 2026-9-17
+============
+* Fixed Sorting options don't work for non subscribed subreddits #307
+
+8.0.3 / 2026-9-14
+============
+* Drew a self post's inlined body image as its feed card lead image
+* Put the card's selftext preview under the lead image in the comments screen's order
+* Rendered a post's selftext images at full width on the comments screen
+* Stopped the big-picture card modes from persisting noThumbnails
+* Increased the comments font sizes to match each other
+
+8.0.2 / 2026-9-13
+============
+* Implemented Improve translations of all strings #58
+
+8.0.1 / 2026-9-13
+============
+* Fixed Inline Reddit Image As Comment With No Text Prevents Any Way To Access Toolbar Options #305
+
+8.0.0 / 2026-9-11
+============
+* Implemented Feature Request: Option to show only the first few lines of selftext #93
+* Implemented Make the Tag Feature easier to access #306
+* Added Saved tags for filtering posts and comments
+* Fixed slow profile search and made it show live results
+
+The `Show first paragraph of selftext` settings in `Settings | Post Layout` is
+now `Show selftext`. It now has two child settings, `Show first paragraph` and
+Elliptize to the first 128 characters". You can only pick one of them. When
+you enable one, it disables the other one.
+
+The info button dialog in the Profile screen has been broken into two dialogs.
+The original is the one with information about the account like its cake day
+and badges. The other, behind the gear icon, were all the choices like
+`Private message` through `Block user`. In the `overflow`/`...` menu of posts
+and comments if you long-press the username it will now take you to the new dialog
+with the options. The goal being to make `Tag User` easier to access.
+
+There is now a tags feature in `You | Saved`. It is a way to filter posts and
+comments in Saved. It allows you to create custom tags, use built-in tags, and
+apply more than one tag at a time. The original goal was to allow
+categorization, but tags are a more flexible form.
+
+7.9.9 / 2026-9-8
+===========
+* Fixed some posts displaying a deleted image message
+
+7.9.8 / 2026-9-5
+===========
+* Turned the "Settings | General | Resume where I left off" into a feature appearance toggle
+* Added a feed overflow menu option called "Resume where I left off" that acts like a quick toggle
+
+7.9.7 / 2026-8-30
+============
+* Added a "Settings | General | Hibernate | Resume where I left off" setting
+
+This new feature, when active, doesn't take you to the first tab with an auto-refresh when the app is closed and re-opened. It takes you back to exactly where you were in the app before. This means the feed/tab, comments, settings, the multireddit screen, You, etc. It also covers the scrolling position. So if you are deep in the feed or the comments you don't lose your place.
+
+7.9.6 / 2026-8-28
+============
+* Improved the new random subreddits feature again
+* Made comments-view votes update the feed row on the way back
+
+7.9.5 / 2026-8-26
+============
+* Improved the new random subreddits feature
+
+7.9.4 / 2026-8-26
+============
+* Restored working r/random, r/randnsfw and r/myrandom with a hosted subreddit list
+
+7.9.3 / 2026-8-25
+============
+* Fixed Improve Consistency for Albums in Shadowbox and Gallery Mode #41
+* Removed dead code like Synccit and Toolbox
+
+7.9.2 / 2026-8-23
+============
+* Implemented a workaround for Reddit comment caching
+* Feature Request: Enhance user blocking #126
+
+The new setting for hiding users comments is "Settings | Comments | Collapse comments from blocked users".
+
+7.9.1 / 2026-8-20
+============
+* Added support for videos in posts and comments
+
+7.9.0 / 2026-8-19
+============
+* Fixed the inbox unread count and gave it one stored source of truth
+
+7.8.9 / 2026-8-17
+============
+* Changed three-image gallery grids to a 2 + 1 layout
+* Fixed an ANR related to Android-Universal-Image-Loader
+
+7.8.8 / 2026-8-17
+============
+* Added "Settings | Post layout | Show gallery posts as a grid" for Reddit gallery posts in a feed
+
+7.8.7 / 2026-8-15
+============
+* Made backups encrypted zips with user selected passwords
+* Replaced the Friends feature with friend marks on a new Users screen
+* Updated many libraries
+* Massive effort using Nullaway to prevent crashes
+
+7.8.6 / 2026-7-27
+============
+* Implemented Feature request: Improve video previews in vertical gallery mode #170
+
+7.8.5 / 2026-7-24
+============
+* Implemeneted Feature request: Show placeholder previews for Tumblr videos in post layout #171
+* Hardened startup subreddit index clamp against out-of-range positions
+
+7.8.4 / 2026-7-23
+============
+* Fixed Search dialog does not default to the correct subreddit if app is closed via back button #303
+* Added support for comment recovery
+* Fixed issue with the DONE button in the tutorial
+
+7.8.3 / 2026-7-19
+============
+* Fixed stale reauth failure snackbar after silent token refresh
+* Expanded day options and fixed the threshold for the filter-old-posts setting
+
+7.8.2 / 2026-7-14
+============
+* Fixed cannot click links inside a table #299
+* Added a configurable days dropdown for the filter-old-posts setting
+
+7.8.1 / 2026-7-13
+============
+* Fixed blurry images when image is click #297
+* Fixed Filter this content hidden #298
+
+7.8.0 / 2026-7-11
+============
+* Improved thumbnail feed layout to avoid pop-in and redraws
+
+7.7.9 / 2026-7-9
+===========
+* Improved Saved-tab search with full-history loading, and a hard-TTL cache
+* Highlighted search terms in profile comment bodies to match the title color
+
 7.7.8 / 2026-7-7
 ===========
 * Improved "Recover Post"
@@ -257,7 +481,6 @@ see new.
 * Fixed navigation bar scrim flickering/transparency under edge-to-edge
 * Enabled predictive back
 * Fixed Images continue to load when Data saving has been set to "Don't load any images" #287
->>>>>>> 7.7.8
 
 7.5.8 / 2026-6-10
 ============
@@ -366,6 +589,7 @@ in Albums and Galleries
 7.3.9 / 2026-2-12
 ============
 * Fixed giphy gifs marked invalid by Reddit when they are valid
+
 7.3.8 / 2025-12-31
 =============
 * Added a search button to You/Profile tabs

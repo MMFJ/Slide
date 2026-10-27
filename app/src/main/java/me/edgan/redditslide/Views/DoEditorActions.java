@@ -62,8 +62,10 @@ import org.commonmark.node.Node;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 import org.json.JSONObject;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by carlo_000 on 10/18/2015. */
+@NullMarked
 public class DoEditorActions {
 
     private static final AtomicInteger registryCounter = new AtomicInteger(0);
@@ -71,9 +73,9 @@ public class DoEditorActions {
     public static void doActions(
             final EditText editText,
             final View baseView,
-            final FragmentManager fm,
+            final @Nullable FragmentManager fm,
             final Activity a,
-            final String oldComment,
+            final @Nullable String oldComment,
             @Nullable final String[] authors) {
         doActions(editText, baseView, fm, a, oldComment, authors, null);
     }
@@ -81,12 +83,12 @@ public class DoEditorActions {
     public static void doActions(
             final EditText editText,
             final View baseView,
-            final FragmentManager fm,
+            final @Nullable FragmentManager fm,
             final Activity a,
-            final String oldComment,
+            final @Nullable String oldComment,
             @Nullable final String[] authors,
             @Nullable final ActivityResultLauncher<PickVisualMediaRequest> imageLauncher) {
-        baseView.findViewById(R.id.bold)
+        baseView.requireViewById(R.id.bold)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -138,7 +140,7 @@ public class DoEditorActions {
             }
         }
 
-        baseView.findViewById(R.id.italics)
+        baseView.requireViewById(R.id.italics)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -160,7 +162,7 @@ public class DoEditorActions {
                             }
                         });
 
-        baseView.findViewById(R.id.strike)
+        baseView.requireViewById(R.id.strike)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -182,7 +184,7 @@ public class DoEditorActions {
                             }
                         });
 
-        baseView.findViewById(R.id.spoiler)
+        baseView.requireViewById(R.id.spoiler)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -204,7 +206,7 @@ public class DoEditorActions {
                             }
                         });
 
-        baseView.findViewById(R.id.savedraft)
+        baseView.requireViewById(R.id.savedraft)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -212,7 +214,7 @@ public class DoEditorActions {
                                 Drafts.addDraft(editText.getText().toString());
                                 Snackbar s =
                                         Snackbar.make(
-                                                baseView.findViewById(R.id.savedraft),
+                                                baseView.requireViewById(R.id.savedraft),
                                                 "Draft saved",
                                                 Snackbar.LENGTH_SHORT);
                                 View view = s.getView();
@@ -231,7 +233,7 @@ public class DoEditorActions {
                                 LayoutUtils.showSnackbar(s);
                             }
                         });
-        baseView.findViewById(R.id.draft)
+        baseView.requireViewById(R.id.draft)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -331,7 +333,7 @@ public class DoEditorActions {
                                 }
                             }
                         });
-        final View imageButton = baseView.findViewById(R.id.imagerep);
+        final View imageButton = baseView.requireViewById(R.id.imagerep);
         imageButtons.put(editText, imageButton);
         // Reset the button state for reused editors: comments are limited to one inline Reddit
         // image, so the button is disabled once one has been added.
@@ -357,12 +359,14 @@ public class DoEditorActions {
                                 launchImagePicker(editText, a, imageLauncher);
                             });
                 });
-        baseView.findViewById(R.id.draw)
+        baseView.requireViewById(R.id.draw)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
-                                doDraw(a, editText, fm);
+                                if (fm != null) {
+                                    doDraw(a, editText, fm);
+                                }
                             }
                         });
         /*todo baseView.findViewById(R.id.superscript).setOnClickListener(new View.OnClickListener() {
@@ -371,7 +375,7 @@ public class DoEditorActions {
                 insertBefore("^", editText);
             }
         });*/
-        baseView.findViewById(R.id.size)
+        baseView.requireViewById(R.id.size)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -380,7 +384,7 @@ public class DoEditorActions {
                             }
                         });
 
-        baseView.findViewById(R.id.quote)
+        baseView.requireViewById(R.id.quote)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -445,7 +449,7 @@ public class DoEditorActions {
                             }
                         });
 
-        baseView.findViewById(R.id.bulletlist)
+        baseView.requireViewById(R.id.bulletlist)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -472,7 +476,7 @@ public class DoEditorActions {
                             }
                         });
 
-        baseView.findViewById(R.id.numlist)
+        baseView.requireViewById(R.id.numlist)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -499,7 +503,7 @@ public class DoEditorActions {
                             }
                         });
 
-        baseView.findViewById(R.id.preview)
+        baseView.requireViewById(R.id.preview)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -508,7 +512,7 @@ public class DoEditorActions {
                                 final View dialoglayout =
                                         inflater.inflate(R.layout.parent_comment_dialog, null);
                                 final SpoilerRobotoTextView firstTextView =
-                                        dialoglayout.findViewById(R.id.firstTextView);
+                                        dialoglayout.requireViewById(R.id.firstTextView);
 
                                 // Preview through whichever renderer the post/comment will actually
                                 // use, so the preview matches the result (issue #179). The Markwon
@@ -535,14 +539,14 @@ public class DoEditorActions {
                                             html,
                                             "NO sub",
                                             firstTextView,
-                                            dialoglayout.findViewById(R.id.commentOverflow));
+                                            dialoglayout.requireViewById(R.id.commentOverflow));
                                 }
 
                                 DialogUtil.showWithCardBackground(new AlertDialog.Builder(a).setView(dialoglayout));
                             }
                         });
 
-        baseView.findViewById(R.id.link)
+        baseView.requireViewById(R.id.link)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -633,12 +637,12 @@ public class DoEditorActions {
 
                                 // Tint the hint text if the base theme is Sepia
                                 if (SettingValues.currentTheme == 5) {
-                                    ((EditText) layout.findViewById(R.id.url_box))
+                                    ((EditText) layout.requireViewById(R.id.url_box))
                                             .setHintTextColor(
                                                     ContextCompat.getColor(
                                                             layout.getContext(),
                                                             R.color.md_grey_600));
-                                    ((EditText) layout.findViewById(R.id.text_box))
+                                    ((EditText) layout.requireViewById(R.id.text_box))
                                             .setHintTextColor(
                                                     ContextCompat.getColor(
                                                             layout.getContext(),
@@ -647,7 +651,7 @@ public class DoEditorActions {
 
                                 // use the selected text as the text for the link
                                 if (!selectedText.isEmpty()) {
-                                    ((EditText) layout.findViewById(R.id.text_box))
+                                    ((EditText) layout.requireViewById(R.id.text_box))
                                             .setText(selectedText);
                                 }
 
@@ -666,13 +670,7 @@ public class DoEditorActions {
                                     sStart = editText.getSelectionStart();
                                     sEnd = editText.getSelectionEnd();
                                     handleImageIntent(
-                                            new ArrayList<Uri>() {
-                                                {
-                                                    add(content);
-                                                }
-                                            },
-                                            editText,
-                                            a);
+                                            Collections.singletonList(content), editText, a);
                                 }
                             });
         } catch (Exception e) {
@@ -681,9 +679,9 @@ public class DoEditorActions {
         }
     }
 
-    public static Editable e;
+    @Nullable public static Editable e;
     public static int sStart, sEnd;
-    public static EditText currentImageTarget;
+    @Nullable public static EditText currentImageTarget;
     // When true, the next picked image is uploaded to Reddit (inline) instead of Imgur (link).
     public static boolean uploadToReddit;
     // The image-toolbar button per editor, so it can be greyed out after a comment's one allowed
@@ -731,19 +729,17 @@ public class DoEditorActions {
 
     public static class AuxiliaryFragment extends Fragment {
         @Override
-        public void onActivityResult(int requestCode, int resultCode, final Intent data) {
+        public void onActivityResult(
+                int requestCode, int resultCode, final @Nullable Intent data) {
             super.onActivityResult(requestCode, resultCode, data);
             if (data != null && data.getData() != null) {
-                handleImageIntent(
-                        new ArrayList<Uri>() {
-                            {
-                                add(data.getData());
-                            }
-                        },
-                        e,
-                        getContext());
+                final Editable target = e;
+                if (target != null) {
+                    handleImageIntent(
+                            Collections.singletonList(data.getData()), target, requireContext());
+                }
 
-                getActivity().getSupportFragmentManager().beginTransaction().remove(this).commit();
+                requireActivity().getSupportFragmentManager().beginTransaction().remove(this).commit();
             }
         }
     }
@@ -1015,9 +1011,12 @@ public class DoEditorActions {
                                                                 + ")";
                                                 int start = Math.max(sStart, 0);
                                                 int end = Math.max(sEnd, 0);
-                                                DoEditorActions.e.insert(Math.max(start, end), s);
-                                                DoEditorActions.e.delete(start, end);
-                                                DoEditorActions.e = null;
+                                                if (DoEditorActions.e != null) {
+                                                    DoEditorActions.e.insert(
+                                                            Math.max(start, end), s);
+                                                    DoEditorActions.e.delete(start, end);
+                                                    DoEditorActions.e = null;
+                                                }
                                                 sStart = 0;
                                                 sEnd = 0;
                                             }
@@ -1130,7 +1129,7 @@ public class DoEditorActions {
         }
     }
 
-    private static void setImageButtonEnabled(View v, boolean enabled) {
+    private static void setImageButtonEnabled(@Nullable View v, boolean enabled) {
         if (v == null) {
             return;
         }
@@ -1157,6 +1156,8 @@ public class DoEditorActions {
     private static class UploadRedditImageTask extends android.os.AsyncTask<Uri, Void, Object> {
         private final Context c;
         private final EditText editText;
+
+        @SuppressWarnings("NullAway.Init") // assigned in onPreExecute, before doInBackground
         private MaterialProgressDialog dialog;
 
         UploadRedditImageTask(Context c, EditText editText) {

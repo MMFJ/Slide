@@ -13,6 +13,7 @@ import android.text.InputType;
 import android.text.SpannableStringBuilder;
 import android.text.style.AbsoluteSizeSpan;
 import android.view.ContextThemeWrapper;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -28,7 +29,7 @@ import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SubmissionCache;
-import me.edgan.redditslide.Toolbox.ToolboxUI;
+import me.edgan.redditslide.Views.RichFlairSpan;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import net.dean.jraw.ApiException;
 import net.dean.jraw.fluent.FlairReference;
@@ -40,21 +41,55 @@ import net.dean.jraw.models.DistinguishedStatus;
 import net.dean.jraw.models.FlairTemplate;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.Thing;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * Handles Moderation actions for Submission views.
  */
+@NullMarked
 public class SubmissionModActions {
 
     // Keep reason variable here as it's used within the mod action flow
-    public static String reason;
+    public static String reason = "";
+
+    /**
+     * Reflects a completed mod action in the list the submission was acted on from: in the mod
+     * queue the post leaves the list, elsewhere its row is just rebound. No-op when the
+     * RecyclerView has no adapter attached, which is the case once the hosting screen has been torn
+     * down while the action was in flight.
+     */
+    private static void notifyModActionApplied(
+            final Context mContext,
+            final List<?> posts,
+            final Submission submission,
+            final @Nullable RecyclerView recyclerview,
+            final SubmissionViewHolder holder) {
+        final RecyclerView.Adapter<?> adapter =
+                recyclerview == null ? null : recyclerview.getAdapter();
+        if (adapter == null) {
+            return;
+        }
+
+        if (mContext instanceof ModQueue) {
+            final int pos = posts.indexOf(submission);
+            posts.remove(submission);
+
+            if (pos == 0) {
+                adapter.notifyDataSetChanged();
+            } else {
+                adapter.notifyItemRemoved(pos + 1);
+            }
+        } else {
+            adapter.notifyItemChanged(holder.getBindingAdapterPosition());
+        }
+    }
 
     public static <T extends Contribution> void showModBottomSheet(
             final Activity mContext,
             final Submission submission,
             final List<T> posts,
             final SubmissionViewHolder holder,
-            final RecyclerView recyclerview,
+            final @Nullable RecyclerView recyclerview,
             final Map<String, Integer> reports,
             final Map<String, String> reports2) {
 
@@ -67,7 +102,6 @@ public class SubmissionModActions {
         final Drawable report = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_report, color);
         final Drawable approve = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_thumb_up, color);
         final Drawable nsfw = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_visibility_off, color);
-        final Drawable spoiler = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_remove_circle, color);
         final Drawable pin = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_bookmark_border, color);
         final Drawable lock = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_lock, color);
         final Drawable flair = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_format_quote, color);
@@ -76,7 +110,6 @@ public class SubmissionModActions {
         final Drawable ban = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_gavel, color);
         final Drawable spam = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_flag, color);
         final Drawable distinguish = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_star, color);
-        final Drawable note = BlendModeUtil.getTintedDrawable(mContext, R.drawable.ic_note, color);
 
         ta.recycle();
 
@@ -85,10 +118,6 @@ public class SubmissionModActions {
         int reportCount = reports.size() + reports2.size();
 
         b.sheet(0, report, res.getQuantityString(R.plurals.mod_btn_reports, reportCount, reportCount));
-
-        if (SettingValues.toolboxEnabled) {
-            b.sheet(24, note, res.getString(R.string.mod_usernotes_view));
-        }
 
         boolean approved = false;
         String whoApproved = "";
@@ -105,7 +134,7 @@ public class SubmissionModActions {
             b.sheet(3, nsfw, res.getString(R.string.mod_btn_mark_nsfw));
         }
 
-        final boolean isSpoiler = submission.getDataNode().get("spoiler").asBoolean();
+        final boolean isSpoiler = submission.getDataNode().path("spoiler").asBoolean();
         if (isSpoiler) {
             b.sheet(12, nsfw, res.getString(R.string.mod_btn_unmark_spoiler));
         } else {
@@ -129,7 +158,7 @@ public class SubmissionModActions {
         }
 
         final boolean distinguished = submission.getDistinguishedStatus() == DistinguishedStatus.MODERATOR || submission.getDistinguishedStatus() == DistinguishedStatus.ADMIN;
-        if (submission.getAuthor().equalsIgnoreCase(Authentication.name)) {
+        if (MiscUtil.orEmpty(submission.getAuthor()).equalsIgnoreCase(Authentication.name)) {
             if (distinguished) {
                 b.sheet(5, distinguish, res.getString(R.string.mod_btn_undistinguish));
             } else {
@@ -227,48 +256,7 @@ public class SubmissionModActions {
                                     mContext, submission, posts, recyclerview, holder, false);
                             break;
                         case 7:
-                            if (SettingValues.removalReasonType
-                                            == SettingValues.RemovalReasonType.TOOLBOX.ordinal()
-                                    && ToolboxUI.canShowRemoval(
-                                            submission.getSubredditName())) {
-                                ToolboxUI.showRemoval(
-                                        mContext,
-                                        submission,
-                                        new ToolboxUI.CompletedRemovalCallback() {
-                                            @Override
-                                            public void onComplete(boolean success) {
-                                                if (success) {
-                                                    SubmissionCache.removed.add(submission.getFullName());
-                                                    SubmissionCache.approved.remove(submission.getFullName());
-
-                                                    SubmissionCache.updateInfoSpannable(submission, mContext, submission.getSubredditName());
-
-                                                    if (mContext instanceof ModQueue) {
-                                                        final int pos = posts.indexOf(submission);
-                                                        posts.remove(submission);
-
-                                                        if (pos == 0) {
-                                                            recyclerview.getAdapter().notifyDataSetChanged();
-                                                        } else {
-                                                            recyclerview.getAdapter().notifyItemRemoved(pos + 1);
-                                                        }
-                                                    } else {
-                                                        recyclerview.getAdapter().notifyItemChanged(holder.getBindingAdapterPosition());
-                                                    }
-
-                                                    Snackbar s = Snackbar.make(holder.itemView, R.string.submission_removed, Snackbar.LENGTH_LONG);
-                                                    LayoutUtils.showSnackbar(s);
-                                                } else {
-                                                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
-                                                        .setTitle(R.string.err_general)
-                                                        .setMessage(R.string.err_retry_later)
-                                                        );
-                                                }
-                                            }
-                                        });
-                            } else { // Show a Slide reason dialog if we can't show a toolbox or rddit one
-                                doRemoveSubmissionReason(mContext, submission, posts, recyclerview, holder);
-                            }
+                            doRemoveSubmissionReason(mContext, submission, posts, recyclerview, holder);
 
                             break;
                         case 30:
@@ -291,10 +279,6 @@ public class SubmissionModActions {
                                     mContext, holder.itemView, submission, "", "", "", "");
 
                             break;
-                        case 24:
-                            ToolboxUI.showUsernotes(mContext, submission.getAuthor(), submission.getSubredditName(), "l," + submission.getId());
-
-                            break;
                     }
                 }
             });
@@ -306,7 +290,7 @@ public class SubmissionModActions {
             final Activity mContext,
             final Submission submission,
             final List<T> posts,
-            final RecyclerView recyclerview,
+            final @Nullable RecyclerView recyclerview,
             final SubmissionViewHolder holder) {
         reason = "";
         new MaterialInputDialog.Builder(mContext)
@@ -333,7 +317,7 @@ public class SubmissionModActions {
             final List<T> posts,
             final String reason,
             final SubmissionViewHolder holder,
-            final RecyclerView recyclerview) {
+            final @Nullable RecyclerView recyclerview) {
         new AsyncTask<Void, Void, Boolean>() {
 
             @Override
@@ -345,20 +329,7 @@ public class SubmissionModActions {
                     SubmissionCache.updateInfoSpannable(
                             submission, mContext, submission.getSubredditName());
 
-                    if (mContext instanceof ModQueue) {
-                        final int pos = posts.indexOf(submission);
-                        posts.remove(submission);
-
-                        if (pos == 0) {
-                            recyclerview.getAdapter().notifyDataSetChanged();
-                        } else {
-                            recyclerview.getAdapter().notifyItemRemoved(pos + 1);
-                        }
-                    } else {
-                        recyclerview
-                                .getAdapter()
-                                .notifyItemChanged(holder.getBindingAdapterPosition());
-                    }
+                    notifyModActionApplied(mContext, posts, submission, recyclerview, holder);
                     Snackbar s =
                             Snackbar.make(
                                     holder.itemView,
@@ -377,6 +348,10 @@ public class SubmissionModActions {
 
             @Override
             protected Boolean doInBackground(Void... params) {
+                if (Authentication.reddit == null) {
+                    return false;
+                }
+
                 try {
                     String toDistinguish =
                             new AccountManager(Authentication.reddit).reply(submission, reason);
@@ -398,7 +373,7 @@ public class SubmissionModActions {
             final Activity mContext,
             final Submission submission,
             final List<T> posts,
-            final RecyclerView recyclerview,
+            final @Nullable RecyclerView recyclerview,
             final SubmissionViewHolder holder,
             final boolean spam) {
         new AsyncTask<Void, Void, Boolean>() {
@@ -413,20 +388,7 @@ public class SubmissionModActions {
                         submission, mContext, submission.getSubredditName());
 
                 if (b) {
-                    if (mContext instanceof ModQueue) {
-                        final int pos = posts.indexOf(submission);
-                        posts.remove(submission);
-
-                        if (pos == 0) {
-                            recyclerview.getAdapter().notifyDataSetChanged();
-                        } else {
-                            recyclerview.getAdapter().notifyItemRemoved(pos + 1);
-                        }
-                    } else {
-                        recyclerview
-                                .getAdapter()
-                                .notifyItemChanged(holder.getBindingAdapterPosition());
-                    }
+                    notifyModActionApplied(mContext, posts, submission, recyclerview, holder);
 
                     Snackbar s =
                             Snackbar.make(
@@ -461,10 +423,10 @@ public class SubmissionModActions {
             final Submission submission,
             final SubmissionViewHolder holder) {
         new AsyncTask<Void, Void, ArrayList<String>>() {
-            ArrayList<FlairTemplate> flair;
+            ArrayList<FlairTemplate> flair = new ArrayList<>();
 
             @Override
-            protected ArrayList<String> doInBackground(Void... params) {
+            protected @Nullable ArrayList<String> doInBackground(Void... params) {
                 FlairReference allFlairs =
                         new FluentRedditClient(Authentication.reddit)
                                 .subreddit(submission.getSubredditName())
@@ -484,7 +446,7 @@ public class SubmissionModActions {
             }
 
             @Override
-            public void onPostExecute(final ArrayList<String> data) {
+            public void onPostExecute(final @Nullable ArrayList<String> data) {
                 try {
                     if (data == null || data.isEmpty()) { // Added null check
                         DialogUtil.showWithCardBackground(new AlertDialog.Builder(mContext)
@@ -494,7 +456,8 @@ public class SubmissionModActions {
                         showFlairSelectionDialog(mContext, submission, data, flair, holder);
                     }
                 } catch (Exception ignored) {
-
+                    // Flair dialog on a host that finished while the list
+                    // loaded.
                 }
             }
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
@@ -544,7 +507,7 @@ public class SubmissionModActions {
 
     public static void setFlair(
             final Context mContext,
-            final String flair,
+            final @Nullable String flair,
             final Submission submission,
             final FlairTemplate t,
             final SubmissionViewHolder holder) {
@@ -586,7 +549,7 @@ public class SubmissionModActions {
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
-    public static void doText(SubmissionViewHolder holder, Submission submission, Context mContext, String baseSub, boolean full) {
+    public static void doText(SubmissionViewHolder holder, Submission submission, Context mContext, @Nullable String baseSub, boolean full) {
         SpannableStringBuilder t = SubmissionCache.getTitleLine(submission, mContext);
         SpannableStringBuilder l = SubmissionCache.getInfoLine(submission, mContext, baseSub);
         SpannableStringBuilder c = SubmissionCache.getCrosspostLine(submission, mContext);
@@ -596,31 +559,41 @@ public class SubmissionModActions {
         int textSizeT = a.getDimensionPixelSize(0, 18);
         int textSizeI = a.getDimensionPixelSize(1, 14);
 
-        t.setSpan(new AbsoluteSizeSpan(textSizeT), 0, t.length(), 0);
-        l.setSpan(new AbsoluteSizeSpan(textSizeI), 0, l.length(), 0);
-
+        // t, l and c are the shared SpannableStringBuilders held by SubmissionCache. Size the
+        // appended copies inside s rather than the cached originals, which would otherwise collect
+        // an extra AbsoluteSizeSpan on every bind.
         SpannableStringBuilder s = new SpannableStringBuilder();
         if (SettingValues.titleTop) {
-            s.append(t);
+            appendSized(s, t, textSizeT);
             s.append("\n");
-            s.append(l);
+            appendSized(s, l, textSizeI);
         } else {
-            s.append(l);
+            appendSized(s, l, textSizeI);
             s.append("\n");
-            s.append(t);
+            appendSized(s, t, textSizeT);
         }
         if (!full && c != null) {
-            c.setSpan(new AbsoluteSizeSpan(textSizeI), 0, c.length(), 0);
             s.append("\n");
-            s.append(c);
+            appendSized(s, c, textSizeI);
         }
         a.recycle();
 
         holder.title.setText(s);
 
-        // Force this TextView to recalculate itself and request a new layout pass
+        // Fetch any richtext-flair emoji this title is still missing (only the screens that skip
+        // the feed's preload ever are) and redraw when they land.
+        RichFlairSpan.refill(holder.title);
+
+        // Fixed GitHub issue #11. Force this TextView to recalculate itself and request a new layout pass.
         holder.title.requestLayout();
-        holder.title.invalidate();
+    }
+
+    /** Append {@code toAppend} to {@code s} and apply {@code textSize} over just that range. */
+    private static void appendSized(
+            SpannableStringBuilder s, SpannableStringBuilder toAppend, int textSize) {
+        int start = s.length();
+        s.append(toAppend);
+        s.setSpan(new AbsoluteSizeSpan(textSize), start, s.length(), 0);
     }
 
     public static void stickySubmission(
@@ -944,7 +917,7 @@ public class SubmissionModActions {
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
-    public static <T extends Thing> void approveSubmission(final Context mContext, final List<T> posts, final Submission submission, final RecyclerView recyclerview, final SubmissionViewHolder holder) {
+    public static <T extends Thing> void approveSubmission(final Context mContext, final List<T> posts, final Submission submission, final @Nullable RecyclerView recyclerview, final SubmissionViewHolder holder) {
         new AsyncTask<Void, Void, Boolean>() {
             @Override
             public void onPostExecute(Boolean b) {
@@ -953,18 +926,7 @@ public class SubmissionModActions {
                     SubmissionCache.removed.remove(submission.getFullName());
                     SubmissionCache.updateInfoSpannable(submission, mContext, submission.getSubredditName());
 
-                    if (mContext instanceof ModQueue) {
-                        final int pos = posts.indexOf(submission);
-                        posts.remove(submission);
-
-                        if (pos == 0) {
-                            recyclerview.getAdapter().notifyDataSetChanged();
-                        } else {
-                            recyclerview.getAdapter().notifyItemRemoved(pos + 1);
-                        }
-                    } else {
-                        recyclerview.getAdapter().notifyItemChanged(holder.getBindingAdapterPosition());
-                    }
+                    notifyModActionApplied(mContext, posts, submission, recyclerview, holder);
 
                     try {
                         Snackbar s = Snackbar.make(holder.itemView, R.string.mod_approved, Snackbar.LENGTH_LONG);

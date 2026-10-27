@@ -16,17 +16,22 @@ import androidx.appcompat.widget.PopupMenu;
 import androidx.appcompat.widget.SwitchCompat;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
+import com.google.common.collect.ImmutableMap;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.util.LinkUtil;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeListener {
 
     private final Activity context;
+    @SuppressWarnings("NullAway.Init") // bound in Bind(), before any callback below runs
     LinearLayout domainListLayout;
 
     public SettingsHandlingFragment(Activity context) {
@@ -35,12 +40,12 @@ public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeL
 
     public void Bind() {
         // todo web stuff
-        SwitchCompat shortlink = context.findViewById(R.id.settings_handling_shortlink);
-        SwitchCompat gif = context.findViewById(R.id.settings_handling_gif);
-        SwitchCompat hqgif = context.findViewById(R.id.settings_handling_hqgif);
-        SwitchCompat image = context.findViewById(R.id.settings_handling_image);
-        SwitchCompat album = context.findViewById(R.id.settings_handling_album);
-        SwitchCompat peek = context.findViewById(R.id.settings_handling_peek);
+        SwitchCompat shortlink = context.requireViewById(R.id.settings_handling_shortlink);
+        SwitchCompat gif = context.requireViewById(R.id.settings_handling_gif);
+        SwitchCompat hqgif = context.requireViewById(R.id.settings_handling_hqgif);
+        SwitchCompat image = context.requireViewById(R.id.settings_handling_image);
+        SwitchCompat album = context.requireViewById(R.id.settings_handling_album);
+        SwitchCompat peek = context.requireViewById(R.id.settings_handling_peek);
 
         shortlink.setChecked(!SettingValues.shareLongLink);
         gif.setChecked(SettingValues.gif);
@@ -56,11 +61,11 @@ public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeL
         album.setOnCheckedChangeListener(this);
         peek.setOnCheckedChangeListener(this);
 
-        final SwitchCompat readerMode = context.findViewById(R.id.settings_handling_reader_mode);
-        final SwitchCompat readernight = context.findViewById(R.id.settings_handling_readernight);
+        final SwitchCompat readerMode = context.requireViewById(R.id.settings_handling_reader_mode);
+        final SwitchCompat readernight = context.requireViewById(R.id.settings_handling_readernight);
 
         final RelativeLayout handlingVideoLayout =
-                context.findViewById(R.id.settings_handling_video);
+                context.requireViewById(R.id.settings_handling_video);
         domainListLayout = context.findViewById(R.id.settings_handling_domainlist);
         final EditText domainListEditText =
                 context.findViewById(R.id.settings_handling_domain_edit);
@@ -121,10 +126,10 @@ public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeL
 
     private void setUpBrowserLinkHandling() {
         final RadioGroup browserTypeRadioGroup =
-                context.findViewById(R.id.settings_handling_select_browser_type);
+                context.requireViewById(R.id.settings_handling_select_browser_type);
         final RelativeLayout selectBrowserLayout =
-                context.findViewById(R.id.settings_handling_select_browser_layout);
-        final TextView webBrowserView = context.findViewById(R.id.settings_handling_browser);
+                context.requireViewById(R.id.settings_handling_select_browser_layout);
+        final TextView webBrowserView = context.requireViewById(R.id.settings_handling_browser);
 
         browserTypeRadioGroup.check(
                 LinkHandlingMode.idResFromValue(SettingValues.linkHandlingMode));
@@ -166,7 +171,8 @@ public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeL
 
                         popupMenu.setOnMenuItemClickListener(
                                 item -> {
-                                    SettingValues.selectedBrowser = packageNames.get(item);
+                                    SettingValues.selectedBrowser =
+                                            packageNames.getOrDefault(item, "");
                                     SettingValues.prefs
                                             .edit()
                                             .putString(
@@ -213,16 +219,18 @@ public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeL
     }
 
     private void updateFilters() {
+        // The always-external domains decide whether a url resolves to Type.EXTERNAL.
+        ContentType.invalidateTypeCache();
         domainListLayout.removeAllViews();
         for (String s : SettingValues.alwaysExternal) {
             if (!s.isEmpty()
                     && (!Reddit.videoPlugin
-                            || !s.contains("youtube.co") && !s.contains("youtu.be"))) {
+                            || (!s.contains("youtube.co") && !s.contains("youtu.be")))) {
                 final View t =
                         context.getLayoutInflater()
                                 .inflate(R.layout.account_textview, domainListLayout, false);
-                final TextView accountTextViewName = t.findViewById(R.id.name);
-                final ImageView accountTextViewRemove = t.findViewById(R.id.remove);
+                final TextView accountTextViewName = t.requireViewById(R.id.name);
+                final ImageView accountTextViewRemove = t.requireViewById(R.id.remove);
                 accountTextViewName.setText(s);
                 accountTextViewRemove.setOnClickListener(
                         v -> {
@@ -246,13 +254,10 @@ public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeL
 
         private static final BiMap<Integer, Integer> sBiMap =
                 HashBiMap.create(
-                        new HashMap<Integer, Integer>() {
-                            {
-                                put(EXTERNAL.getValue(), EXTERNAL.getIdRes());
-                                put(INTERNAL.getValue(), INTERNAL.getIdRes());
-                                put(CUSTOM_TABS.getValue(), CUSTOM_TABS.getIdRes());
-                            }
-                        });
+                        ImmutableMap.of(
+                                EXTERNAL.getValue(), EXTERNAL.getIdRes(),
+                                INTERNAL.getValue(), INTERNAL.getIdRes(),
+                                CUSTOM_TABS.getValue(), CUSTOM_TABS.getIdRes()));
         private final int mValue;
         @IdRes private final int mIdRes;
 
@@ -262,11 +267,11 @@ public class SettingsHandlingFragment implements CompoundButton.OnCheckedChangeL
         }
 
         public static int idResFromValue(int value) {
-            return sBiMap.get(value);
+            return java.util.Objects.requireNonNull(sBiMap.get(value));
         }
 
         public static int valueFromIdRes(@IdRes int idRes) {
-            return sBiMap.inverse().get(idRes);
+            return java.util.Objects.requireNonNull(sBiMap.inverse().get(idRes));
         }
 
         public int getValue() {

@@ -4,6 +4,8 @@ import android.content.Context;
 import android.os.AsyncTask;
 import android.util.Log;
 import android.widget.Toast;
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.app.ActionBar;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -17,22 +19,27 @@ import me.edgan.redditslide.BuildConfig;
 import me.edgan.redditslide.Fragments.SubmissionsView;
 import me.edgan.redditslide.HasSeen;
 import me.edgan.redditslide.LastComments;
+import me.edgan.redditslide.Megareddit;
+import me.edgan.redditslide.Megareddits;
 import me.edgan.redditslide.OfflineSubreddit;
 import me.edgan.redditslide.PostLoader;
 import me.edgan.redditslide.PostMatch;
 import me.edgan.redditslide.R;
+import me.edgan.redditslide.Random.RandomSubreddits;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SubmissionCache;
-import me.edgan.redditslide.Synccit.MySynccitReadTask;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.PhotoLoader;
 import me.edgan.redditslide.util.TimeUtils;
 import net.dean.jraw.http.NetworkException;
+import net.dean.jraw.models.Listing;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.paginators.DomainPaginator;
 import net.dean.jraw.paginators.Paginator;
+import net.dean.jraw.paginators.Sorting;
 import net.dean.jraw.paginators.SubredditPaginator;
 
 /**
@@ -44,16 +51,104 @@ import net.dean.jraw.paginators.SubredditPaginator;
 public class SubredditPosts implements PostLoader {
     public List<Submission> posts;
     public String subreddit;
+    @SuppressWarnings("NullAway.Init") // assigned in onPostExecute
     public String subredditRandom;
     public boolean nomore = false;
     public boolean offline;
     public boolean forced;
+
+    /**
+     * Rebuild this listing from the on-disk cache instead of fetching it, for the first load only.
+     * Set when the app is coming back to a screen the user left -- a theme restart, or a hibernate
+     * resume after the process died -- so the feed they left is the feed they get back, with no
+     * request and no refresh spinner. Cleared by the display once it has drawn the restored list.
+     */
+    public boolean restoreFromCache;
+
+    /**
+     * Set once a load has actually served this listing from the cache, so the display can tell a
+     * restore apart from the fall-back to a normal fetch and only re-anchor the scroll for the
+     * former. Separate from {@link #restoreFromCache}, which is the request rather than the result.
+     */
+    public boolean restoredFromCache;
+
+    /**
+     * How many posts the listing held when it was recorded. A blob in the cache directory can be
+     * reclaimed by the system at any time and {@code OfflineSubreddit} simply skips the ones that
+     * have gone, so a restore can silently come back a fraction of its old length -- at which point
+     * the recorded scroll position means nothing and a normal load is the better answer.
+     */
+    public int restoreExpectedCount;
+
+    /** Fraction of the recorded post count a restore has to reach to be worth showing. */
+    private static final double MIN_RESTORE_FRACTION = 0.5;
+
+    /**
+     * Listing cursor recorded with the restored posts, so the first "load more" after a restore
+     * continues the listing instead of re-fetching page one. Held until a page actually comes back:
+     * a failed request leaves it in place for the retry.
+     */
+    @Nullable public String restoreAfterToken;
     public boolean loading;
     public boolean error;
+    @SuppressWarnings("NullAway.Init") // assigned in getNextFiltered/onPostExecute
     private Paginator paginator;
+    @SuppressWarnings("NullAway.Init") // set in doInBackground
     public OfflineSubreddit cached;
     Context c;
     boolean force18;
+
+    /**
+     * How many consecutive fully-filtered pages one load will fetch past before giving up and
+     * reporting the listing as empty. Three is generous for the case this exists for — a page or
+     * two of posts the user's filters happen to exclude — while keeping a subreddit the filters
+     * exclude entirely from paging to its end, one blocking request at a time, on a single load.
+     */
+    private static final int MAX_EMPTY_PAGES = 3;
+
+    /**
+     * How many posts one load of a Megareddit tries to come back with. A Megareddit is r/all with
+     * most of it filtered away -- for tags "cat" and "dog", about one post in 36 is kept -- so a
+     * single page yields two or three. That is too few to fill the screen, and a list that does not
+     * fill the screen never scrolls, so the listener that asks for the next page never fires.
+     *
+     * <p>A goal, not a ceiling on the feed: pagination carries on into the next page and the next
+     * sort as the listing is scrolled, so what the feed ends up holding is every post r/all will
+     * hand over, the same set the Subreddits screen counts.
+     */
+    private static final int MEGA_MIN_MATCHES_PER_LOAD = 10;
+
+    /**
+     * Pages one load may fetch while trying to reach {@link #MEGA_MIN_MATCHES_PER_LOAD}. Hot and
+     * rising never run out, so without a budget a Megareddit whose tags match nothing -- a typo is
+     * enough -- would page r/all forever behind a spinner that never resolves. It bounds one load,
+     * not the feed: the next load starts where this one stopped.
+     */
+    private static final int MEGA_MAX_PAGES_PER_LOAD = 12;
+
+    /**
+     * For a Megareddit sorted "All": the sort its paginator is on, and the ones still to walk. Each
+     * sort surfaces a different slice of r/all, so the listing runs on into the next one instead of
+     * ending when a sort does. Duplicates between them are dropped where the pages are merged,
+     * which is by post id.
+     */
+    @Nullable private Sorting megaSort;
+
+    private final List<Sorting> megaSortsLeft = new ArrayList<>();
+
+    /**
+     * Which listing the posts in this loader belong to. Bumped by every reset load, on the main
+     * thread, before that load clears {@link #posts}.
+     *
+     * <p>Finishing a listing makes the scroll listener queue an append, and on a slow connection
+     * that append is still in flight when the user refreshes. It knows nothing about the refresh:
+     * it completes against the subreddit it was started for and, not being a reset, adds that
+     * subreddit's next page into the list the refresh has just emptied — which for a random
+     * listing means the old subreddit renders as though it were the new pick, until the real one
+     * lands on top of it a second later. Comparing the generation a load started in against the
+     * current one is what lets those results be dropped instead of merged.
+     */
+    private volatile int generation;
 
     public SubredditPosts(String subreddit, Context c) {
         posts = new ArrayList<>();
@@ -74,12 +169,141 @@ public class SubredditPosts implements PostLoader {
         new LoadData(context, display, reset).execute(subreddit);
     }
 
+    /**
+     * The cursor for the page after the last one fetched, or {@code null} if nothing has been
+     * fetched yet. Recorded alongside a hibernated feed so it can be handed back to
+     * {@link #restoreAfterToken}.
+     */
+    @Nullable
+    public String getAfterToken() {
+        if (paginator == null) {
+            // Restored from cache and not paged since, so there is no paginator to ask -- but the
+            // cursor the restore came with is still the right one. Without this, hibernating twice
+            // in a row without scrolling to the bottom quietly loses it.
+            return restoreAfterToken;
+        }
+        final Listing<Submission> listing = paginator.getCurrentListing();
+        final String after = listing == null ? null : listing.getAfter();
+        return after != null ? after : restoreAfterToken;
+    }
+
+    /**
+     * A paginator for {@code sub}, seeded with {@link #restoreAfterToken} when one is pending. The
+     * token is not cleared here: the paginator drops its own copy once a request has actually
+     * succeeded, so a 500-retry that rebuilds the paginator re-seeds rather than jumping to the top
+     * of the listing.
+     *
+     * <p>Package-private as a seam: this is where the user's chosen sort and time period are read,
+     * and the only place a fetch can pick them up. A reload that never reaches here -- one served
+     * from the cache instead -- is a sort change the user never sees.
+     */
+    @VisibleForTesting
+    Paginator createPaginator(String sub, int limit) {
+        final Paginator built;
+        if (sub.equals("frontpage")) {
+            built = new ResumableSubredditPaginator(Authentication.reddit);
+        } else if (Megareddits.isKey(sub)) {
+            // A Megareddit is a filter over r/all; getNextFiltered applies it.
+            built = new ResumableSubredditPaginator(Authentication.reddit, "all");
+        } else if (!sub.contains(".")) {
+            built = new ResumableSubredditPaginator(Authentication.reddit, sub);
+        } else {
+            built = new ResumableDomainPaginator(Authentication.reddit, sub);
+        }
+        if (Megareddits.isKey(subreddit) && Megareddits.isSortAll(subreddit)) {
+            if (megaSort == null) {
+                megaSortsLeft.clear();
+                megaSortsLeft.addAll(Megareddits.ALL_SORTS);
+                megaSort = megaSortsLeft.remove(0);
+            }
+            built.setSorting(megaSort);
+        } else {
+            built.setSorting(SettingValues.getSubmissionSort(subreddit));
+        }
+        built.setTimePeriod(SettingValues.getSubmissionTimePeriod(subreddit));
+        built.setLimit(limit);
+        ((ResumablePaginator) built).setResumeAfter(restoreAfterToken);
+        return built;
+    }
+
+    /**
+     * Whether the listing {@code listing} keeps {@code s} as far as a Megareddit is concerned.
+     * Anything that is not a Megareddit keeps everything; one whose definition {@code mega} has
+     * since been deleted keeps nothing.
+     */
+    private static boolean megaKeeps(String listing, @Nullable Megareddit mega, Submission s) {
+        if (!Megareddits.isKey(listing)) {
+            return true;
+        }
+        return mega != null && mega.matches(s.getSubredditName());
+    }
+
+    /**
+     * The listing as it was last written to disk, rebuilt and ready to display, or {@code null}
+     * when there is not enough of it left to be worth restoring.
+     *
+     * <p>Everything the online path does to a freshly fetched page has to happen here too. Those
+     * calls used to sit only on the online branch, so an offline listing came back with every post
+     * reading as unseen, no new-comment counts, no recovered titles on removed posts, and no
+     * preview images warmed.
+     *
+     * <p>Runs on the loader's background thread: rebuilding a hundred posts means a hundred file
+     * reads and as many JSON parses, which is not something to do while the user is looking at a
+     * blank screen.
+     */
+    @Nullable
+    private List<Submission> rebuildFromCache(Context context) {
+        final String key = subreddit.toLowerCase(Locale.ENGLISH);
+        // offline=false: read each blob as a bare submission. Reading a post's comments now writes
+        // the whole thread to that same blob, and the true branch would deserialize every one of
+        // those trees -- a listing of a hundred posts pulling in every thread the user has opened,
+        // to build a feed that never looks at a comment. The false branch lifts the submission out
+        // of the listing without walking it.
+        final OfflineSubreddit stored = OfflineSubreddit.getSubreddit(key, 0L, false, c);
+        if (stored == null) {
+            return null;
+        }
+        // What the previous restore path published here; the offline gallery and shadowbox read it
+        // for the snapshot timestamp to open.
+        cached = stored;
+        final Megareddit mega = Megareddits.forKey(subreddit);
+        final List<Submission> restored = new ArrayList<>();
+        for (Submission s : stored.submissions) {
+            if (!PostMatch.doesMatch(s, subreddit, force18) && megaKeeps(subreddit, mega, s)) {
+                restored.add(s);
+            }
+        }
+        if (restored.isEmpty()) {
+            return null;
+        }
+        // A blob in the cache directory can be reclaimed by the system at any point, and the read
+        // back above simply skips the ones that have gone -- silently, and without shortening the
+        // stored name list. Comparing against the count recorded with the scroll position is the
+        // only signal that the listing came back a fraction of what it was.
+        if (restoreExpectedCount > 0
+                && restored.size() < restoreExpectedCount * MIN_RESTORE_FRACTION) {
+            return null;
+        }
+        if (!(SettingValues.noImages
+                && ((!NetworkUtil.isConnectedWifi(c) && SettingValues.lowResMobile)
+                        || SettingValues.lowResAlways))) {
+            PhotoLoader.loadPhotos(c, restored, key);
+        }
+        if (SettingValues.storeHistory) {
+            HasSeen.setHasSeenSubmission(restored);
+            LastComments.setCommentsSince(restored);
+        }
+        SubmissionCache.cacheSubmissions(restored, context, subreddit);
+        return restored;
+    }
+
     public void loadMore(
             Context context, SubmissionDisplay display, boolean reset, String subreddit) {
         this.subreddit = subreddit;
         loadMore(context, display, reset);
     }
 
+    @SuppressWarnings("NullAway.Init") // assigned in doMainActivityOffline/onPostExecute
     public ArrayList<String> all;
 
     @Override
@@ -95,12 +319,19 @@ public class SubredditPosts implements PostLoader {
     boolean authedOnce = false;
     boolean usedOffline;
     public long currentid;
+    @SuppressWarnings("NullAway.Init") // LoadData's constructor assigns this
     public SubmissionDisplay displayer;
 
     /** Asynchronous task for loading data */
     private class LoadData extends AsyncTask<String, Void, List<Submission>> {
         final boolean reset;
         Context context;
+
+        /** The generation this load belongs to, taken in {@link #onPreExecute}. */
+        int loadGeneration;
+
+        /** Set when this load's results were abandoned because a newer listing replaced it. */
+        boolean dropped;
 
         public LoadData(Context context, SubmissionDisplay display, boolean reset) {
             this.context = context;
@@ -110,8 +341,19 @@ public class SubredditPosts implements PostLoader {
 
         public int start;
 
+        /** Whether a newer listing has replaced the one this load was started for. */
+        private boolean stale() {
+            return loadGeneration != generation;
+        }
+
         @Override
         public void onPreExecute() {
+            // A reset starts a new listing, so everything already in flight belongs to the old
+            // one. Bumped before the generation is taken so this load reads its own.
+            if (reset) {
+                generation++;
+            }
+            loadGeneration = generation;
             if (reset) {
                 posts.clear();
                 displayer.onAdapterUpdated();
@@ -122,6 +364,17 @@ public class SubredditPosts implements PostLoader {
         public void onPostExecute(final List<Submission> submissions) {
             boolean success = true;
             loading = false;
+
+            if (dropped || stale()) {
+                // Nothing to show and nothing to report: the listing this load belonged to is
+                // gone, and the one that replaced it is either on screen or on its way. Leaving
+                // `error` alone matters — a dropped load is not a failed one.
+                //
+                // Checked again here, not just in doInBackground: a refresh landing between the
+                // merge and this callback leaves a load that passed both earlier tests still
+                // holding the previous listing's posts, and rendering them is the whole defect.
+                return;
+            }
 
             if (error != null) {
                 if (error instanceof NetworkException) {
@@ -157,74 +410,194 @@ public class SubredditPosts implements PostLoader {
                     ((SubmissionsView) displayer).adapter.undoSetError();
                 }
 
-                String[] ids = new String[submissions.size()];
-                int i = 0;
-                for (Submission s : submissions) {
-                    ids[i] = s.getId();
-                    i++;
-                }
-
                 // update online
                 displayer.updateSuccess(posts, start);
                 currentid = 0;
                 OfflineSubreddit.currentid = currentid;
 
-                if (subreddit.equals("random")
-                        || subreddit.equals("myrandom")
-                        || subreddit.equals("randnsfw")) {
-                    subredditRandom = submissions.get(0).getSubredditName();
+                if (RandomSubreddits.isRandom(subreddit)) {
+                    // The name is resolved before the fetch now, so this only confirms it. Keep
+                    // the resolved pick when the submission carries no subreddit name, rather
+                    // than blanking it and losing the pick for the retry path.
+                    final String fromSubmission =
+                            MiscUtil.orEmpty(submissions.get(0).getSubredditName());
+                    if (!fromSubmission.isEmpty()) {
+                        subredditRandom = fromSubmission;
+                    }
                 }
 
                 MainActivity.randomoverride = subredditRandom;
 
-                if (context instanceof SubredditView
-                        && (subreddit.equals("random")
-                                || subreddit.equals("myrandom")
-                                || subreddit.equals("randnsfw"))) {
-                    ((SubredditView) context).subreddit = subredditRandom;
-                    ((SubredditView) context).executeAsyncSubreddit(subredditRandom);
-                }
-                if (!SettingValues.synccitName.isEmpty() && !offline) {
-                    new MySynccitReadTask(displayer).execute(ids);
-                }
-
+                handOffResolvedRandom();
             } else if (submissions != null) {
                 // end of submissions
                 nomore = true;
                 displayer.updateSuccess(posts, posts.size() + 1);
-            } else if (MainActivity.isRestart) {
-                posts = new ArrayList<>();
-                cached = OfflineSubreddit.getSubreddit(subreddit, 0L, true, c);
-                for (Submission s : cached.submissions) {
-                    if (!PostMatch.doesMatch(s, subreddit, force18)) {
-                        posts.add(s);
-                    }
-                }
+
+                // A random pick can resolve and still return nothing to show — an NSFW subreddit
+                // with NSFW hidden has every post filtered out by PostMatch. The name still has
+                // to reach SubredditView, or the over-18 interstitial that would offer to load it
+                // anyway never runs and the screen stays blank with no way forward.
+                handOffResolvedRandom();
+            } else if (restoredFromCache) {
+                // The listing was rebuilt from disk on the background thread, so there is nothing
+                // to do here but draw it. Not "offline": the cache stood in for one load, and
+                // pagination from here on is live.
                 offline = false;
                 usedOffline = false;
+                currentid = 0;
+                // CommentsScreen locates the post the user tapped inside the listing keyed by
+                // this, and it is a static that reads 0 after a process death. Setting it here
+                // keeps a restored feed and a comment screen opened from it on the same list.
+                OfflineSubreddit.currentid = currentid;
                 // posts was just replaced wholesale from cache, so force a full redraw
                 // (-1) rather than a targeted insert against a now-mismatched offset.
                 displayer.updateSuccess(posts, -1);
             } else {
-                if (!all.isEmpty() && !nomore && SettingValues.cache) {
-                    if (context instanceof MainActivity) {
-                        doMainActivityOffline(context, displayer);
-                    }
-                } else if (!nomore) {
+                // Exactly one display callback has to run on this path, whichever way it goes:
+                // the spinner a pull started is only ever taken down by one, so a branch that
+                // silently renders nothing leaves the listing unrefreshable. Both conditions are
+                // folded into one test for that reason -- a host that is not MainActivity has no
+                // offline chooser, so it belongs with the failures rather than falling through
+                // between the two.
+                if (all != null
+                        && !all.isEmpty()
+                        && !nomore
+                        && SettingValues.cache
+                        && context instanceof MainActivity) {
+                    doMainActivityOffline(context, displayer);
+                    // The chooser doMainActivityOffline installs renders nothing until the user
+                    // picks a snapshot out of it, so the spinner has to come down here.
+                    displayer.updateOffline(posts, currentid);
+                } else {
                     // error
                     LogUtil.v("Setting error");
                     success = false;
                 }
             }
 
+            if (!success) {
+                // Nothing was rendered and nothing was reported. Without this the spinner the pull
+                // started is never taken down, and SwipeRefreshLayout swallows every drag while it
+                // is still showing -- so one failed load leaves the listing permanently
+                // unrefreshable, which is indistinguishable from the app having hung.
+                displayer.updateError();
+            }
+
             SubredditPosts.this.error = !success;
         }
 
+        /**
+         * Turns "random", "myrandom" or "randnsfw" into a real subreddit name before anything is
+         * fetched.
+         *
+         * <p>This used to be a side effect of fetching: Reddit resolved /r/random itself and the
+         * name was read back off the first submission. Those endpoints are gone, so a name is
+         * chosen up front instead and everything downstream of {@code subredditRandom} carries on
+         * unchanged.
+         *
+         * @param fresh true to draw a new subreddit — a first load or a refresh, both of which
+         *     start a new listing and so should land somewhere new. False keeps the current pick,
+         *     which is what the 500-retry below needs: it rebuilds the paginator for the listing
+         *     already on screen and must not move it to a different subreddit.
+         */
+        private String resolveRandom(String sub, boolean fresh) {
+            if (!RandomSubreddits.isRandom(sub)) {
+                return sub;
+            }
+            if (!fresh) {
+                final String current = currentRandomPick(sub);
+                if (!current.isEmpty()) {
+                    subredditRandom = current;
+                    return current;
+                }
+            }
+            final String picked = RandomSubreddits.pick(context, sub);
+            if (picked != null && !picked.isEmpty()) {
+                subredditRandom = picked;
+                MainActivity.randomoverride = picked;
+                return picked;
+            }
+            // Nothing could be resolved: no cached list and no network on a first use, or the
+            // batch check failed. Reuse whatever was already landed on before falling back to the
+            // special name, which Reddit answers with a 404.
+            final String current = currentRandomPick(sub);
+            return current.isEmpty() ? sub : current;
+        }
+
+        /**
+         * The subreddit this random listing is already on, or empty if there is not one yet.
+         *
+         * <p>Three carriers, widest last, because a reload can arrive on a brand new loader: this
+         * loader's own pick; the last pick {@link RandomSubreddits} made for this special name,
+         * which survives the adapter being rebuilt; and finally {@code randomoverride}, which
+         * {@code SubmissionAdapter} clears on construction and so cannot be relied on alone.
+         */
+        private String currentRandomPick(String sub) {
+            if (subredditRandom != null && !subredditRandom.isEmpty()) {
+                return subredditRandom;
+            }
+            final String last = MiscUtil.orEmpty(RandomSubreddits.lastPick(sub));
+            if (!last.isEmpty()) {
+                return last;
+            }
+            return MiscUtil.orEmpty(MainActivity.randomoverride);
+        }
+
+        /**
+         * Hands the subreddit a random name resolved to over to the hosting {@link SubredditView},
+         * so its title, sidebar and over-18 interstitial act on the real subreddit rather than on
+         * "random".
+         *
+         * <p>Called from both the loaded and the empty branch of {@link #onPostExecute}: resolving
+         * a name and having posts to show are independent. A pick that lands on an NSFW subreddit
+         * while NSFW content is hidden returns posts that PostMatch then filters away entirely, and
+         * that is exactly the case where the interstitial needs to run.
+         */
+        private void handOffResolvedRandom() {
+            if (!(context instanceof SubredditView) || !RandomSubreddits.isRandom(subreddit)) {
+                return;
+            }
+            if (subredditRandom == null || subredditRandom.isEmpty()) {
+                return;
+            }
+            final SubredditView view = (SubredditView) context;
+            if (subredditRandom.equalsIgnoreCase(view.subreddit)) {
+                // Already handed off. executeAsyncSubreddit re-raises the over-18 interstitial
+                // every time it runs against an NSFW subreddit, so repeating it here would prompt
+                // again for the very subreddit the user just accepted — and accepting rebuilds the
+                // loader, which lands back here, with no way through to the posts.
+                return;
+            }
+            view.subreddit = subredditRandom;
+            view.executeAsyncSubreddit(subredditRandom);
+        }
+
         @Override
-        protected List<Submission> doInBackground(String... subredditPaginators) {
+        protected @Nullable List<Submission> doInBackground(String... subredditPaginators) {
             if (BuildConfig.DEBUG) LogUtil.v("Loading data");
-            if ((!NetworkUtil.isConnected(context) && !Authentication.didOnline)
-                    || MainActivity.isRestart) {
+            if (stale()) {
+                // Queued against a listing that a refresh has already replaced. Bailing here
+                // rather than at the merge below also spares the request, and for a random
+                // listing it means no subreddit is drawn for a listing nobody will see.
+                dropped = true;
+                return null;
+            }
+            if (restoreFromCache && reset) {
+                final List<Submission> restored = rebuildFromCache(context);
+                if (restored != null) {
+                    posts = restored;
+                    start = -1;
+                    restoreFromCache = false;
+                    restoredFromCache = true;
+                    return null;
+                }
+                // Too little of the recorded listing survived in the cache directory to be worth
+                // showing. Fall through and fetch it: a short feed at a scroll offset that no
+                // longer means anything is worse than a fresh one.
+                restoreFromCache = false;
+            }
+            if (!NetworkUtil.isConnected(context) && !Authentication.didOnline) {
                 Log.v(LogUtil.getTag(), "Using offline data");
                 offline = true;
                 usedOffline = true;
@@ -238,31 +611,44 @@ public class SubredditPosts implements PostLoader {
             if (reset || paginator == null) {
                 offline = false;
                 nomore = false;
-                String sub = subredditPaginators[0].toLowerCase(Locale.ENGLISH);
-                if ((sub.equals("random") || sub.equals("randnsfw"))
-                        && MainActivity.randomoverride != null
-                        && !MainActivity.randomoverride.isEmpty()) {
-                    sub = MainActivity.randomoverride;
-                    MainActivity.randomoverride = "";
+                // force18 means the user just accepted the over-18 interstitial for the
+                // subreddit this listing resolved to, on a loader rebuilt by doAdapter(true).
+                // That is a reload of what they agreed to see, not a request for somewhere new.
+                String sub =
+                        resolveRandom(
+                                subredditPaginators[0].toLowerCase(Locale.ENGLISH), !force18);
+                if (reset) {
+                    // A refresh is a request for the top of the listing, which is the one thing a
+                    // resume token must not do.
+                    restoreAfterToken = null;
+                    // ...and for a Megareddit on "All", the top means the first sort again.
+                    megaSort = null;
+                    megaSortsLeft.clear();
                 }
-                if (sub.equals("frontpage")) {
-                    paginator = new SubredditPaginator(Authentication.reddit);
-                } else if (!sub.contains(".")) {
-                    paginator = new SubredditPaginator(Authentication.reddit, sub);
-                } else {
-                    paginator = new DomainPaginator(Authentication.reddit, sub);
-                }
-                paginator.setSorting(SettingValues.getSubmissionSort(subreddit));
-                paginator.setTimePeriod(SettingValues.getSubmissionTimePeriod(subreddit));
-                paginator.setLimit(Paginator.RECOMMENDED_MAX_LIMIT);
+                paginator = createPaginator(sub, Paginator.RECOMMENDED_MAX_LIMIT);
             }
 
             List<Submission> filteredSubmissions = getNextFiltered();
 
+            if (stale()) {
+                // The refresh landed while this was fetching. The posts are real, but they are
+                // the previous listing's; merging them here is what put the old subreddit on
+                // screen for a second before the new pick replaced it.
+                //
+                // Ahead of the prefetch below, not after it: image-warming a hundred posts
+                // of a listing nobody will see competes for bandwidth with the refresh the
+                // user is waiting on, on exactly the slow connections this guard exists for.
+                dropped = true;
+                return null;
+            }
+
             if (!(SettingValues.noImages
                     && ((!NetworkUtil.isConnectedWifi(c) && SettingValues.lowResMobile)
                             || SettingValues.lowResAlways))) {
-                PhotoLoader.loadPhotos(c, filteredSubmissions);
+                PhotoLoader.loadPhotos(
+                        c,
+                        filteredSubmissions,
+                        subreddit == null ? null : subreddit.toLowerCase(Locale.ENGLISH));
             }
             if (SettingValues.storeHistory) {
                 HasSeen.setHasSeenSubmission(filteredSubmissions);
@@ -284,6 +670,9 @@ public class SubredditPosts implements PostLoader {
                 start = oldSize;
             }
 
+            // The listing has moved on under its own cursor now.
+            restoreAfterToken = null;
+
             if (!usedOffline) {
                 OfflineSubreddit.getSubNoLoad(subreddit.toLowerCase(Locale.ENGLISH))
                         .overwriteSubmissions(posts)
@@ -294,10 +683,69 @@ public class SubredditPosts implements PostLoader {
         }
 
         public ArrayList<Submission> getNextFiltered() {
+            final ArrayList<Submission> filtered = getNextFiltered(0);
+            if (Megareddits.isKey(subreddit)) {
+                // Keeps fetching until there is a screenful to show, the listing is spent --
+                // across sorts, since a Megareddit on "All" runs on into the next one -- or this
+                // load has used its page budget. A refresh landing underneath also stops it.
+                int pages = 1;
+                while (filtered.size() < MEGA_MIN_MATCHES_PER_LOAD
+                        && pages < MEGA_MAX_PAGES_PER_LOAD
+                        && error == null
+                        && !nomore
+                        && paginator != null
+                        && (paginator.hasNext() || !megaSortsLeft.isEmpty())
+                        && !stale()) {
+                    filtered.addAll(getNextFiltered(0));
+                    pages++;
+                }
+                if (!stale() && filtered.isEmpty() && pages >= MEGA_MAX_PAGES_PER_LOAD) {
+                    // A whole budget of r/all and not one post kept -- a tag with a typo in it
+                    // does this. Nothing here can trigger another load, because a feed with no
+                    // rows cannot be scrolled, so report the end rather than leave the footer
+                    // spinning for good. Pull to refresh starts the walk again. Never from a
+                    // stale load: the listing it would end is the refresh's, not its own.
+                    nomore = true;
+                }
+            }
+            return filtered;
+        }
+
+        /**
+         * @param emptyPages how many consecutive pages {@link PostMatch} has already emptied. A
+         *     page whose every post is filtered out is fetched past rather than shown as a blank
+         *     feed, but that has to stop somewhere: filters strict enough to empty one page tend to
+         *     empty the next as well, and this runs on the page-load thread, one blocking request
+         *     per page. Left unbounded it walks a whole subreddit, which is what {@link
+         *     #MAX_EMPTY_PAGES} caps.
+         */
+        private ArrayList<Submission> getNextFiltered(int emptyPages) {
             ArrayList<Submission> filteredSubmissions = new ArrayList<>();
             ArrayList<Submission> adding = new ArrayList<>();
 
+            // Looked up for every page rather than held, so a subreddit the overflow menu has
+            // just made negative is gone from the next page of the listing already on screen.
+            final boolean isMega = Megareddits.isKey(subreddit);
+            final Megareddit mega = Megareddits.forKey(subreddit);
+            if (isMega && mega == null) {
+                // Deleted while still open, or left behind as a tab: nothing belongs in it.
+                nomore = true;
+                return filteredSubmissions;
+            }
+
             try {
+                if (paginator != null && !paginator.hasNext() && !megaSortsLeft.isEmpty()) {
+                    // This sort is spent; "All" carries the listing on into the next one. The
+                    // resume token belongs to the sort being left behind -- handing it to the next
+                    // one resumes that listing at a cursor from a different ordering.
+                    restoreAfterToken = null;
+                    megaSort = megaSortsLeft.remove(0);
+                    paginator =
+                            createPaginator(
+                                    subreddit.toLowerCase(Locale.ENGLISH),
+                                    Paginator.RECOMMENDED_MAX_LIMIT);
+                }
+
                 if (paginator != null && paginator.hasNext()) {
                     if (force18 && paginator instanceof SubredditPaginator) {
                         ((SubredditPaginator) paginator).setObeyOver18(false);
@@ -308,17 +756,28 @@ public class SubredditPosts implements PostLoader {
                 }
 
                 for (Submission s : adding) {
-                    if (!PostMatch.doesMatch(
-                            s,
-                            paginator instanceof SubredditPaginator
-                                    ? ((SubredditPaginator) paginator).getSubreddit()
-                                    : ((DomainPaginator) paginator).getDomain(),
-                            force18)) {
+                    // A Megareddit is matched against its own key rather than against "all": the
+                    // key is what its sort and its content filters are stored under.
+                    final String base;
+                    if (isMega) {
+                        base = subreddit;
+                    } else if (paginator instanceof SubredditPaginator) {
+                        base = ((SubredditPaginator) paginator).getSubreddit();
+                    } else {
+                        base = ((DomainPaginator) paginator).getDomain();
+                    }
+                    if (!PostMatch.doesMatch(s, base, force18)
+                            && megaKeeps(subreddit, mega, s)) {
                         filteredSubmissions.add(s);
                     }
                 }
-                if (paginator != null && paginator.hasNext() && filteredSubmissions.isEmpty()) {
-                    filteredSubmissions.addAll(getNextFiltered());
+                // A Megareddit pages on through getNextFiltered() instead, which counts matches.
+                if (!isMega
+                        && paginator != null
+                        && paginator.hasNext()
+                        && filteredSubmissions.isEmpty()
+                        && emptyPages < MAX_EMPTY_PAGES) {
+                    filteredSubmissions.addAll(getNextFiltered(emptyPages + 1));
                 }
             } catch (Exception e) {
                 if (e instanceof NetworkException
@@ -329,27 +788,12 @@ public class SubredditPosts implements PostLoader {
                     for (int r = 0; r < retryCount; r++) {
                         newLimit /= 2;
                     }
-                    String sub = subreddit.toLowerCase(Locale.ENGLISH);
-                    if ((sub.equals("random") || sub.equals("randnsfw"))
-                            && MainActivity.randomoverride != null
-                            && !MainActivity.randomoverride.isEmpty()) {
-                        sub = MainActivity.randomoverride;
-                        MainActivity.randomoverride = "";
-                    }
-                    if (sub.equals("frontpage")) {
-                        paginator = new SubredditPaginator(Authentication.reddit);
-                    } else if (!sub.contains(".")) {
-                        paginator = new SubredditPaginator(Authentication.reddit, sub);
-                    } else {
-                        paginator = new DomainPaginator(Authentication.reddit, sub);
-                    }
-                    paginator.setSorting(SettingValues.getSubmissionSort(subreddit));
-                    paginator.setTimePeriod(SettingValues.getSubmissionTimePeriod(subreddit));
-                    paginator.setLimit(newLimit);
+                    String sub = resolveRandom(subreddit.toLowerCase(Locale.ENGLISH), false);
+                    paginator = createPaginator(sub, newLimit);
                     if (force18 && paginator instanceof SubredditPaginator) {
                         ((SubredditPaginator) paginator).setObeyOver18(false);
                     }
-                    return getNextFiltered();
+                    return getNextFiltered(0);
                 }
                 LogUtil.e(e, "SubredditPosts.getNextFiltered failed");
                 error = e;
@@ -361,7 +805,7 @@ public class SubredditPosts implements PostLoader {
         }
 
         int retryCount = 0;
-        Exception error;
+        @Nullable Exception error;
     }
 
     public void doMainActivityOffline(final Context c, final SubmissionDisplay displayer) {
@@ -385,10 +829,13 @@ public class SubredditPosts implements PostLoader {
             base[i] = s;
             i++;
         }
-        ((MainActivity) c).getSupportActionBar().setNavigationMode(ActionBar.NAVIGATION_MODE_LIST);
-        ((MainActivity) c)
-                .getSupportActionBar()
-                .setListNavigationCallbacks(
+        final ActionBar actionBar = ((MainActivity) c).getSupportActionBar();
+        if (actionBar == null) {
+            return;
+        }
+
+        actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_LIST);
+        actionBar.setListNavigationCallbacks(
                         new OfflineSubAdapter(c, android.R.layout.simple_list_item_1, titles),
                         new ActionBar.OnNavigationListener() {
 
@@ -399,6 +846,7 @@ public class SubredditPosts implements PostLoader {
                                 currentid = OfflineSubreddit.currentid;
 
                                 new AsyncTask<Void, Void, Void>() {
+                                    @SuppressWarnings("NullAway.Init") // set in doInBackground
                                     OfflineSubreddit cached;
 
                                     @Override
@@ -406,9 +854,11 @@ public class SubredditPosts implements PostLoader {
                                         cached =
                                                 OfflineSubreddit.getSubreddit(
                                                         subreddit, Long.valueOf(s2[1]), true, c);
+                                        final Megareddit mega = Megareddits.forKey(subreddit);
                                         List<Submission> finalSubs = new ArrayList<>();
                                         for (Submission s : cached.submissions) {
-                                            if (!PostMatch.doesMatch(s, subreddit, force18)) {
+                                            if (!PostMatch.doesMatch(s, subreddit, force18)
+                                                    && megaKeeps(subreddit, mega, s)) {
                                                 finalSubs.add(s);
                                             }
                                         }

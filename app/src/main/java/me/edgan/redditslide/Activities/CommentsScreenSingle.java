@@ -9,19 +9,20 @@ import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
 import androidx.viewpager.widget.ViewPager;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.Collections;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Autocache.AutoCacheScheduler;
+import me.edgan.redditslide.CommentRestoreState;
 import me.edgan.redditslide.Fragments.BlankFragment;
 import me.edgan.redditslide.Fragments.CommentPage;
 import me.edgan.redditslide.HasSeen;
+import me.edgan.redditslide.HibernateState;
 import me.edgan.redditslide.LastComments;
 import me.edgan.redditslide.Notifications.NotificationJobScheduler;
 import me.edgan.redditslide.R;
@@ -33,6 +34,7 @@ import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
 import net.dean.jraw.models.Submission;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * Created by ccrama on 9/17/2015.
@@ -40,18 +42,28 @@ import net.dean.jraw.models.Submission;
  * <p>This activity takes parameters for a submission id (through intent or direct link), retrieves
  * the Submission object, and then displays the submission with its comments.
  */
-public class CommentsScreenSingle extends BaseActivityAnim {
+@NullMarked
+public class CommentsScreenSingle extends BaseActivityAnim implements HibernateState.Restorable {
+
+    /** Where in the comments the user was when the app was last closed; empty on an ordinary open. */
+    public final CommentRestoreState restore = new CommentRestoreState();
+
+    @SuppressWarnings("NullAway.Init") // assigned in setupAdapter
     CommentsScreenSinglePagerAdapter comments;
     boolean np;
+    @SuppressWarnings("NullAway.Init") // assigned in setupAdapter
     private ViewPager pager;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate/onPostExecute
     private String subreddit;
+    @SuppressWarnings("NullAway.Init") // assigned in doInBackground/onCreate/processNameAndHistory
     private String name;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     private String context;
     private int contextNumber;
     private Boolean doneTranslucent = false;
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
 
         if (requestCode == 14 && comments != null) {
@@ -83,7 +95,7 @@ public class CommentsScreenSingle extends BaseActivityAnim {
     }
 
     @Override
-    public void onCreate(Bundle savedInstance) {
+    public void onCreate(@Nullable Bundle savedInstance) {
         disableSwipeBackLayout();
         getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         getWindow().getDecorView().setBackground(null);
@@ -108,7 +120,7 @@ public class CommentsScreenSingle extends BaseActivityAnim {
             TypedValue typedValue = new TypedValue();
             getTheme().resolveAttribute(R.attr.activity_background, typedValue, true);
             int color = typedValue.data;
-            findViewById(R.id.content_view).setBackgroundColor(color);
+            requireViewById(R.id.content_view).setBackgroundColor(color);
         } else {
             setupAdapter();
         }
@@ -147,17 +159,7 @@ public class CommentsScreenSingle extends BaseActivityAnim {
                             UserSubscriptions.doCachedModSubs();
 
                             if (Authentication.reddit.isAuthenticated()) {
-                                final Set<String> accounts =
-                                        Authentication.authentication.getStringSet(
-                                                "accounts", new HashSet<String>());
-                                if (accounts.contains(name)) { // convert to new system
-                                    accounts.remove(name);
-                                    accounts.add(name + ":" + Authentication.refresh);
-                                    Authentication.authentication
-                                            .edit()
-                                            .putStringSet("accounts", accounts)
-                                            .apply(); // force commit
-                                }
+                                Authentication.migrateAccountToTokenForm(name);
                                 Authentication.isLoggedIn = true;
                                 Reddit.notFirst = true;
                             }
@@ -181,11 +183,30 @@ public class CommentsScreenSingle extends BaseActivityAnim {
         }
     }
 
+    @Override
+    public void saveHibernateState(Bundle out) {
+        final Fragment current = comments == null ? null : comments.getCurrentFragment();
+        CommentRestoreState.capture(
+                out,
+                name.startsWith("t3_") ? name : "t3_" + name,
+                current instanceof CommentPage ? (CommentPage) current : null);
+    }
+
+    @Override
+    public void restoreHibernateState(Bundle in) {
+        restore.read(in);
+    }
+
     private void setupAdapter() {
         themeSystemBars(subreddit);
         setRecentBar(subreddit);
 
-        pager = (ViewPager) findViewById(R.id.content_view);
+        final Bundle hibernated = HibernateState.claim(this);
+        if (hibernated != null) {
+            restoreHibernateState(hibernated);
+        }
+
+        pager = (ViewPager) requireViewById(R.id.content_view);
         comments = new CommentsScreenSinglePagerAdapter(getSupportFragmentManager());
         pager.setAdapter(comments);
         pager.setCurrentItem(1);
@@ -200,12 +221,12 @@ public class CommentsScreenSingle extends BaseActivityAnim {
                     if (position == 0 && positionOffsetPixels == 0) {
                         finish();
                     }
+                    final CommentsScreenSinglePagerAdapter pagerAdapter =
+                            (CommentsScreenSinglePagerAdapter) pager.getAdapter();
                     if (position == 0
-                            && ((CommentsScreenSinglePagerAdapter) pager.getAdapter())
-                                        .blankPage
-                                != null) {
-                        ((CommentsScreenSinglePagerAdapter) pager.getAdapter())
-                                .blankPage.doOffset(positionOffset);
+                            && pagerAdapter != null
+                            && pagerAdapter.blankPage != null) {
+                        pagerAdapter.blankPage.doOffset(positionOffset);
                     }
                 }
             });
@@ -227,24 +248,23 @@ public class CommentsScreenSingle extends BaseActivityAnim {
         }
 
         @Override
-        protected String doInBackground(String... params) {
+        protected @Nullable String doInBackground(String... params) {
+            if (Authentication.reddit == null) {
+                return null;
+            }
+
             try {
                 final Submission s = Authentication.reddit.getSubmission(params[0]);
                 if (SettingValues.storeHistory) {
-                    if (SettingValues.storeNSFWHistory && s.isNsfw() || !s.isNsfw()) {
+                    if ((SettingValues.storeNSFWHistory && s.isNsfw()) || !s.isNsfw()) {
                         HasSeen.addSeen(s.getFullName());
                     }
                     LastComments.setComments(s);
                 }
-                HasSeen.setHasSeenSubmission(
-                        new ArrayList<Submission>() {
-                            {
-                                this.add(s);
-                            }
-                        });
+                HasSeen.setHasSeenSubmission(Collections.singletonList(s));
                 locked = s.isLocked();
                 archived = s.isArchived();
-                contest = s.getDataNode().get("contest_mode").asBoolean();
+                contest = s.getDataNode().path("contest_mode").asBoolean();
                 if (s.getSubredditName() == null) {
                     subreddit = "Promoted";
                 } else {
@@ -268,7 +288,8 @@ public class CommentsScreenSingle extends BaseActivityAnim {
                                 }
                             });
                 } catch (Exception ignored) {
-
+                    // Dialog on a host that finished while the
+                    // submission was being fetched.
                 }
                 return null;
             }
@@ -276,7 +297,9 @@ public class CommentsScreenSingle extends BaseActivityAnim {
     }
 
     private class CommentsScreenSinglePagerAdapter extends FragmentStatePagerAdapter {
+        @SuppressWarnings("NullAway.Init") // assigned in setPrimaryItem as the pager swaps pages
         private Fragment mCurrentFragment;
+        @SuppressWarnings("NullAway.Init") // assigned in getItem
         public BlankFragment blankPage;
 
         CommentsScreenSinglePagerAdapter(FragmentManager fm) {
@@ -335,6 +358,7 @@ public class CommentsScreenSingle extends BaseActivityAnim {
             args.putString("subreddit", subreddit);
             args.putBoolean("single", getIntent().getBooleanExtra(EXTRA_LOADMORE, true));
             args.putBoolean("np", np);
+            restore.applyTo(name.startsWith("t3_") ? name : "t3_" + name, args);
             f.setArguments(args);
 
             return f;

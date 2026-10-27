@@ -12,7 +12,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.webkit.DownloadListener;
 import android.webkit.WebChromeClient;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.GridView;
@@ -20,6 +19,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
+import androidx.annotation.Nullable;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -34,9 +34,7 @@ import java.io.IOException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import me.edgan.redditslide.Adapters.ImageGridAdapter;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.ForceTouch.PeekViewActivity;
@@ -47,30 +45,39 @@ import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SecretConstants;
 import me.edgan.redditslide.Tumblr.Photo;
 import me.edgan.redditslide.Tumblr.TumblrUtils;
-import me.edgan.redditslide.util.AdBlocker;
 import me.edgan.redditslide.util.GifUtils;
+import me.edgan.redditslide.util.GsonUtil;
 import me.edgan.redditslide.util.HttpUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.NetworkUtil;
 import net.dean.jraw.models.Submission;
 import org.apache.commons.text.StringEscapeUtils;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 3/5/2015. */
+@NullMarked
 public class PeekMediaView extends RelativeLayout {
 
-    ContentType.Type contentType;
-    private GifUtils.AsyncLoadGif gif;
-    private ExoVideoView videoView;
-    public WebView website;
-    private ProgressBar progress;
-    private SubsamplingScaleImageView image;
+    ContentType.Type contentType = ContentType.Type.NONE;
+    @Nullable private GifUtils.AsyncLoadGif gif;
 
-    public PeekMediaView(Context context, AttributeSet attrs, int defStyleAttr) {
+    // videoView, website, progress and image are all bound by init(), which every constructor
+    // calls, from views the peek_media_view layout always defines.
+    @SuppressWarnings("NullAway.Init")
+    private ExoVideoView videoView;
+
+    @SuppressWarnings("NullAway.Init") // assigned in init
+    public WebView website;
+
+    @SuppressWarnings("NullAway.Init") // assigned in init
+    private ProgressBar progress;
+
+    public PeekMediaView(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         init();
     }
 
-    public PeekMediaView(Context context, AttributeSet attrs) {
+    public PeekMediaView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
         init();
     }
@@ -112,7 +119,6 @@ public class PeekMediaView extends RelativeLayout {
                 doLoadTumblr(url);
                 progress.setIndeterminate(true);
                 break;
-            case EMBEDDED:
             case EXTERNAL:
             case LINK:
             case VIDEO:
@@ -157,7 +163,15 @@ public class PeekMediaView extends RelativeLayout {
     }
 
     private void doLoadAlbum(final String url) {
-        new AlbumUtils.GetAlbumWithCallback(url, (PeekViewActivity) getContext()) {
+        albumCallback(url).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+
+    /**
+     * The loader {@link #doLoadAlbum} runs, separated from running it so the test can drive
+     * {@code doWithData} with a hand-built album and no fetch behind it.
+     */
+    AlbumUtils.GetAlbumWithCallback albumCallback(final String url) {
+        return new AlbumUtils.GetAlbumWithCallback(url, (PeekViewActivity) getContext()) {
 
             @Override
             public void onError() {
@@ -172,23 +186,45 @@ public class PeekMediaView extends RelativeLayout {
             }
 
             @Override
-            public void doWithData(final List<Image> jsonElements) {
-                super.doWithData(jsonElements);
+            public boolean doWithData(final @Nullable List<Image> jsonElements) {
+                // Nothing usable came back, so there is nothing to index below; super has already
+                // sent this to onError(), which falls back to opening the link.
+                if (!super.doWithData(jsonElements)) {
+                    return false;
+                }
                 progress.setVisibility(View.GONE);
                 images = new ArrayList<>(jsonElements);
-                displayImage(images.get(0).getImageUrl());
+                // Screened like the album list's rows: getImageUrl() concatenates hash and
+                // extension blindly, so an entry missing either would peek at
+                // "https://i.imgur.com/null.jpg". Skipped rather than reported, as the Tumblr path
+                // below does: onError is for an album with nothing in it, and there is nothing to
+                // fall back to for one entry out of several.
+                final Image first = images.get(0);
+                if (first != null && first.hasImageUrl()) {
+                    displayImage(first.getImageUrl());
+                }
                 if (images.size() > 1) {
-                    GridView grid = findViewById(R.id.grid_area);
+                    GridView grid = requireViewById(R.id.grid_area);
                     grid.setNumColumns(5);
                     grid.setVisibility(VISIBLE);
                     grid.setAdapter(new ImageGridAdapter(getContext(), images));
                 }
+                return true;
             }
-        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+        };
     }
 
     private void doLoadTumblr(final String url) {
-        new TumblrUtils.GetTumblrPostWithCallback(url, (PeekViewActivity) getContext()) {
+        tumblrCallback(url).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+
+    /**
+     * The loader {@link #doLoadTumblr} runs, separated from running it so the test can drive
+     * {@code doWithData} with a hand-built post and no fetch behind it — the same split as
+     * {@link #albumCallback}, which screens its first entry the same way.
+     */
+    TumblrUtils.GetTumblrPostWithCallback tumblrCallback(final String url) {
+        return new TumblrUtils.GetTumblrPostWithCallback(url, (PeekViewActivity) getContext()) {
 
             @Override
             public void onError() {
@@ -203,26 +239,39 @@ public class PeekMediaView extends RelativeLayout {
             }
 
             @Override
-            public void doWithData(final List<Photo> jsonElements) {
-                super.doWithData(jsonElements);
+            public boolean doWithData(final @Nullable List<Photo> jsonElements) {
+                // A post with no photos leaves nothing to index below; super has already sent this
+                // to onError(), which falls back to opening the link.
+                if (!super.doWithData(jsonElements)) {
+                    return false;
+                }
                 progress.setVisibility(View.GONE);
                 tumblrImages = new ArrayList<>(jsonElements);
-                displayImage(tumblrImages.get(0).getOriginalSize().getUrl());
+                // A photo whose JSON carried no original_size — or that Jackson left null for a null
+                // element in the photos array — has nothing to show. Skipped rather than reported:
+                // onError above is for a post with no photos at all, and there is nothing to fall
+                // back to for one photo out of several.
+                final Photo first = tumblrImages.get(0);
+                final String firstUrl = first == null ? null : first.getOriginalUrl();
+                if (firstUrl != null) {
+                    displayImage(firstUrl);
+                }
                 if (tumblrImages.size() > 1) {
-                    GridView grid = findViewById(R.id.grid_area);
+                    GridView grid = requireViewById(R.id.grid_area);
                     grid.setNumColumns(5);
                     grid.setVisibility(VISIBLE);
                     grid.setAdapter(new ImageGridAdapter(getContext(), tumblrImages, true));
                 }
+                return true;
             }
-        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+        };
     }
 
-    List<Image> images;
-    List<Photo> tumblrImages;
+    @Nullable List<Image> images;
+    @Nullable List<Photo> tumblrImages;
 
-    WebChromeClient client;
-    WebViewClient webClient;
+    @Nullable WebChromeClient client;
+    @Nullable WebViewClient webClient;
 
     public void setValue(int newProgress) {
         progress.setProgress(newProgress);
@@ -247,18 +296,23 @@ public class PeekMediaView extends RelativeLayout {
 
             new AsyncTask<Void, Void, JsonObject>() {
                 @Override
-                protected JsonObject doInBackground(Void... params) {
+                protected @Nullable JsonObject doInBackground(Void... params) {
                     return HttpUtil.getJsonObject(Reddit.client, new Gson(), apiUrl);
                 }
 
                 @Override
-                protected void onPostExecute(final JsonObject result) {
+                protected void onPostExecute(final @Nullable JsonObject result) {
                     if (result != null && !result.isJsonNull() && result.has("error")) {
                         doLoadLink(url);
                     } else {
                         try {
-                            if (result != null && !result.isJsonNull() && result.has("img")) {
-                                doLoadImage(result.get("img").getAsString());
+                            // Absent, JSON null, or a non-string "img" all mean there is no comic to
+                            // show, and an empty uri reads to the image loader as a completed load
+                            // with a null bitmap. Fall through to the web view instead.
+                            if (result != null
+                                    && !result.isJsonNull()
+                                    && !GsonUtil.string(result, "img", "").isEmpty()) {
+                                doLoadImage(GsonUtil.string(result, "img", ""));
                             } else {
                                 doLoadLink(url);
                             }
@@ -282,22 +336,6 @@ public class PeekMediaView extends RelativeLayout {
                                 "javascript:(function() {"
                                     + " document.getElementsByTagName('video')[0].play(); })()");
                     }
-
-                    private Map<String, Boolean> loadedUrls = new HashMap<>();
-
-                    @Override
-                    public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
-                        boolean ad;
-                        if (!loadedUrls.containsKey(url)) {
-                            ad = AdBlocker.isAd(url, getContext());
-                            loadedUrls.put(url, ad);
-                        } else {
-                            ad = loadedUrls.get(url);
-                        }
-                        return ad
-                                ? AdBlocker.createEmptyResource()
-                                : super.shouldInterceptRequest(view, url);
-                    }
                 };
         website.setVisibility(View.VISIBLE);
         website.setWebChromeClient(client);
@@ -309,7 +347,7 @@ public class PeekMediaView extends RelativeLayout {
         website.getSettings().setUseWideViewPort(true);
         website.setDownloadListener(
                 new DownloadListener() {
-                    public void onDownloadStart(
+                    @Override public void onDownloadStart(
                             String url,
                             String userAgent,
                             String contentDisposition,
@@ -325,7 +363,7 @@ public class PeekMediaView extends RelativeLayout {
     }
 
     private void doLoadReddit(String url) {
-        RedditItemView v = findViewById(R.id.reddit_item);
+        RedditItemView v = requireViewById(R.id.reddit_item);
         v.loadUrl(this, url, progress);
     }
 
@@ -334,23 +372,17 @@ public class PeekMediaView extends RelativeLayout {
         LogUtil.v(apiUrl);
         new AsyncTask<Void, Void, JsonObject>() {
             @Override
-            protected JsonObject doInBackground(Void... params) {
+            protected @Nullable JsonObject doInBackground(Void... params) {
                 return HttpUtil.getJsonObject(Reddit.client, new Gson(), apiUrl);
             }
 
             @Override
-            protected void onPostExecute(JsonObject result) {
+            protected void onPostExecute(@Nullable JsonObject result) {
                 LogUtil.v("doLoad onPostExecute() called with: " + "result = [" + result + "]");
                 if (result != null
                         && !result.isJsonNull()
-                        && (result.has("fullsize_url") || result.has("url"))) {
-                    String url;
-                    if (result.has("fullsize_url")) {
-                        url = result.get("fullsize_url").getAsString();
-                    } else {
-                        url = result.get("url").getAsString();
-                    }
-                    doLoadImage(url);
+                        && !deviantArtImageUrl(result).isEmpty()) {
+                    doLoadImage(deviantArtImageUrl(result));
                 } else {
                     // todo error out
                 }
@@ -374,7 +406,7 @@ public class PeekMediaView extends RelativeLayout {
             final Context context = getContext();
             new AsyncTask<Void, Void, JsonObject>() {
                 @Override
-                protected JsonObject doInBackground(Void... params) {
+                protected @Nullable JsonObject doInBackground(Void... params) {
                     return HttpUtil.getImgurJsonObject(
                             Reddit.client,
                             new Gson(),
@@ -482,20 +514,19 @@ public class PeekMediaView extends RelativeLayout {
         }
     }
 
-    String actuallyLoaded;
+    @Nullable String actuallyLoaded;
 
     public void doLoadGif(final String dat) {
-        videoView = findViewById(R.id.gif);
+        videoView = requireViewById(R.id.gif);
         videoView.clearFocus();
-        findViewById(R.id.gifarea).setVisibility(View.VISIBLE);
-        findViewById(R.id.submission_image).setVisibility(View.GONE);
+        requireViewById(R.id.gifarea).setVisibility(View.VISIBLE);
+        requireViewById(R.id.submission_image).setVisibility(View.GONE);
         progress.setVisibility(View.VISIBLE);
         gif =
                 new GifUtils.AsyncLoadGif(
                         (PeekViewActivity) getContext(),
                         videoView,
                         progress,
-                        null,
                         false,
                         true,
                         "") {
@@ -513,7 +544,7 @@ public class PeekMediaView extends RelativeLayout {
 
         if (!imageShown) {
             actuallyLoaded = url;
-            final SubsamplingScaleImageView i = findViewById(R.id.submission_image);
+            final SubsamplingScaleImageView i = requireViewById(R.id.submission_image);
 
             i.setMinimumDpi(70);
             i.setMinimumTileDpi(240);
@@ -523,7 +554,7 @@ public class PeekMediaView extends RelativeLayout {
             final Handler handler = new Handler();
             final Runnable progressBarDelayRunner =
                     new Runnable() {
-                        public void run() {
+                        @Override public void run() {
                             progress.setVisibility(View.VISIBLE);
                         }
                     };
@@ -574,20 +605,20 @@ public class PeekMediaView extends RelativeLayout {
                                 new ImageLoadingListener() {
 
                                     @Override
-                                    public void onLoadingStarted(String imageUri, View view) {
+                                    public void onLoadingStarted(@Nullable String imageUri, @Nullable View view) {
                                         imageShown = true;
                                     }
 
                                     @Override
                                     public void onLoadingFailed(
-                                            String imageUri, View view, FailReason failReason) {
+                                            String imageUri, @Nullable View view, FailReason failReason) {
                                         Log.v(LogUtil.getTag(), "PeekMediaView: LOADING FAILED");
                                         imageShown = false;
                                     }
 
                                     @Override
                                     public void onLoadingComplete(
-                                            String imageUri, View view, Bitmap loadedImage) {
+                                            @Nullable String imageUri, @Nullable View view, @Nullable Bitmap loadedImage) {
                                         imageShown = true;
 
                                         File f =
@@ -597,7 +628,10 @@ public class PeekMediaView extends RelativeLayout {
                                                         .get(url);
                                         if (f != null && f.exists()) {
                                             i.loader.setImage(ImageSource.uri(f.getAbsolutePath()));
-                                        } else {
+                                        } else if (loadedImage != null) {
+                                            // A completed load with no bitmap is how the loader
+                                            // reports an unusable uri, and ImageSource.bitmap
+                                            // throws on a null rather than ignoring it.
                                             i.loader.setImage(ImageSource.bitmap(loadedImage));
                                         }
                                         (progress).setVisibility(View.GONE);
@@ -605,7 +639,7 @@ public class PeekMediaView extends RelativeLayout {
                                     }
 
                                     @Override
-                                    public void onLoadingCancelled(String imageUri, View view) {
+                                    public void onLoadingCancelled(String imageUri, @Nullable View view) {
                                         Log.v(LogUtil.getTag(), "PeekMediaView: LOADING CANCELLED");
                                     }
                                 },
@@ -622,10 +656,9 @@ public class PeekMediaView extends RelativeLayout {
 
     private void init() {
         inflate(getContext(), R.layout.peek_media_view, this);
-        this.image = findViewById(R.id.submission_image);
-        this.videoView = findViewById(R.id.gif);
-        this.website = findViewById(R.id.website);
-        this.progress = findViewById(R.id.progress);
+        this.videoView = requireViewById(R.id.gif);
+        this.website = requireViewById(R.id.website);
+        this.progress = requireViewById(R.id.progress);
     }
 
     public void setUrlWithSubmission(String url, Submission submission) {
@@ -635,23 +668,27 @@ public class PeekMediaView extends RelativeLayout {
         if (contentType == ContentType.Type.GIF && url.contains("i.redd.it")) {
             JsonNode dataNode = submission.getDataNode();
             if (dataNode.has("preview") &&
-                dataNode.get("preview").has("images") &&
-                dataNode.get("preview").get("images").size() > 0) {
+                dataNode.path("preview").has("images") &&
+                dataNode.path("preview").path("images").size() > 0) {
 
-                JsonNode variants = dataNode.get("preview")
-                    .get("images")
-                    .get(0)
-                    .get("variants");
+                JsonNode variants = dataNode.path("preview")
+                    .path("images")
+                    .path(0)
+                    .path("variants");
 
                 if (variants.has("mp4")) {
-                    String mp4Url = variants.get("mp4")
-                        .get("source")
-                        .get("url")
+                    String mp4Url = variants.path("mp4")
+                        .path("source")
+                        .path("url")
                         .asText()
                         .replace("&amp;", "&");
 
-                    url = mp4Url;
-                    contentType = ContentType.Type.GIF;
+                    // An mp4 variant with no source url leaves this empty, which would replace the
+                    // working i.redd.it url with nothing.
+                    if (!mp4Url.isEmpty()) {
+                        url = mp4Url;
+                        contentType = ContentType.Type.GIF;
+                    }
                 }
             }
         }
@@ -664,30 +701,35 @@ public class PeekMediaView extends RelativeLayout {
             JsonNode dataNode = submission.getDataNode();
 
             // Handle crosspost if needed
-            if (dataNode.has("crosspost_parent_list") && dataNode.get("crosspost_parent_list").size() > 0) {
-                dataNode = dataNode.get("crosspost_parent_list").get(0);
+            if (dataNode.has("crosspost_parent_list") && dataNode.path("crosspost_parent_list").size() > 0) {
+                dataNode = dataNode.path("crosspost_parent_list").path(0);
             }
 
             if (dataNode.has("gallery_data") && dataNode.has("media_metadata")) {
-                JsonNode galleryData = dataNode.get("gallery_data");
-                JsonNode mediaMetadata = dataNode.get("media_metadata");
+                JsonNode galleryData = dataNode.path("gallery_data");
+                JsonNode mediaMetadata = dataNode.path("media_metadata");
 
-                if (galleryData.has("items") && !galleryData.get("items").isNull()
-                        && galleryData.get("items").size() > 0) {
+                if (galleryData.has("items") && !galleryData.path("items").isNull()
+                        && galleryData.path("items").size() > 0) {
 
-                    JsonNode firstItem = galleryData.get("items").get(0);
+                    JsonNode firstItem = galleryData.path("items").path(0);
                     if (firstItem != null && firstItem.has("media_id")) {
-                        String mediaId = firstItem.get("media_id").asText();
+                        String mediaId = firstItem.path("media_id").asText();
 
                         if (mediaMetadata.has(mediaId)) {
-                            JsonNode mediaInfo = mediaMetadata.get(mediaId);
-                            if (mediaInfo != null && mediaInfo.has("s")) {
-                                String url = mediaInfo.get("s").get("u").asText();
-                                url = url.replace("&amp;", "&");
+                            JsonNode mediaInfo = mediaMetadata.path(mediaId);
+                            if (mediaInfo.has("s")) {
+                                String url = mediaInfo.path("s").path("u").asText();
+                                // An "s" node with no "u" leaves this empty, and the image loader
+                                // reads an empty uri as a completed load with a null bitmap. Fall
+                                // through to the hide-the-view fallback instead.
+                                if (!url.isEmpty()) {
+                                    url = url.replace("&amp;", "&");
 
-                                // Display the first image from the gallery
-                                displayImage(url);
-                                return;
+                                    // Display the first image from the gallery
+                                    displayImage(url);
+                                    return;
+                                }
                             }
                         }
                     }
@@ -699,4 +741,15 @@ public class PeekMediaView extends RelativeLayout {
         // Fallback if gallery loading fails
         setVisibility(View.GONE);
     }
+
+    /**
+     * The oEmbed image url, preferring the full-size one. Empty when the response carries neither as
+     * a string — callers treat that as "not an image" rather than handing the loader an empty uri,
+     * which it reads as a completed load with a null bitmap.
+     */
+    private static String deviantArtImageUrl(JsonObject result) {
+        final String fullsize = GsonUtil.string(result, "fullsize_url", "");
+        return fullsize.isEmpty() ? GsonUtil.string(result, "url", "") : fullsize;
+    }
+
 }

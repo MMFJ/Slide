@@ -18,13 +18,21 @@ import java.io.IOException;
 import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Views.SubsamplingScaleImageView;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by carlo_000 on 10/19/2015. */
 /*Adapted from https://github.com/Kennyc1012/Opengur */
 
+@NullMarked
 public class ImageLoaderUtils {
 
+    // Both are assigned by initImageLoader(), and every read is preceded by a call to it:
+    // Reddit.getImageLoader() and SettingsGeneralFragment both call it on the line before, and
+    // options is only ever read further down initImageLoader itself.
+    @SuppressWarnings("NullAway.Init")
     public static ImageLoaderUnescape imageLoader;
+
+    @SuppressWarnings("NullAway.Init") // assigned in initImageLoader
     public static DisplayImageOptions options;
 
     private ImageLoaderUtils() {}
@@ -61,6 +69,10 @@ public class ImageLoaderUtils {
         } else {
             discCache = new UnlimitedDiskCache(dir);
         }
+        // Every read of the cache goes through this, so a copy of Reddit's deleted-image graphic
+        // left over from before the downloader started rejecting 404s is dropped once, wherever it
+        // is first asked for, and refetched rather than displayed or saved.
+        discCache = new PlaceholderFilteringDiskCache(discCache);
 
         options =
                 new DisplayImageOptions.Builder()

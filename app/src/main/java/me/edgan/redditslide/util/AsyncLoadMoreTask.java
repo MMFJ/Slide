@@ -7,6 +7,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.View;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.RecyclerView;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -27,14 +28,16 @@ import me.edgan.redditslide.Adapters.CommentObject;
 import me.edgan.redditslide.Adapters.MoreChildItem;
 import me.edgan.redditslide.Adapters.MoreCommentViewHolder;
 import me.edgan.redditslide.Authentication;
+import me.edgan.redditslide.Flair.RichFlairParser;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import net.dean.jraw.models.CommentNode;
 import net.dean.jraw.models.MoreChildren;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
     private final MoreCommentViewHolder holder;
-    private final int holderPos;
     private final int dataPos;
     public final String fullname;
 
@@ -44,12 +47,11 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
     private final ArrayList<CommentObject> currentComments;
     private final HashMap<String, Integer> keys;
 
-    private ArrayList<CommentObject> finalData;
-    private MoreChildItem targetItem;
+    private ArrayList<CommentObject> finalData = new ArrayList<>();
+    @Nullable private MoreChildItem targetItem;
 
     public AsyncLoadMoreTask(
             int dataPos,
-            int holderPos,
             MoreCommentViewHolder holder,
             String fullname,
             Context context,
@@ -57,7 +59,6 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
             RecyclerView listView,
             ArrayList<CommentObject> currentComments,
             HashMap<String, Integer> keys) {
-        this.holderPos = holderPos;
         this.holder = holder;
         this.dataPos = dataPos;
         this.fullname = fullname;
@@ -69,7 +70,7 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
     }
 
     @Override
-    public void onPostExecute(Integer data) {
+    public void onPostExecute(@Nullable Integer data) {
         adapter.currentLoading = null;
         if (isCancelled()) {
             return;
@@ -93,14 +94,15 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
                             // Re-resolve the placeholder using its stable key. The original
                             // captured index is only a hint because collapsed/hidden rows can
                             // leave us one slot off by the time this callback runs.
+                            final MoreChildItem target = targetItem;
                             int currentDataPos = findPlaceholderPosition();
-                            if (currentDataPos < 0) {
+                            if (target == null || currentDataPos < 0) {
                                 Log.w(LogUtil.getTag(), "Target MoreChildItem no longer in list; nothing to apply.");
                                 resetLoadingIndicator();
                                 return;
                             }
 
-                            String placeholderKey = targetItem.getName();
+                            String placeholderKey = target.getName();
                             currentComments.remove(currentDataPos);
                             keys.remove(placeholderKey);
 
@@ -119,6 +121,7 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
                             if (itemsToAdd > 0) {
                                 listView.setItemAnimator(new SlideRightAlphaAnimator());
                             }
+                            adapter.invalidatePositionCache();
                             adapter.notifyDataSetChanged();
                         });
     }
@@ -155,7 +158,7 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
         }
 
         Integer keyedPosition = keys.get(placeholderKey);
-        if (isMatchingPlaceholderPosition(keyedPosition, placeholderKey)) {
+        if (keyedPosition != null && isMatchingPlaceholderPosition(keyedPosition, placeholderKey)) {
             return keyedPosition;
         }
 
@@ -180,7 +183,8 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
         return -1;
     }
 
-    private boolean isMatchingPlaceholderPosition(Integer position, String placeholderKey) {
+    private boolean isMatchingPlaceholderPosition(
+            @Nullable Integer position, String placeholderKey) {
         return position != null
                 && position >= 0
                 && position < currentComments.size()
@@ -189,7 +193,7 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
 
 
     @Override
-    protected Integer doInBackground(MoreChildItem... params) {
+    protected @Nullable Integer doInBackground(MoreChildItem... params) {
         finalData = new ArrayList<>();
         int itemsAddedCount = 0;
         if (params.length > 0) {
@@ -242,7 +246,6 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
                                 // Default error messages
                                 String message = mContext.getString(R.string.err_connection_failed_msg);
                                 String title = mContext.getString(R.string.err_title);
-                                Runnable positiveAction = null;
                                 String positiveButtonText = mContext.getString(R.string.btn_ok);
 
                                 // Specific error handling based on stacktrace
@@ -341,33 +344,46 @@ public class AsyncLoadMoreTask extends AsyncTask<MoreChildItem, Void, Integer> {
             itemsAddedCount++;
         }
 
-        // Download the newly fetched child comments' images before they're inserted/shown (we're on
-        // a background thread), so they render in place with their comment instead of popping in,
-        // matching SubmissionComments.LoadData.
-        preloadCommentImages(finalData);
+        // Download the newly fetched child comments' images, and read their videos' still frames,
+        // before they're inserted/shown (we're on a background thread), so they render in place with
+        // their comment instead of popping in, matching SubmissionComments.LoadData.
+        preloadCommentMedia(finalData);
 
         return itemsAddedCount;
     }
 
-    private void preloadCommentImages(List<CommentObject> built) {
+    private void preloadCommentMedia(List<CommentObject> built) {
         try {
             LinkedHashSet<String> urls = new LinkedHashSet<>();
+            LinkedHashSet<String> videos = new LinkedHashSet<>();
+            // The emoji of any richtext author flair, warmed alongside the media so the
+            // byline chip paints complete on the first bind.
+            LinkedHashSet<String> flairEmoji = new LinkedHashSet<>();
             for (CommentObject o : built) {
                 if (o == null || !o.isComment() || o.comment == null) {
                     continue;
                 }
                 try {
                     JsonNode dataNode = o.comment.getComment().getDataNode();
+                    flairEmoji.addAll(
+                            RichFlairParser.emojiUrls(
+                                    RichFlairParser.from(
+                                            dataNode, RichFlairParser.AUTHOR_FLAIR_RICHTEXT)));
                     String html =
                             SubmissionParser.replaceProcessingImgPlaceholders(
                                     dataNode.path("body_html").asText(""), dataNode);
                     urls.addAll(SubmissionParser.imageUrlsFor(html));
+                    videos.addAll(SubmissionParser.videoUrlsFor(html));
                 } catch (Exception ignored) {
                     // Skip comments we can't parse; they'll still load on bind.
                 }
             }
             CommentImageUtil.preloadBlocking(Reddit.getAppContext(), urls);
+            FlairEmojiUtil.preloadBlocking(Reddit.getAppContext(), flairEmoji);
+            CommentVideoPreview.preloadBlocking(Reddit.getAppContext(), videos);
         } catch (Exception ignored) {
+            // Preloading images is best-effort: on any failure the
+            // images still load when a comment binds.
         }
     }
 }

@@ -12,19 +12,17 @@ import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import androidx.activity.OnBackPressedCallback;
+import androidx.annotation.Nullable;
 import androidx.appcompat.widget.Toolbar;
 import androidx.webkit.WebViewClientCompat;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.Fragments.SubmissionsView;
 import me.edgan.redditslide.OpenRedditLink;
@@ -34,18 +32,24 @@ import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
-import me.edgan.redditslide.util.AdBlocker;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class Website extends BaseActivityAnim {
 
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     WebView v;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     String url;
     int subredditColor;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     MyWebViewClient client;
-    AdBlockWebViewClient webClient;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
+    SlideWebViewClient webClient;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     ProgressBar p;
 
     private static String getDomainName(String url) {
@@ -109,7 +113,7 @@ public class Website extends BaseActivityAnim {
             if (getIntent().getExtras() == null) {
                 return true;
             }
-            final int commentUrl = getIntent().getExtras().getInt(LinkUtil.ADAPTER_POSITION);
+            final int commentUrl = getIntent().getIntExtra(LinkUtil.ADAPTER_POSITION, 0);
             String submissionPermalink = getIntent().getStringExtra(MediaView.SUBMISSION_URL);
             boolean openCommentsDirect =
                     getIntent().getBooleanExtra(MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
@@ -158,10 +162,18 @@ public class Website extends BaseActivityAnim {
                     });
             return true;
         } else if (itemId == R.id.chrome) {
-            LinkUtil.openExternally(v.getUrl());
+            // A WebView with nothing loaded reports no url; openExternally used to be handed the
+            // null and log it rather than launching an intent for an empty address.
+            final String currentUrl = MiscUtil.orEmpty(v.getUrl());
+            if (!currentUrl.isEmpty()) {
+                LinkUtil.openExternally(currentUrl);
+            }
             return true;
         } else if (itemId == R.id.share) {
-            Reddit.defaultShareText(v.getTitle(), v.getUrl(), Website.this);
+            final String shareUrl = MiscUtil.orEmpty(v.getUrl());
+            if (!shareUrl.isEmpty()) {
+                Reddit.defaultShareText(MiscUtil.orEmpty(v.getTitle()), shareUrl, Website.this);
+            }
 
             return true;
         }
@@ -176,7 +188,7 @@ public class Website extends BaseActivityAnim {
     }
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    public void onCreate(@Nullable Bundle savedInstanceState) {
         overrideSwipeFromAnywhere();
         super.onCreate(savedInstanceState);
         getOnBackPressedDispatcher().addCallback(this, mBackCallback);
@@ -192,15 +204,15 @@ public class Website extends BaseActivityAnim {
         url = extras.getString(LinkUtil.EXTRA_URL, "");
         subredditColor = extras.getInt(LinkUtil.EXTRA_COLOR, Palette.getDefaultColor());
 
-        setSupportActionBar((Toolbar) findViewById(R.id.toolbar));
+        setSupportActionBar((Toolbar) requireViewById(R.id.toolbar));
         setupAppBar(R.id.toolbar, "", true, subredditColor, R.id.appbar);
-        mToolbar.setPopupTheme(new ColorPreferences(this).getFontStyle().getBaseId());
+        requireToolbar().setPopupTheme(new ColorPreferences(this).getFontStyle().getBaseId());
 
-        p = (ProgressBar) findViewById(R.id.progress);
-        v = (WebView) findViewById(R.id.web);
+        p = (ProgressBar) requireViewById(R.id.progress);
+        v = (WebView) requireViewById(R.id.web);
 
         client = new MyWebViewClient();
-        webClient = new AdBlockWebViewClient();
+        webClient = new SlideWebViewClient();
 
         if (!SettingValues.cookies) {
             final CookieManager cookieManager = CookieManager.getInstance();
@@ -250,7 +262,7 @@ public class Website extends BaseActivityAnim {
         v.getSettings().setUseWideViewPort(true);
         v.setDownloadListener(
                 new DownloadListener() {
-                    public void onDownloadStart(
+                    @Override public void onDownloadStart(
                             String url,
                             String userAgent,
                             String contentDisposition,
@@ -275,7 +287,7 @@ public class Website extends BaseActivityAnim {
     }
 
     private class MyWebViewClient extends WebChromeClient {
-        private CustomViewCallback fullscreenCallback;
+        @Nullable private CustomViewCallback fullscreenCallback;
 
         @Override
         public void onProgressChanged(WebView view, int newProgress) {
@@ -291,21 +303,21 @@ public class Website extends BaseActivityAnim {
 
                     if (!title.isEmpty()) {
                         if (getSupportActionBar() != null) {
-                            getSupportActionBar().setTitle(title);
+                            java.util.Objects.requireNonNull(getSupportActionBar()).setTitle(title);
 
                             if (url.contains("/")) {
-                                getSupportActionBar().setSubtitle(getDomainName(url));
+                                java.util.Objects.requireNonNull(getSupportActionBar()).setSubtitle(getDomainName(url));
                             }
-                            currentURL = url;
                         }
                     } else {
                         if (getSupportActionBar() != null) {
-                            getSupportActionBar().setTitle(getDomainName(url));
+                            java.util.Objects.requireNonNull(getSupportActionBar()).setTitle(getDomainName(url));
                         }
                     }
                 }
             } catch (Exception ignored) {
-
+                // Title updates are cosmetic; a page that reports a bad url
+                // just keeps the previous title.
             }
         }
 
@@ -313,7 +325,7 @@ public class Website extends BaseActivityAnim {
         public void onShowCustomView(View view, CustomViewCallback callback) {
             this.fullscreenCallback = callback;
 
-            findViewById(R.id.appbar).setVisibility(View.INVISIBLE);
+            requireViewById(R.id.appbar).setVisibility(View.INVISIBLE);
 
             WindowManager.LayoutParams attributes = getWindow().getAttributes();
             attributes.flags |= WindowManager.LayoutParams.FLAG_FULLSCREEN;
@@ -321,13 +333,13 @@ public class Website extends BaseActivityAnim {
             getWindow().setAttributes(attributes);
             getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
 
-            FrameLayout fullscreenViewFrame = (FrameLayout) findViewById(R.id.web_fullscreen);
+            FrameLayout fullscreenViewFrame = (FrameLayout) requireViewById(R.id.web_fullscreen);
             fullscreenViewFrame.addView(view);
         }
 
         @Override
         public void onHideCustomView() {
-            FrameLayout fullscreenViewFrame = (FrameLayout) findViewById(R.id.web_fullscreen);
+            FrameLayout fullscreenViewFrame = (FrameLayout) requireViewById(R.id.web_fullscreen);
             fullscreenViewFrame.removeAllViews();
 
             WindowManager.LayoutParams attributes = getWindow().getAttributes();
@@ -336,7 +348,7 @@ public class Website extends BaseActivityAnim {
             getWindow().setAttributes(attributes);
             getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
 
-            findViewById(R.id.appbar).setVisibility(View.VISIBLE);
+            requireViewById(R.id.appbar).setVisibility(View.VISIBLE);
 
             if (this.fullscreenCallback != null) {
                 this.fullscreenCallback.onCustomViewHidden();
@@ -345,28 +357,9 @@ public class Website extends BaseActivityAnim {
         }
     }
 
-    public static ArrayList<String> triedURLS;
+    @Nullable public static ArrayList<String> triedURLS;
 
-    public String currentURL;
-
-    // Method adapted from http://www.hidroh.com/2016/05/19/hacking-up-ad-blocker-android/
-    public class AdBlockWebViewClient extends WebViewClientCompat {
-        private Map<String, Boolean> loadedUrls = new HashMap<>();
-
-        @Override
-        public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
-            boolean ad;
-            if (!loadedUrls.containsKey(url)) {
-                ad = AdBlocker.isAd(url, Website.this);
-                loadedUrls.put(url, ad);
-            } else {
-                ad = loadedUrls.get(url);
-            }
-            return ad && (currentURL != null && !currentURL.contains("twitter.com"))
-                    ? AdBlocker.createEmptyResource()
-                    : super.shouldInterceptRequest(view, url);
-        }
-
+    public class SlideWebViewClient extends WebViewClientCompat {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, String url) {
             if (url.startsWith("intent://")) {
@@ -374,13 +367,17 @@ public class Website extends BaseActivityAnim {
                     // https://stackoverflow.com/a/58163386/6952238
                     Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
                     if ((intent != null)
-                            && ((intent.getScheme().equals("https"))
-                                    || (intent.getScheme().equals("http")))) {
+                            && (("https".equals(intent.getScheme()))
+                                    || ("http".equals(intent.getScheme())))) {
                         String fallbackUrl = intent.getStringExtra("browser_fallback_url");
-                        v.loadUrl(fallbackUrl);
+                        if (fallbackUrl != null) {
+                            v.loadUrl(fallbackUrl);
+                        }
                     }
                     return true;
                 } catch (URISyntaxException ignored) {
+                    // Not a parseable intent:// url, so there is no fallback to
+                    // follow; the load below continues.
                 }
             }
 

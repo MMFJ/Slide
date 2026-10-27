@@ -8,6 +8,7 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
+import androidx.annotation.Nullable;
 import androidx.cardview.widget.CardView;
 import java.util.ArrayList;
 import me.edgan.redditslide.R;
@@ -16,13 +17,20 @@ import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.AnimatorUtil;
 import me.edgan.redditslide.util.BlendModeUtil;
 import me.edgan.redditslide.util.DisplayUtil;
+import me.edgan.redditslide.util.PrefUtil;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 9/18/2015. */
+@NullMarked
 public class CreateCardView {
 
     public static View CreateView(ViewGroup viewGroup) {
         CardEnum cardEnum = SettingValues.defaultCardView;
-        View v = null;
+        // Default to the list layout so the switch below can only ever replace it: a CardEnum
+        // constant with no case here would otherwise leave v null and NPE on the next line.
+        View v =
+                LayoutInflater.from(viewGroup.getContext())
+                        .inflate(R.layout.submission_list, viewGroup, false);
         switch (cardEnum) {
             case LARGE:
                 if (SettingValues.middleImage) {
@@ -42,7 +50,7 @@ public class CreateCardView {
                                 .inflate(R.layout.submission_list, viewGroup, false);
 
                 // if the radius is set to 0 on KitKat--it crashes.
-                ((CardView) v.findViewById(R.id.card)).setRadius(0f);
+                ((CardView) v.requireViewById(R.id.card)).setRadius(0f);
                 break;
             case DESKTOP:
                 v =
@@ -50,11 +58,11 @@ public class CreateCardView {
                                 .inflate(R.layout.submission_list_desktop, viewGroup, false);
 
                 // if the radius is set to 0 on KitKat--it crashes.
-                ((CardView) v.findViewById(R.id.card)).setRadius(0f);
+                ((CardView) v.requireViewById(R.id.card)).setRadius(0f);
                 break;
         }
 
-        View thumbImage = v.findViewById(R.id.thumbimage2);
+        View thumbImage = v.requireViewById(R.id.thumbimage2);
         /**
          * If the user wants small thumbnails, revert the list style to the "old" list view. The
          * "old" thumbnails were (70dp x 70dp). Adjusts the paddingTop of the innerrelative, and
@@ -79,7 +87,7 @@ public class CreateCardView {
                 final int EIGHT_DP_X = DisplayUtil.dpToPxHorizontal(8);
                 ((RelativeLayout.LayoutParams) thumbImage.getLayoutParams())
                         .setMargins(EIGHT_DP_X * 2, EIGHT_DP_Y, EIGHT_DP_X, EIGHT_DP_Y);
-                v.findViewById(R.id.innerrelative).setPadding(0, EIGHT_DP_Y, 0, 0);
+                v.requireViewById(R.id.innerrelative).setPadding(0, EIGHT_DP_Y, 0, 0);
             }
         }
 
@@ -97,18 +105,65 @@ public class CreateCardView {
     public static void resetColorCard(View v) {
         v.setTag(v.getId(), "none");
 
+        TintViews tinted = getTintViews(v);
+
         TypedValue background = new TypedValue();
         v.getContext().getTheme().resolveAttribute(R.attr.card_background, background, true);
-        ((CardView) v.findViewById(R.id.card)).setCardBackgroundColor(background.data);
+        ((CardView) v.requireViewById(R.id.card)).setCardBackgroundColor(background.data);
         if (!SettingValues.actionbarVisible) {
-            for (View v2 : getViewsByTag((ViewGroup) v, "tintactionbar")) {
+            for (View v2 : tinted.tintactionbar) {
                 v2.setVisibility(View.GONE);
             }
         }
 
-        doColor(getViewsByTag((ViewGroup) v, "tint"));
-        doColorSecond(getViewsByTag((ViewGroup) v, "tintsecond"));
-        doColorSecond(getViewsByTag((ViewGroup) v, "tintactionbar"));
+        doColor(tinted.tint);
+        doColorSecond(tinted.tintsecond);
+        doColorSecond(tinted.tintactionbar);
+    }
+
+    /** The tag-lookup results for one card, cached on its root view. */
+    private static class TintViews {
+        final ArrayList<View> tint = new ArrayList<>();
+        final ArrayList<View> tintsecond = new ArrayList<>();
+        final ArrayList<View> tintactionbar = new ArrayList<>();
+    }
+
+    /**
+     * The card's tagged views, collected in a single traversal the first time and then reused. The
+     * tagged views are only ever shown/hidden, never added or removed, so the lists stay valid for
+     * the life of the (recycled) card. Without this, every bind walked the whole view tree once per
+     * tag.
+     */
+    private static TintViews getTintViews(View v) {
+        final Object cached = v.getTag(R.id.tint_views_tag);
+        if (cached instanceof TintViews) {
+            return (TintViews) cached;
+        }
+        TintViews tinted = new TintViews();
+        collectTintViews((ViewGroup) v, tinted);
+        v.setTag(R.id.tint_views_tag, tinted);
+        return tinted;
+    }
+
+    private static void collectTintViews(ViewGroup root, TintViews tinted) {
+        final int childCount = root.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            final View child = root.getChildAt(i);
+            if (child instanceof ViewGroup) {
+                collectTintViews((ViewGroup) child, tinted);
+            }
+
+            final Object tagObj = child.getTag();
+            if (tagObj != null) {
+                if (tagObj.equals("tint")) {
+                    tinted.tint.add(child);
+                } else if (tagObj.equals("tintsecond")) {
+                    tinted.tintsecond.add(child);
+                } else if (tagObj.equals("tintactionbar")) {
+                    tinted.tintactionbar.add(child);
+                }
+            }
+        }
     }
 
     public static void doColor(ArrayList<View> v) {
@@ -160,7 +215,8 @@ public class CreateCardView {
         return views;
     }
 
-    public static void colorCard(String sec, View v, String subToMatch, boolean secondary) {
+    public static void colorCard(
+            @Nullable String sec, View v, String subToMatch, boolean secondary) {
         resetColorCard(v);
         if ((SettingValues.colorBack
                         && !SettingValues.colorSubName
@@ -170,12 +226,13 @@ public class CreateCardView {
                                 && !SettingValues.colorSubName
                                 && Palette.getColor(sec) != Palette.getDefaultColor()))) {
             if (secondary || !SettingValues.colorEverywhere) {
-                ((CardView) v.findViewById(R.id.card))
+                ((CardView) v.requireViewById(R.id.card))
                         .setCardBackgroundColor(Palette.getColor(sec));
                 v.setTag(v.getId(), "color");
-                resetColor(getViewsByTag((ViewGroup) v, "tint"));
-                resetColor(getViewsByTag((ViewGroup) v, "tintsecond"));
-                resetColor(getViewsByTag((ViewGroup) v, "tintactionbar"));
+                TintViews tinted = getTintViews(v);
+                resetColor(tinted.tint);
+                resetColor(tinted.tintsecond);
+                resetColor(tinted.tintactionbar);
             }
         }
     }
@@ -208,7 +265,7 @@ public class CreateCardView {
     }
 
     public static View setBigPicEnabled(Boolean b, ViewGroup parent) {
-        SettingValues.prefs.edit().putBoolean("noThumbnails", b).apply();
+        SettingValues.prefs.edit().putBoolean("noThumbnails", false).apply();
         SettingValues.noThumbnails = false;
 
         SettingValues.prefs.edit().putBoolean("bigPicEnabled", b).apply();
@@ -224,7 +281,7 @@ public class CreateCardView {
     }
 
     public static View setBigPicCropped(Boolean b, ViewGroup parent) {
-        SettingValues.prefs.edit().putBoolean("noThumbnails", b).apply();
+        SettingValues.prefs.edit().putBoolean("noThumbnails", false).apply();
         SettingValues.noThumbnails = false;
 
         SettingValues.prefs.edit().putBoolean("bigPicLetterboxed", false).apply();
@@ -240,7 +297,7 @@ public class CreateCardView {
     }
 
     public static View setBigPicLetterboxed(Boolean b, ViewGroup parent) {
-        SettingValues.prefs.edit().putBoolean("noThumbnails", b).apply();
+        SettingValues.prefs.edit().putBoolean("noThumbnails", false).apply();
         SettingValues.noThumbnails = false;
 
         SettingValues.prefs.edit().putBoolean("bigPicCropped", false).apply();
@@ -292,7 +349,7 @@ public class CreateCardView {
     public static void toggleActionbar(View v) {
         if (!SettingValues.actionbarVisible) {
 
-            ValueAnimator a = AnimatorUtil.flipAnimatorIfNonNull(v.findViewById(R.id.upvote).getVisibility() == View.VISIBLE, v.findViewById(R.id.secondMenu));
+            ValueAnimator a = AnimatorUtil.flipAnimatorIfNonNull(v.requireViewById(R.id.upvote).getVisibility() == View.VISIBLE, v.requireViewById(R.id.secondMenu));
 
             if (a != null) a.start();
 
@@ -328,42 +385,42 @@ public class CreateCardView {
 
     private static void doHideObjects(final View v) {
         if (SettingValues.smallTag == 1) {
-            RelativeLayout.LayoutParams layoutParams = (RelativeLayout.LayoutParams) v.findViewById(R.id.tag).getLayoutParams();
+            RelativeLayout.LayoutParams layoutParams = (RelativeLayout.LayoutParams) v.requireViewById(R.id.tag).getLayoutParams();
             layoutParams.addRule(RelativeLayout.ALIGN_TOP, R.id.leadimage);
             layoutParams.addRule(RelativeLayout.ALIGN_RIGHT, R.id.leadimage);
             layoutParams.removeRule(RelativeLayout.ALIGN_BOTTOM);
             layoutParams.removeRule(RelativeLayout.ALIGN_PARENT_RIGHT);
-            v.findViewById(R.id.tag).setLayoutParams(layoutParams);
-            ((RelativeLayout.LayoutParams) v.findViewById(R.id.tag).getLayoutParams()).setMargins(DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10));
-            v.findViewById(R.id.base).setVisibility(View.GONE);
-            v.findViewById(R.id.tag).setVisibility(View.VISIBLE);
+            v.requireViewById(R.id.tag).setLayoutParams(layoutParams);
+            ((RelativeLayout.LayoutParams) v.requireViewById(R.id.tag).getLayoutParams()).setMargins(DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10));
+            v.requireViewById(R.id.base).setVisibility(View.GONE);
+            v.requireViewById(R.id.tag).setVisibility(View.VISIBLE);
         } else if (SettingValues.smallTag == 2) {
-            RelativeLayout.LayoutParams layoutParams = (RelativeLayout.LayoutParams) v.findViewById(R.id.tag).getLayoutParams();
+            RelativeLayout.LayoutParams layoutParams = (RelativeLayout.LayoutParams) v.requireViewById(R.id.tag).getLayoutParams();
             layoutParams.addRule(RelativeLayout.ALIGN_BOTTOM, R.id.leadimage);
             layoutParams.addRule(RelativeLayout.ALIGN_RIGHT, R.id.leadimage);
             layoutParams.removeRule(RelativeLayout.ALIGN_TOP);
             layoutParams.removeRule(RelativeLayout.ALIGN_PARENT_RIGHT);
-            v.findViewById(R.id.tag).setLayoutParams(layoutParams);
-            ((RelativeLayout.LayoutParams) v.findViewById(R.id.tag).getLayoutParams()).setMargins(DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10));
-            v.findViewById(R.id.base).setVisibility(View.GONE);
-            v.findViewById(R.id.tag).setVisibility(View.VISIBLE);
+            v.requireViewById(R.id.tag).setLayoutParams(layoutParams);
+            ((RelativeLayout.LayoutParams) v.requireViewById(R.id.tag).getLayoutParams()).setMargins(DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10), DisplayUtil.dpToPxVertical(10));
+            v.requireViewById(R.id.base).setVisibility(View.GONE);
+            v.requireViewById(R.id.tag).setVisibility(View.VISIBLE);
         } else {
-            v.findViewById(R.id.tag).setVisibility(View.GONE);
+            v.requireViewById(R.id.tag).setVisibility(View.GONE);
         }
         if (SettingValues.bigPicLetterboxed) {
-            ((ImageView) v.findViewById(R.id.leadimage)).setMaxHeight(900);
-            ((ImageView) v.findViewById(R.id.leadimage))
+            ((ImageView) v.requireViewById(R.id.leadimage)).setMaxHeight(900);
+            ((ImageView) v.requireViewById(R.id.leadimage))
                     .setScaleType(ImageView.ScaleType.FIT_CENTER);
         } else if (SettingValues.bigPicCropped) {
-            ((ImageView) v.findViewById(R.id.leadimage)).setMaxHeight(900);
-            ((ImageView) v.findViewById(R.id.leadimage))
+            ((ImageView) v.requireViewById(R.id.leadimage)).setMaxHeight(900);
+            ((ImageView) v.requireViewById(R.id.leadimage))
                     .setScaleType(ImageView.ScaleType.CENTER_CROP);
         }
         if (!SettingValues.actionbarVisible && !SettingValues.actionbarTap) {
             for (View v2 : getViewsByTag((ViewGroup) v, "tintactionbar")) {
                 v2.setVisibility(View.GONE);
             }
-            v.findViewById(R.id.secondMenu)
+            v.requireViewById(R.id.secondMenu)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
@@ -372,7 +429,7 @@ public class CreateCardView {
                                 }
                             });
         } else {
-            v.findViewById(R.id.secondMenu).setVisibility(View.GONE);
+            v.requireViewById(R.id.secondMenu).setVisibility(View.GONE);
             if (SettingValues.actionbarTap) {
                 for (View v2 : getViewsByTag((ViewGroup) v, "tintactionbar")) {
                     v2.setVisibility(View.GONE);
@@ -390,9 +447,9 @@ public class CreateCardView {
         if (SettingValues.switchThumb) {
             RelativeLayout.LayoutParams picParams =
                     (RelativeLayout.LayoutParams)
-                            v.findViewById(R.id.thumbimage2).getLayoutParams();
+                            v.requireViewById(R.id.thumbimage2).getLayoutParams();
             RelativeLayout.LayoutParams layoutParams =
-                    (RelativeLayout.LayoutParams) v.findViewById(R.id.inside).getLayoutParams();
+                    (RelativeLayout.LayoutParams) v.requireViewById(R.id.inside).getLayoutParams();
 
             if (!SettingValues.actionbarVisible && !SettingValues.actionbarTap) {
                 picParams.addRule(RelativeLayout.LEFT_OF, R.id.secondMenu);
@@ -410,17 +467,19 @@ public class CreateCardView {
             layoutParams.removeRule(RelativeLayout.RIGHT_OF);
         }
         if (!SettingValues.bigPicEnabled) {
-            v.findViewById(R.id.thumbimage2).setVisibility(View.VISIBLE);
-            v.findViewById(R.id.headerimage).setVisibility(View.GONE);
+            v.requireViewById(R.id.thumbimage2).setVisibility(View.VISIBLE);
+            v.requireViewById(R.id.headerimage).setVisibility(View.GONE);
         } else if (SettingValues.bigPicEnabled) {
-            v.findViewById(R.id.thumbimage2).setVisibility(View.GONE);
+            v.requireViewById(R.id.thumbimage2).setVisibility(View.GONE);
         }
     }
 
     public static boolean isCard() {
         return CardEnum.valueOf(
-                        SettingValues.prefs.getString(
-                                "defaultCardViewNew", SettingValues.defaultCardView.toString()))
+                        PrefUtil.getString(
+                                SettingValues.prefs,
+                                "defaultCardViewNew",
+                                SettingValues.defaultCardView.toString()))
                 == CardEnum.LARGE;
     }
 
@@ -430,8 +489,10 @@ public class CreateCardView {
 
     public static boolean isDesktop() {
         return CardEnum.valueOf(
-                        SettingValues.prefs.getString(
-                                "defaultCardViewNew", SettingValues.defaultCardView.toString()))
+                        PrefUtil.getString(
+                                SettingValues.prefs,
+                                "defaultCardViewNew",
+                                SettingValues.defaultCardView.toString()))
                 == CardEnum.DESKTOP;
     }
 

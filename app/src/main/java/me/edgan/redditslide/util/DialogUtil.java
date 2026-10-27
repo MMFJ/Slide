@@ -9,15 +9,21 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.Window;
+import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.documentfile.provider.DocumentFile;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Visuals.Palette;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by TacoTheDank on 07/14/2021. Updated to use Storage Access Framework */
+@NullMarked
 public class DialogUtil {
     private static final String TAG = "DialogUtil";
 
@@ -106,7 +112,7 @@ public class DialogUtil {
      * @param context Context whose theme defines card_background
      * @param dialog The AlertDialog to recolor
      */
-    public static void matchDialogToCardBackground(Context context, Dialog dialog) {
+    public static void matchDialogToCardBackground(Context context, @Nullable Dialog dialog) {
         if (dialog == null || dialog.getWindow() == null) {
             return;
         }
@@ -117,10 +123,36 @@ public class DialogUtil {
     }
 
     /** Overload that takes the context from the dialog itself. */
-    public static void matchDialogToCardBackground(Dialog dialog) {
+    public static void matchDialogToCardBackground(@Nullable Dialog dialog) {
         if (dialog != null) {
             matchDialogToCardBackground(dialog.getContext(), dialog);
         }
+    }
+
+    /**
+     * Re-measures a wrap_content, adjustResize dialog once the keyboard goes away. After a back
+     * swipe dismisses the keyboard, the window can re-request its keyboard-up height, leaving
+     * everything below the fold (editor buttons, Cancel/Preview/Submit) clipped until something
+     * else requests a layout. The posted requestLayout re-measures against the full screen.
+     *
+     * @param dialog The dialog whose window uses SOFT_INPUT_ADJUST_RESIZE
+     */
+    public static void requestLayoutWhenImeHides(@Nullable Dialog dialog) {
+        final Window window = dialog == null ? null : dialog.getWindow();
+        if (window == null) {
+            return;
+        }
+        final boolean[] imeVisible = {false};
+        ViewCompat.setOnApplyWindowInsetsListener(
+                window.getDecorView(),
+                (v, insets) -> {
+                    final boolean visible = insets.isVisible(WindowInsetsCompat.Type.ime());
+                    if (imeVisible[0] && !visible) {
+                        v.post(v::requestLayout);
+                    }
+                    imeVisible[0] = visible;
+                    return ViewCompat.onApplyWindowInsets(v, insets);
+                });
     }
 
     /**

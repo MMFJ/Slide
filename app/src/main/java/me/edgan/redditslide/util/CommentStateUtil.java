@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -36,7 +37,9 @@ import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
 import net.dean.jraw.models.Comment;
 import net.dean.jraw.models.CommentNode;
 import net.dean.jraw.models.VoteDirection;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class CommentStateUtil {
 
     /**
@@ -51,26 +54,44 @@ public class CommentStateUtil {
             boolean isReplying,
             boolean animate) {
 
-        if (adapter.currentlySelected != null && adapter.currentlySelected != holder) {
-            adapter.setCommentStateUnhighlighted(adapter.currentlySelected, adapter.currentBaseNode, true);
+        if (adapter.currentlySelected != null
+                && adapter.currentlySelected != holder
+                && adapter.currentBaseNode != null) {
+            adapter.setCommentStateUnhighlighted(
+                    adapter.currentlySelected, adapter.currentBaseNode, true);
         }
 
         // If a comment is hidden and (Swap long press == true), then a single click will un-hide
-        // the comment and expand to show all children comments
-        if (SettingValues.swap && holder.firstTextView.getVisibility() == View.GONE && !isReplying) {
+        // the comment and expand to show all children comments.
+        // A collapsed body always hides BOTH views together, so the overflow has to be checked as
+        // well: a comment whose body is only an inline image has an empty firstTextView (hidden so
+        // there is no blank gap above the image) while its overflow is visible, and treating that
+        // as "hidden" left its menu unreachable from every part of the row. See issue #305.
+        if (SettingValues.swap
+                && holder.firstTextView.getVisibility() == View.GONE
+                && holder.commentOverflow.getVisibility() == View.GONE
+                && !isReplying) {
             adapter.hiddenPersons.remove(n.getFullName());
             adapter.unhideAll(baseNode, holder.getBindingAdapterPosition() + 1);
+            boolean blockedBody = false;
             if (adapter.toCollapse.contains(n.getFullName()) && SettingValues.collapseComments) {
-                adapter.setViews(SubmissionParser.replaceProcessingImgPlaceholders(n.getDataNode().path("body_html").asText(""), n.getDataNode()), adapter.submission.getSubredditName(), holder);
+                blockedBody = adapter.collapseIfBlocked(n, holder);
+                if (!blockedBody) {
+                    adapter.setViews(SubmissionParser.replaceProcessingImgPlaceholders(n.getDataNode().path("body_html").asText(""), n.getDataNode()), MiscUtil.orEmpty(adapter.submission.getSubredditName()), holder);
+                }
             }
             CommentAdapterHelper.hideChildrenObject(holder.childrenNumber);
-            holder.commentOverflow.setVisibility(View.VISIBLE);
-            adapter.toCollapse.remove(n.getFullName());
+            // As in CommentAdapter's expand path: a suppressed body must not have its overflow
+            // made visible, or the recycled holder's previous content shows through.
+            if (!blockedBody) {
+                holder.commentOverflow.setVisibility(View.VISIBLE);
+                adapter.toCollapse.remove(n.getFullName());
+            }
         } else {
             adapter.currentlySelected = holder;
             adapter.currentBaseNode = baseNode;
             int color = Palette.getColor(n.getSubredditName());
-            adapter.currentSelectedItem = n.getFullName();
+            adapter.currentSelectedItem = MiscUtil.orEmpty(n.getFullName());
             adapter.currentNode = baseNode;
             LayoutInflater inflater = ((Activity) adapter.mContext).getLayoutInflater();
             adapter.resetMenu(holder.menuArea, false);
@@ -85,7 +106,7 @@ public class CommentStateUtil {
                     final int widthSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
                     final int heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
                     baseView.measure(widthSpec, heightSpec);
-                    View l2 = baseView.findViewById(R.id.replyArea) == null ? baseView.findViewById(R.id.innerSend) : baseView.findViewById(R.id.replyArea);
+                    View l2 = baseView.findViewById(R.id.replyArea) == null ? baseView.requireViewById(R.id.innerSend) : baseView.findViewById(R.id.replyArea);
                     final int widthSpec2 = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
                     final int heightSpec2 = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
                     l2.measure(widthSpec2, heightSpec2);
@@ -99,18 +120,18 @@ public class CommentStateUtil {
             params.setMargins(0, 0, 0, 0);
             holder.itemView.setLayoutParams(params);
 
-            View reply = baseView.findViewById(R.id.reply);
-            View send = baseView.findViewById(R.id.send);
+            View reply = baseView.requireViewById(R.id.reply);
+            View send = baseView.requireViewById(R.id.send);
 
-            final View menu = baseView.findViewById(R.id.menu);
+            final View menu = baseView.requireViewById(R.id.menu);
             final View replyArea = baseView.findViewById(R.id.replyArea);
 
-            final View more = baseView.findViewById(R.id.more);
-            final ImageView upvote = baseView.findViewById(R.id.upvote);
-            final ImageView downvote = baseView.findViewById(R.id.downvote);
-            View discard = baseView.findViewById(R.id.discard);
-            final EditText replyLine = baseView.findViewById(R.id.replyLine);
-            final ImageView mod = baseView.findViewById(R.id.mod);
+            final View more = baseView.requireViewById(R.id.more);
+            final ImageView upvote = baseView.requireViewById(R.id.upvote);
+            final ImageView downvote = baseView.requireViewById(R.id.downvote);
+            View discard = baseView.requireViewById(R.id.discard);
+            final EditText replyLine = baseView.requireViewById(R.id.replyLine);
+            final ImageView mod = baseView.requireViewById(R.id.mod);
 
             final Comment comment = baseNode.getComment();
             if (ActionStates.getVoteDirection(comment) == VoteDirection.UPVOTE) {
@@ -132,10 +153,20 @@ public class CommentStateUtil {
                 Log.d(LogUtil.getTag(), "Error loading mod " + e.toString());
             }
 
-            if (UserSubscriptions.modOf != null && UserSubscriptions.modOf.contains(adapter.submission.getSubredditName().toLowerCase(Locale.ENGLISH))) {
+            final String submissionSub = adapter.submission.getSubredditName();
+            if (UserSubscriptions.modOf != null
+                    && submissionSub != null
+                    && UserSubscriptions.modOf.contains(submissionSub.toLowerCase(Locale.ENGLISH))) {
                 mod.setVisibility(View.VISIBLE);
-                final Map<String, Integer> reports = comment.getUserReports();
-                final Map<String, String> reports2 = comment.getModeratorReports();
+                // JRAW returns null from these when the JSON carries no user_reports/mod_reports
+                // member, which is what an unreported comment looks like. Everything below only
+                // asks for size() or iterates, so an empty map is the same answer.
+                final Map<String, Integer> userReports = comment.getUserReports();
+                final Map<String, String> modReports = comment.getModeratorReports();
+                final Map<String, Integer> reports =
+                        userReports == null ? Collections.emptyMap() : userReports;
+                final Map<String, String> reports2 =
+                        modReports == null ? Collections.emptyMap() : modReports;
                 if (reports.size() + reports2.size() > 0) {
                     BlendModeUtil.tintImageViewAsSrcAtop(mod, ContextCompat.getColor(adapter.mContext, R.color.md_red_300));
                 } else {
@@ -159,8 +190,12 @@ public class CommentStateUtil {
                 mod.setVisibility(View.GONE);
             }
 
-            final ImageView edit = baseView.findViewById(R.id.edit);
-            if (Authentication.name != null && Authentication.name.toLowerCase(Locale.ENGLISH).equals(comment.getAuthor().toLowerCase(Locale.ENGLISH)) && Authentication.didOnline) {
+            final ImageView edit = baseView.requireViewById(R.id.edit);
+            if (Authentication.name != null
+                    && Authentication.name
+                            .toLowerCase(Locale.ENGLISH)
+                            .equals(MiscUtil.orEmpty(comment.getAuthor()).toLowerCase(Locale.ENGLISH))
+                    && Authentication.didOnline) {
                 edit.setOnClickListener(
                     new OnSingleClickListener() {
                         @Override
@@ -171,8 +206,9 @@ public class CommentStateUtil {
                                 adapter.fm,
                                 baseNode,
                                 baseNode.isTopLevel()
-                                    ? adapter.submission.getSelftext()
-                                    : baseNode.getParent().getComment().getBody(),
+                                    ? MiscUtil.orEmpty(adapter.submission.getSelftext())
+                                    : MiscUtil.orEmpty(
+                                            baseNode.getParent().getComment().getBody()),
                                 holder);
                         }
                     });
@@ -180,8 +216,12 @@ public class CommentStateUtil {
                 edit.setVisibility(View.GONE);
             }
 
-            final ImageView delete = baseView.findViewById(R.id.delete);
-            if (Authentication.name != null && Authentication.name.toLowerCase(Locale.ENGLISH).equals(comment.getAuthor().toLowerCase(Locale.ENGLISH)) && Authentication.didOnline) {
+            final ImageView delete = baseView.requireViewById(R.id.delete);
+            if (Authentication.name != null
+                    && Authentication.name
+                            .toLowerCase(Locale.ENGLISH)
+                            .equals(MiscUtil.orEmpty(comment.getAuthor()).toLowerCase(Locale.ENGLISH))
+                    && Authentication.didOnline) {
                 delete.setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -197,9 +237,9 @@ public class CommentStateUtil {
                     && !adapter.submission.isArchived()
                     && !adapter.submission.isLocked()
                     && !(comment.getDataNode().has("locked")
-                            && comment.getDataNode().get("locked").asBoolean())
+                            && comment.getDataNode().path("locked").asBoolean())
                     && !adapter.deleted.contains(n.getFullName())
-                    && !comment.getAuthor().equals("[deleted]")
+                    && !"[deleted]".equals(comment.getAuthor())
                     && Authentication.didOnline) {
                 if (isReplying) {
                     baseView.setVisibility(View.VISIBLE);
@@ -212,7 +252,7 @@ public class CommentStateUtil {
 
                     View l2 =
                             baseView.findViewById(R.id.replyArea) == null
-                                    ? baseView.findViewById(R.id.innerSend)
+                                    ? baseView.requireViewById(R.id.innerSend)
                                     : baseView.findViewById(R.id.replyArea);
                     final int widthSpec2 =
                             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
@@ -245,7 +285,7 @@ public class CommentStateUtil {
                                     }
                                 }
                             });
-                    final TextView profile = baseView.findViewById(R.id.profile);
+                    final TextView profile = baseView.requireViewById(R.id.profile);
                     adapter.changedProfile = Authentication.name;
                     profile.setText("/u/" + adapter.changedProfile);
                     profile.setOnClickListener(
@@ -255,7 +295,10 @@ public class CommentStateUtil {
                                 final HashMap<String, String> accounts = new HashMap<>();
 
                                 for (String s :
-                                        Authentication.authentication.getStringSet("accounts", new HashSet<String>())) {
+                                        PrefUtil.getStringSet(
+                                                Authentication.authentication,
+                                                "accounts",
+                                                new HashSet<String>())) {
                                     if (s.contains(":")) {
                                         accounts.put(s.split(":")[0], s.split(":")[1]);
                                     } else {
@@ -281,7 +324,7 @@ public class CommentStateUtil {
                     replyLine.requestFocus();
                     KeyboardUtil.toggleKeyboard(adapter.mContext, InputMethodManager.SHOW_FORCED, InputMethodManager.HIDE_IMPLICIT_ONLY);
 
-                    adapter.currentlyEditingId = n.getFullName();
+                    adapter.currentlyEditingId = MiscUtil.orEmpty(n.getFullName());
                     replyLine.setText(adapter.backedText);
                     replyLine.addTextChangedListener(
                             new SimpleTextWatcher() {
@@ -301,20 +344,20 @@ public class CommentStateUtil {
                             // If the base theme is Light or Sepia, tint the Editor actions to be white
                             if (SettingValues.currentTheme == 1
                                     || SettingValues.currentTheme == 5) {
-                                final ImageView saveDraft = (ImageView) replyArea.findViewById(R.id.savedraft);
-                                final ImageView draft = (ImageView) replyArea.findViewById(R.id.draft);
-                                final ImageView imagerep = (ImageView) replyArea.findViewById(R.id.imagerep);
-                                final ImageView link = (ImageView) replyArea.findViewById(R.id.link);
-                                final ImageView bold = (ImageView) replyArea.findViewById(R.id.bold);
-                                final ImageView italics = (ImageView) replyArea.findViewById(R.id.italics);
-                                final ImageView bulletlist = (ImageView) replyArea.findViewById(R.id.bulletlist);
-                                final ImageView numlist = (ImageView) replyArea.findViewById(R.id.numlist);
-                                final ImageView draw = (ImageView) replyArea.findViewById(R.id.draw);
-                                final ImageView quote = (ImageView) replyArea.findViewById(R.id.quote);
-                                final ImageView size = (ImageView) replyArea.findViewById(R.id.size);
-                                final ImageView strike = (ImageView) replyArea.findViewById(R.id.strike);
-                                final ImageView author = (ImageView) replyArea.findViewById(R.id.author);
-                                final ImageView spoiler = (ImageView) replyArea.findViewById(R.id.spoiler);
+                                final ImageView saveDraft = (ImageView) replyArea.requireViewById(R.id.savedraft);
+                                final ImageView draft = (ImageView) replyArea.requireViewById(R.id.draft);
+                                final ImageView imagerep = (ImageView) replyArea.requireViewById(R.id.imagerep);
+                                final ImageView link = (ImageView) replyArea.requireViewById(R.id.link);
+                                final ImageView bold = (ImageView) replyArea.requireViewById(R.id.bold);
+                                final ImageView italics = (ImageView) replyArea.requireViewById(R.id.italics);
+                                final ImageView bulletlist = (ImageView) replyArea.requireViewById(R.id.bulletlist);
+                                final ImageView numlist = (ImageView) replyArea.requireViewById(R.id.numlist);
+                                final ImageView draw = (ImageView) replyArea.requireViewById(R.id.draw);
+                                final ImageView quote = (ImageView) replyArea.requireViewById(R.id.quote);
+                                final ImageView size = (ImageView) replyArea.requireViewById(R.id.size);
+                                final ImageView strike = (ImageView) replyArea.requireViewById(R.id.strike);
+                                final ImageView author = (ImageView) replyArea.requireViewById(R.id.author);
+                                final ImageView spoiler = (ImageView) replyArea.requireViewById(R.id.spoiler);
                                 final List<ImageView> imageViewSet =
                                     Arrays.asList(
                                         saveDraft,
@@ -366,7 +409,7 @@ public class CommentStateUtil {
                                         }
                                     }
                                 });
-                            final TextView profile = baseView.findViewById(R.id.profile);
+                            final TextView profile = baseView.requireViewById(R.id.profile);
                             adapter.changedProfile = Authentication.name; // Static field access
                             profile.setText("/u/" + adapter.changedProfile);
                             profile.setOnClickListener(
@@ -376,7 +419,10 @@ public class CommentStateUtil {
                                         final HashMap<String, String> accounts =
                                                 new HashMap<>();
 
-                                        for (String s : Authentication.authentication.getStringSet("accounts", new HashSet<String>())) {
+                                        for (String s : PrefUtil.getStringSet(
+                                                Authentication.authentication,
+                                                "accounts",
+                                                new HashSet<String>())) {
                                             if (s.contains(":")) {
                                                 accounts.put(s.split(":")[0], s.split(":")[1]);
                                             } else {
@@ -417,7 +463,7 @@ public class CommentStateUtil {
                             // time
                             KeyboardUtil.toggleKeyboard(adapter.mContext, InputMethodManager.SHOW_FORCED, InputMethodManager.HIDE_IMPLICIT_ONLY);
 
-                            adapter.currentlyEditingId = n.getFullName();
+                            adapter.currentlyEditingId = MiscUtil.orEmpty(n.getFullName());
                             replyLine.addTextChangedListener(
                                 new SimpleTextWatcher() {
                                     @Override
@@ -448,7 +494,14 @@ public class CommentStateUtil {
                             if (adapter.currentlyEditing != null) {
                                 String text = adapter.currentlyEditing.getText().toString();
                                 // Instantiate inner class via adapter instance
-                                adapter.new ReplyTaskComment(n, baseNode, holder, adapter.changedProfile).execute(text);
+                                adapter.new ReplyTaskComment(
+                                                n,
+                                                baseNode,
+                                                holder,
+                                                adapter.changedProfile == null
+                                                        ? Authentication.nameOrEmpty()
+                                                        : adapter.changedProfile)
+                                        .execute(text);
                                 adapter.currentlyEditing = null;
                                 adapter.editingPosition = -1;
                             }
@@ -485,7 +538,7 @@ public class CommentStateUtil {
                 }
                 if ((adapter.submission.isArchived()
                                 || adapter.deleted.contains(n.getFullName())
-                                || comment.getAuthor().equals("[deleted]"))
+                                || MiscUtil.orEmpty(comment.getAuthor()).equals("[deleted]"))
                         && Authentication.isLoggedIn
                         && Authentication.didOnline
                         && upvote.getVisibility() == View.VISIBLE) {
@@ -493,7 +546,7 @@ public class CommentStateUtil {
                 }
                 if ((adapter.submission.isArchived()
                                 || adapter.deleted.contains(n.getFullName())
-                                || comment.getAuthor().equals("[deleted]"))
+                                || MiscUtil.orEmpty(comment.getAuthor()).equals("[deleted]"))
                         && Authentication.isLoggedIn
                         && Authentication.didOnline
                         && downvote.getVisibility() == View.VISIBLE) {
@@ -556,7 +609,7 @@ public class CommentStateUtil {
             }
 
             holder.itemView
-                .findViewById(R.id.background)
+                .requireViewById(R.id.background)
                 .setBackgroundColor(Color.argb(50, Color.red(color), Color.green(color), Color.blue(color)));
         }
     }

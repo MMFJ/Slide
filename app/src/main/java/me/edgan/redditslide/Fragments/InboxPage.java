@@ -4,13 +4,12 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.SimpleItemAnimator;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-
 import me.edgan.redditslide.Activities.Inbox;
 import me.edgan.redditslide.Adapters.InboxAdapter;
 import me.edgan.redditslide.Adapters.InboxMessages;
@@ -35,15 +34,17 @@ public class InboxPage extends Fragment {
 
     @Override
     public View onCreateView(
-            LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+            LayoutInflater inflater,
+            @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_verticalcontent, container, false);
 
-        final RecyclerView rv = v.findViewById(R.id.vertical_content);
-        final PreCachingLayoutManager mLayoutManager = new PreCachingLayoutManager(getActivity());
+        final RecyclerView rv = v.requireViewById(R.id.vertical_content);
+        final PreCachingLayoutManager mLayoutManager = new PreCachingLayoutManager(requireActivity());
         rv.setLayoutManager(mLayoutManager);
 
-        mSwipeRefreshLayout = v.findViewById(R.id.activity_main_swipe_refresh_layout);
-        v.findViewById(R.id.post_floating_action_button).setVisibility(View.GONE);
+        mSwipeRefreshLayout = v.requireViewById(R.id.activity_main_swipe_refresh_layout);
+        v.requireViewById(R.id.post_floating_action_button).setVisibility(View.GONE);
 
         // Marking a message read rebinds its row via notifyItemChanged; suppress the cross-fade
         // change animation so the read-state toggle doesn't flicker.
@@ -51,7 +52,7 @@ public class InboxPage extends Fragment {
             ((SimpleItemAnimator) rv.getItemAnimator()).setSupportsChangeAnimations(false);
         }
 
-        mSwipeRefreshLayout.setColorSchemeColors(Palette.getColors(id, getActivity()));
+        mSwipeRefreshLayout.setColorSchemeColors(Palette.getColors(id, requireActivity()));
 
         // If we use 'findViewById(R.id.header).getMeasuredHeight()', 0 is always returned.
         // So, we estimate the height of the header in dp
@@ -63,7 +64,7 @@ public class InboxPage extends Fragment {
         // The spinner is shown in onResume(), which also drives the actual load, so off-screen tabs
         // don't sit spinning before they are ever displayed.
         posts = new InboxMessages(id);
-        adapter = new InboxAdapter(getContext(), posts, rv);
+        adapter = new InboxAdapter(requireContext(), posts, rv);
         rv.setAdapter(adapter);
 
         posts.bindAdapter(adapter, mSwipeRefreshLayout);
@@ -80,22 +81,25 @@ public class InboxPage extends Fragment {
                 });
         rv.addOnScrollListener(
                 new ToolbarScrollHideHandler(
-                        (getActivity()).findViewById(R.id.toolbar),
-                        getActivity().findViewById(R.id.header)) {
+                        (requireActivity()).requireViewById(R.id.toolbar),
+                        requireActivity().requireViewById(R.id.header)) {
                     @Override
                     public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
                         super.onScrolled(recyclerView, dx, dy);
-                        visibleItemCount = rv.getLayoutManager().getChildCount();
-                        totalItemCount = rv.getLayoutManager().getItemCount();
+                        final RecyclerView.LayoutManager lm = rv.getLayoutManager();
+                        if (lm == null) return;
 
-                        if (rv.getLayoutManager() instanceof PreCachingLayoutManager) {
+                        visibleItemCount = lm.getChildCount();
+                        totalItemCount = lm.getItemCount();
+
+                        if (lm instanceof PreCachingLayoutManager) {
                             pastVisiblesItems =
-                                    ((PreCachingLayoutManager) rv.getLayoutManager())
+                                    ((PreCachingLayoutManager) lm)
                                             .findFirstVisibleItemPosition();
                         } else {
                             int[] firstVisibleItems = null;
                             firstVisibleItems =
-                                    ((CatchStaggeredGridLayoutManager) rv.getLayoutManager())
+                                    ((CatchStaggeredGridLayoutManager) lm)
                                             .findFirstVisibleItemPositions(firstVisibleItems);
 
                             if (firstVisibleItems != null && firstVisibleItems.length > 0) {
@@ -115,9 +119,9 @@ public class InboxPage extends Fragment {
     }
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Bundle bundle = this.getArguments();
+        Bundle bundle = requireArguments();
         id = bundle.getString("id", "");
     }
 

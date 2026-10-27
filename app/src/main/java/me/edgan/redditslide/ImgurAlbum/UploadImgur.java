@@ -3,6 +3,7 @@ package me.edgan.redditslide.ImgurAlbum;
 import android.content.Context;
 import android.net.Uri;
 import android.os.AsyncTask;
+import androidx.annotation.Nullable;
 import java.io.File;
 import java.io.IOException;
 import me.edgan.redditslide.Reddit;
@@ -19,12 +20,25 @@ import okhttp3.Response;
 import org.json.JSONObject;
 
 public class UploadImgur extends AsyncTask<Uri, Integer, JSONObject> {
+    // Both are set by the subclass constructor (Views/DoEditorActions.UploadImgurDEA), before
+    // execute() can start the task.
+    @SuppressWarnings("NullAway.Init")
     public Context c;
+
+    @SuppressWarnings("NullAway.Init") // the anonymous subclass assigns this in onPreExecute, before doInBackground
     public MaterialProgressDialog dialog;
 
+    /**
+     * @return the imgur API response, or null when the upload failed — {@code onPostExecute} runs
+     *     either way.
+     */
     @Override
+    @Nullable
     protected JSONObject doInBackground(Uri... sub) {
         File bitmap = ImgurUtils.createFile(sub[0], c);
+        if (bitmap == null) {
+            return null;
+        }
 
         final OkHttpClient client = Reddit.client;
 

@@ -2,6 +2,7 @@ package me.edgan.redditslide.Activities;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.app.NotificationManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -10,13 +11,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Point;
 import android.graphics.PorterDuff;
-import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
@@ -38,12 +37,12 @@ import android.view.animation.LinearInterpolator;
 import android.widget.AutoCompleteTextView;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.view.ContextThemeWrapper;
 import androidx.appcompat.widget.SwitchCompat;
@@ -56,12 +55,15 @@ import androidx.core.graphics.drawable.IconCompat;
 import androidx.core.view.GravityCompat;
 import androidx.customview.widget.ViewDragHelper;
 import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.tabs.TabLayout;
 import com.lusfold.androidkeyvaluestore.KVStore;
 import com.lusfold.androidkeyvaluestore.core.KVManger;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -78,17 +80,22 @@ import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.BuildConfig;
 import me.edgan.redditslide.CaseInsensitiveArrayList;
 import me.edgan.redditslide.CommentCacheAsync;
+import me.edgan.redditslide.CommentRestoreState;
 import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.FeedRestoreState;
 import me.edgan.redditslide.ForceTouch.util.DensityUtils;
 import me.edgan.redditslide.Fragments.SubmissionsView;
+import me.edgan.redditslide.HasSeen;
+import me.edgan.redditslide.HibernateState;
+import me.edgan.redditslide.InboxCount;
+import me.edgan.redditslide.Megareddits;
 import me.edgan.redditslide.Notifications.CheckForMail;
+import me.edgan.redditslide.OfflineSubreddit;
 import me.edgan.redditslide.OpenRedditLink;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
-import me.edgan.redditslide.Synccit.MySynccitUpdateTask;
-import me.edgan.redditslide.Synccit.SynccitRead;
 import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.Views.CatchStaggeredGridLayoutManager;
 import me.edgan.redditslide.Views.PreCachingLayoutManager;
@@ -108,17 +115,21 @@ import me.edgan.redditslide.util.KeyboardUtil;
 import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MaterialProgressDialog;
+import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.NetworkStateReceiver;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
+import me.edgan.redditslide.util.PrefUtil;
 import me.edgan.redditslide.util.TimeUtils;
 import net.dean.jraw.managers.AccountManager;
 import net.dean.jraw.models.MultiReddit;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.paginators.SubredditPaginator;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class MainActivity extends BaseActivity
-        implements NetworkStateReceiver.NetworkStateReceiverListener {
+        implements NetworkStateReceiver.NetworkStateReceiverListener, HibernateState.Restorable {
     public static final String EXTRA_PAGE_TO = "pageTo";
     public static final String IS_ONLINE = "online";
     // Instance state keys
@@ -129,60 +140,103 @@ public class MainActivity extends BaseActivity
     static final int INBOX_RESULT = 66;
     static final int RESET_ADAPTER_RESULT = 3;
     static final int SETTINGS_RESULT = 2;
-    public static Loader loader;
+    @Nullable public static Loader loader;
     public static boolean datasetChanged;
     public static Map<String, String> multiNameToSubsMap = new HashMap<>();
     public static boolean checkedPopups;
+    @SuppressWarnings("NullAway.Init") // assigned in reloadSubs/setDataSet
     public static String shouldLoad;
-    public static boolean isRestart;
-    public static int restartPage;
+    /**
+     * The listing to rebuild from cache instead of fetching, and where in it to land. Per-activity,
+     * and consumed by exactly one page: this used to be a pair of statics that whichever
+     * SubmissionsView reported first would claim, which with an offscreen page limit of 1 meant the
+     * neighbouring tab could take the restore meant for the tab the user was actually on.
+     */
+    public final FeedRestoreState restore = new FeedRestoreState();
+
+    /**
+     * The comment page that was open over the feed, in the swipe-to-comments pager mode. In that
+     * mode a thread is a page of this activity rather than a screen of its own, so it is not on the
+     * hibernate stack and nothing else would bring it back.
+     */
+    public final CommentRestoreState commentRestore = new CommentRestoreState();
+
     public final long ANIMATE_DURATION = 250; // duration of animations
     final long ANIMATE_DURATION_OFFSET = 45; // offset for smoothing out the exit animations
     public boolean singleMode;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     public ToggleSwipeViewPager pager;
+    @SuppressWarnings("NullAway.Init") // updateSubs -> setDataSet assigns this; the offline branch returns first
     public CaseInsensitiveArrayList usedArray;
+    @SuppressWarnings("NullAway.Init") // updateSubs assigns this; its offline branch now returns instead of falling through
     public DrawerLayout drawerLayout;
-    public View hea;
-    public EditText drawerSearch;
+    // hea, drawerSearch and accountsArea are vestigial: DrawerController owns the
+    // drawer now and declares its own same-named fields, which are the ones actually populated
+    // (DrawerController:75, :73, :71 and the findViewById calls around :98). Nothing assigns these
+    // copies, so they are permanently null -- @Nullable rather than NullAway.Init, which claimed
+    // the opposite. Their readers already guard, except the one this exposed at resetAdapter.
+    @Nullable public View hea;
+    @Nullable public EditText drawerSearch;
+    @SuppressWarnings("NullAway.Init") // onCreate: header = findViewById(R.id.header)
     public View header;
-    public String subToDo;
+    // Nothing assigns subToDo either; MainPagerAdapterComment reads it into a Bundle extra.
+    @Nullable public String subToDo;
+    @SuppressWarnings("NullAway.Init") // updateSubs -> setDataSet assigns this; the offline branch returns first
     public MainPagerAdapter adapter;
     public int toGoto = 0;
     public boolean first = true;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     public TabLayout mTabLayout;
-    public ListView drawerSubList;
+    @SuppressWarnings("NullAway.Init") // setDataSet / doPageSelectedComments, before any read
     public String selectedSub; // currently selected subreddit
-    public Runnable doImage;
-    public Intent data;
+    // Set by nothing; onActivityResult(3333) posts it only behind a null check.
+    @Nullable public Runnable doImage;
+    @Nullable public Intent data;
     public boolean commentPager = false;
-    public Runnable runAfterLoad;
+    @Nullable public Runnable runAfterLoad;
     public boolean canSubmit;
     // if the view mode is set to Subreddit Tabs, save the title ("Slide" or "Slide (debug)")
+    @SuppressWarnings("NullAway.Init")
     public String tabViewModeTitle;
     public int currentComment;
-    public Submission openingComments;
+    // @Nullable already exempts the field from the initialization check; the suppression it used
+    // to carry beside it was dead.
+    @Nullable public Submission openingComments;
     public int toOpenComments = -1;
     public boolean inNightMode;
     boolean changed;
-    String term;
+    @Nullable String term;
+    @SuppressWarnings("NullAway.Init") // assigned by DrawerController
     View headerMain;
+    @SuppressWarnings("NullAway.Init") // assigned in onOptionsItemSelected/onPreExecute/updateSubs
     Dialog d;
-    public AsyncTask<View, Void, View> currentFlair;
-    View accountsArea;
-    SideArrayAdapter sideArrayAdapter;
+    @Nullable View accountsArea;
+    // Nothing assigns this either; DrawerController builds and holds the real SideArrayAdapter.
+    @Nullable SideArrayAdapter sideArrayAdapter;
+    @SuppressWarnings("NullAway.Init") // onPrepareOptionsMenu, which the framework runs before use
     Menu menu;
-    AsyncTask caching;
     int back;
     int headerHeight;
     public int reloadItemNumber = -2;
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 1001;
 
-    private View rootView;
+    /**
+     * Strong reference to the unread-count observer. {@link android.content.SharedPreferences}
+     * holds change listeners weakly, so dropping this would stop badge updates at an
+     * unpredictable point.
+     */
+    @Nullable
+    private SharedPreferences.OnSharedPreferenceChangeListener inboxCountObserver;
 
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     DrawerController drawerController;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     public ToolbarSearchController toolbarSearchController;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     SidebarController sidebarController;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     SidebarActions sidebarActions;
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     SubredditSortController subredditSortController;
 
     public DrawerController getDrawerController() {
@@ -190,7 +244,7 @@ public class MainActivity extends BaseActivity
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         if (requestCode == SETTINGS_RESULT) {
             int current = pager.getCurrentItem();
 
@@ -234,25 +288,30 @@ public class MainActivity extends BaseActivity
                 KeyboardUtil.hideKeyboard(this, view.getWindowToken(), 0);
             }
         } else if (requestCode == 2002 && resultCode != RESULT_OK) {
-            mToolbar.performLongClick(); // search was init from the toolbar, so return focus to the
+            requireToolbar().performLongClick(); // search was init from the toolbar, so return focus to the
             // toolbar
         } else if (requestCode == 423 && resultCode == RESULT_OK) {
             ((MainPagerAdapterComment) adapter).mCurrentComments.doResult(data);
         } else if (requestCode == 940) {
             if (adapter != null && adapter.getCurrentFragment() != null) {
-                if (resultCode == RESULT_OK) {
+                if (resultCode == RESULT_OK && data != null) {
                     ArrayList<Integer> posts = data.getIntegerArrayListExtra("seen");
-                    ((SubmissionsView) adapter.getCurrentFragment()).adapter.refreshView(posts);
+                    if (posts != null) {
+                        ((SubmissionsView) adapter.getCurrentFragment())
+                                .adapter
+                                .refreshView(posts);
+                    }
                     if (data.hasExtra("lastPage")
                             && data.getIntExtra("lastPage", 0) != 0
                             && ((SubmissionsView) adapter.getCurrentFragment())
                                             .rv.getLayoutManager()
                                     instanceof LinearLayoutManager) {
                         ((LinearLayoutManager)
-                                        ((SubmissionsView) adapter.getCurrentFragment())
-                                                .rv.getLayoutManager())
+                                        java.util.Objects.requireNonNull(
+                                                ((SubmissionsView) adapter.getCurrentFragment())
+                                                .rv.getLayoutManager()))
                                 .scrollToPositionWithOffset(
-                                        data.getIntExtra("lastPage", 0) + 1, mToolbar.getHeight());
+                                        data.getIntExtra("lastPage", 0) + 1, requireToolbar().getHeight());
                     }
                 } else {
                     ((SubmissionsView) adapter.getCurrentFragment()).adapter.refreshView();
@@ -281,9 +340,9 @@ public class MainActivity extends BaseActivity
             new OnBackPressedCallback(true) {
                 @Override
                 public void handleOnBackPressed() {
-                    if (drawerLayout != null && drawerLayout.isDrawerOpen(GravityCompat.START)
-                            || drawerLayout != null
-                                    && drawerLayout.isDrawerOpen(GravityCompat.END)) {
+                    if ((drawerLayout != null && drawerLayout.isDrawerOpen(GravityCompat.START))
+                            || (drawerLayout != null
+                                    && drawerLayout.isDrawerOpen(GravityCompat.END))) {
                         drawerLayout.closeDrawers();
                     } else if (commentPager && pager.getCurrentItem() == toOpenComments) {
                         pager.setCurrentItem(pager.getCurrentItem() - 1);
@@ -291,8 +350,8 @@ public class MainActivity extends BaseActivity
                                             == Constants.SUBREDDIT_SEARCH_METHOD_TOOLBAR
                                     || SettingValues.subredditSearchMethod
                                             == Constants.SUBREDDIT_SEARCH_METHOD_BOTH)
-                            && findViewById(R.id.toolbar_search).getVisibility() == View.VISIBLE) {
-                        findViewById(R.id.close_search_toolbar)
+                            && requireViewById(R.id.toolbar_search).getVisibility() == View.VISIBLE) {
+                        requireViewById(R.id.close_search_toolbar)
                                 .performClick(); // close GO_TO_SUB_FIELD
                     } else if (SettingValues.backButtonBehavior
                             == Constants.BackButtonBehaviorOptions.OpenDrawer.getValue()) {
@@ -330,20 +389,18 @@ public class MainActivity extends BaseActivity
     public void onPause() {
         super.onPause();
         changed = false;
-        if (!SettingValues.synccitName.isEmpty()) {
-            new MySynccitUpdateTask().execute(SynccitRead.newVisited.toArray(new String[0]));
-        }
         if (Authentication.isLoggedIn && Authentication.me != null
                 // This is causing a crash, might not be important since the storeVisits will just
                 // not do anything without gold && Authentication.me.hasGold()
-                && !SynccitRead.newVisited.isEmpty()) {
+                && HasSeen.hasNewVisited()) {
             new AsyncTask<Void, Void, Void>() {
                 @Override
                 protected Void doInBackground(Void... params) {
                     try {
-                        String[] returned = new String[SynccitRead.newVisited.size()];
+                        List<String> visited = HasSeen.newVisitedSnapshot();
+                        String[] returned = new String[visited.size()];
                         int i = 0;
-                        for (String s : SynccitRead.newVisited) {
+                        for (String s : visited) {
                             if (!s.contains("t3_")) {
                                 s = "t3_" + s;
                             }
@@ -351,7 +408,7 @@ public class MainActivity extends BaseActivity
                             i++;
                         }
                         new AccountManager(Authentication.reddit).storeVisits(returned);
-                        SynccitRead.newVisited = new ArrayList<>();
+                        HasSeen.clearNewVisited(visited);
                     } catch (Exception e) {
                         LogUtil.e(e, "MainActivity.doInBackground failed");
                     }
@@ -361,8 +418,8 @@ public class MainActivity extends BaseActivity
         }
 
         // Upon leaving MainActivity--hide the toolbar search if it is visible
-        if (findViewById(R.id.toolbar_search).getVisibility() == View.VISIBLE) {
-            findViewById(R.id.close_search_toolbar).performClick();
+        if (requireViewById(R.id.toolbar_search).getVisibility() == View.VISIBLE) {
+            requireViewById(R.id.close_search_toolbar).performClick();
         }
     }
 
@@ -439,6 +496,16 @@ public class MainActivity extends BaseActivity
         super.onPrepareOptionsMenu(menu);
 
         this.menu = menu;
+
+        // The quick toggle only exists once the feature has been enabled in Settings, and reads its
+        // state here rather than in onCreateOptionsMenu so that it is right every time the overflow
+        // is opened.
+        final MenuItem hibernateResume = menu.findItem(R.id.hibernate_resume);
+        if (hibernateResume != null) {
+            hibernateResume.setVisible(SettingValues.hibernate);
+            hibernateResume.setChecked(SettingValues.hibernateResume);
+        }
+
         /**
          * Hide the "Submit" and "Sidebar" menu items if the currently viewed sub is a multi,
          * domain, the frontpage, or /r/all. If the subreddit has a "." in it, we know it's a domain
@@ -449,6 +516,7 @@ public class MainActivity extends BaseActivity
             final String subreddit = usedArray.get(pager.getCurrentItem());
 
             if (subreddit.contains("/m/")
+                    || Megareddits.isKey(subreddit)
                     || subreddit.contains(".")
                     || subreddit.contains("+")
                     || subreddit.equals("frontpage")
@@ -542,6 +610,23 @@ public class MainActivity extends BaseActivity
             return true;
         }
 
+        if (item.getItemId() == R.id.hibernate_resume) {
+            final boolean resume = !SettingValues.hibernateResume;
+            SettingValues.hibernateResume = resume;
+            SettingValues.prefs
+                    .edit()
+                    .putBoolean(SettingValues.PREF_HIBERNATE_RESUME, resume)
+                    .apply();
+            item.setChecked(resume);
+            if (!resume) {
+                // Switching it off here means what switching it off in Settings means: the next
+                // launch behaves as it always did, not that one last saved session comes back
+                // first.
+                HibernateState.clear(this);
+            }
+            return true;
+        }
+
         if (usedArray == null || usedArray.isEmpty() || Reddit.currentPosition < 0 || Reddit.currentPosition >= usedArray.size()) {
             return super.onOptionsItemSelected(item);
         }
@@ -565,7 +650,8 @@ public class MainActivity extends BaseActivity
                     && !subreddit.equals("frontpage")
                     && !subreddit.contains(".")
                     && !subreddit.contains("+")
-                    && !subreddit.contains("/m/")) {
+                    && !subreddit.contains("/m/")
+                    && !Megareddits.isKey(subreddit)) {
                 drawerLayout.openDrawer(GravityCompat.END);
             } else {
                 Toast.makeText(this, R.string.sidebar_notfound, Toast.LENGTH_SHORT).show();
@@ -575,7 +661,7 @@ public class MainActivity extends BaseActivity
                 {
                     LayoutInflater inflater = getLayoutInflater();
                     final View dialoglayout = inflater.inflate(R.layout.choosethemesmall, null);
-                    final TextView title = dialoglayout.findViewById(R.id.title);
+                    final TextView title = dialoglayout.requireViewById(R.id.title);
                     title.setBackgroundColor(Palette.getDefaultColor());
 
                     final AlertDialog.Builder builder =
@@ -583,7 +669,7 @@ public class MainActivity extends BaseActivity
                     final Dialog d = DialogUtil.showWithCardBackground(builder);
                     back = new ColorPreferences(MainActivity.this).getFontStyle().getThemeType();
                     if (SettingValues.isNight()) {
-                        dialoglayout.findViewById(R.id.nightmsg).setVisibility(View.VISIBLE);
+                        dialoglayout.requireViewById(R.id.nightmsg).setVisibility(View.VISIBLE);
                     }
 
                     for (final Pair<Integer, Integer> pair : ColorPreferences.themePairList) {
@@ -627,7 +713,7 @@ public class MainActivity extends BaseActivity
             if (subreddit.equalsIgnoreCase("friends")) {
                 Snackbar s =
                         Snackbar.make(
-                                findViewById(R.id.anchor),
+                                requireViewById(R.id.anchor),
                                 getString(R.string.friends_sort_error),
                                 Snackbar.LENGTH_SHORT);
                 LayoutUtils.showSnackbar(s);
@@ -683,6 +769,7 @@ public class MainActivity extends BaseActivity
                         && !currentSubreddit.equalsIgnoreCase("all")
                         && !currentSubreddit.contains(".")
                         && !currentSubreddit.contains("/m/")
+                        && !Megareddits.isKey(currentSubreddit)
                         && !currentSubreddit.equalsIgnoreCase("friends")
                         && !currentSubreddit.equalsIgnoreCase("random")
                         && !currentSubreddit.equalsIgnoreCase("popular")
@@ -707,14 +794,29 @@ public class MainActivity extends BaseActivity
                             (dialog, which) -> {
                                 Intent i = new Intent(MainActivity.this, Search.class);
                                 i.putExtra(Search.EXTRA_TERM, term);
-                                // Set the searchMulti before starting the search
-                                for (MultiReddit r : UserSubscriptions.multireddits) {
-                                    if (r.getDisplayName().equalsIgnoreCase(currentSubreddit.substring(3))) {
-                                        MultiredditOverview.searchMulti = r;
-                                        break;
+                                // Set the searchMulti before starting the search. searchMulti is
+                                // what actually scopes the search, so it must be overwritten every
+                                // time: leaving a previous search's multireddit in place here would
+                                // silently search that one instead. When the multireddit cannot be
+                                // resolved, fall back to an all-of-Reddit search rather than
+                                // labelling one as a search of this multireddit.
+                                String multiName = currentSubreddit.substring(3); // Remove "/m/"
+                                MultiReddit found = null;
+                                // Read the field once: background syncs null it out on failure, so
+                                // re-reading it for the loop can hand us a null after the check.
+                                List<MultiReddit> multis = UserSubscriptions.multireddits;
+                                if (multis != null) {
+                                    for (MultiReddit r : multis) {
+                                        if (multiName.equalsIgnoreCase(r.getDisplayName())) {
+                                            found = r;
+                                            break;
+                                        }
                                     }
                                 }
-                                i.putExtra(Search.EXTRA_MULTIREDDIT, currentSubreddit.substring(3)); // Remove "/m/"
+                                MultiredditOverview.searchMulti = found;
+                                if (found != null) {
+                                    i.putExtra(Search.EXTRA_MULTIREDDIT, multiName);
+                                }
                                 startActivity(i);
                             })
                             .setNeutralButton(R.string.search_all,
@@ -826,7 +928,7 @@ public class MainActivity extends BaseActivity
     }
 
     @Override
-    protected void onCreate(final Bundle savedInstanceState) {
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
         inNightMode = SettingValues.isNight();
         disableSwipeBackLayout();
         super.onCreate(savedInstanceState);
@@ -879,15 +981,15 @@ public class MainActivity extends BaseActivity
                                     new AsyncNotificationBadge(MainActivity.this)
                                             .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
                                 }
-                                if (!Reddit.appRestart
-                                        .getString(CheckForMail.SUBS_TO_GET, "")
+                                if (!PrefUtil.getString(
+                                                Reddit.appRestart, CheckForMail.SUBS_TO_GET, "")
                                         .isEmpty()) {
                                     new CheckForMail.AsyncGetSubs(MainActivity.this)
                                             .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
                                 }
                                 new AsyncTask<Void, Void, Submission>() {
                                     @Override
-                                    protected Submission doInBackground(Void... params) {
+                                    protected @Nullable Submission doInBackground(Void... params) {
                                         if (Authentication.isLoggedIn)
                                             UserSubscriptions.doOnlineSyncing();
                                         try {
@@ -911,7 +1013,7 @@ public class MainActivity extends BaseActivity
                                                                 .equalsIgnoreCase("Announcement")
                                                         && !Reddit.appRestart.contains(
                                                                 "announcement" + s.getFullName())
-                                                        && s.getTitle().contains(version)) {
+                                                        && MiscUtil.orEmpty(s.getTitle()).contains(version)) {
                                                     Reddit.appRestart
                                                             .edit()
                                                             .putBoolean(
@@ -929,7 +1031,7 @@ public class MainActivity extends BaseActivity
                                                                 .equalsIgnoreCase("Alpha")
                                                         && !Reddit.appRestart.contains(
                                                                 "announcement" + s.getFullName())
-                                                        && s.getTitle()
+                                                        && MiscUtil.orEmpty(s.getTitle())
                                                                 .contains(
                                                                         BuildConfig.VERSION_NAME)) {
                                                     Reddit.appRestart
@@ -958,7 +1060,7 @@ public class MainActivity extends BaseActivity
                                                     .putString(
                                                             "page",
                                                             s.getDataNode()
-                                                                    .get("selftext_html")
+                                                                    .path("selftext_html")
                                                                     .asText())
                                                     .apply();
                                             Reddit.appRestart
@@ -971,7 +1073,7 @@ public class MainActivity extends BaseActivity
                                                     .apply();
 
                                             String title;
-                                            if (s.getTitle()
+                                            if (MiscUtil.orEmpty(s.getTitle())
                                                     .toLowerCase(Locale.ENGLISH)
                                                     .contains("release")) {
                                                 title = getString(R.string.btn_changelog);
@@ -981,7 +1083,7 @@ public class MainActivity extends BaseActivity
                                             Snackbar snack =
                                                     Snackbar.make(
                                                                     pager,
-                                                                    s.getTitle(),
+                                                                    MiscUtil.orEmpty(s.getTitle()),
                                                                     Snackbar.LENGTH_INDEFINITE)
                                                             .setAction(
                                                                     title,
@@ -1026,15 +1128,28 @@ public class MainActivity extends BaseActivity
         sidebarActions = new SidebarActions(this);
         subredditSortController = new SubredditSortController(this);
 
-        rootView = findViewById(android.R.id.content);
-
-        mToolbar = (Toolbar) findViewById(R.id.toolbar);
+        mToolbar = (Toolbar) requireViewById(R.id.toolbar);
         mToolbar.setPopupTheme(new ColorPreferences(this).getFontStyle().getBaseId());
         setSupportActionBar(mToolbar);
 
         if (getIntent() != null && getIntent().hasExtra(EXTRA_PAGE_TO)) {
             toGoto = getIntent().getIntExtra(EXTRA_PAGE_TO, 0);
+            // Taken off again, because restartTheme() writes it onto this activity's own
+            // getIntent() and that intent is what the system persists in the task record. Left in
+            // place, a cold start days later opens on the page the user happened to be on the last
+            // time they changed a theme.
+            getIntent().removeExtra(EXTRA_PAGE_TO);
         }
+        // A snapshot only reaches an activity that has not already been handed one, so on a theme
+        // restart -- where the original launch claimed it -- this is null and the intent extras
+        // written by restartTheme() are the ones that apply.
+        final Bundle hibernated = HibernateState.claim(this);
+        if (hibernated != null) {
+            restoreHibernateState(hibernated);
+        }
+        // No page here: the intent form carries it as EXTRA_PAGE_TO, read above. Taking it from
+        // the restore instead would read a page of 0, which readFromIntent never fills in.
+        restore.readFromIntent(getIntent());
 
         // Route through themeSystemBars() so the system-bar scrims are colored too; under
         // edge-to-edge enforcement (API 35+) a direct window.setStatusBarColor() is a no-op.
@@ -1067,7 +1182,7 @@ public class MainActivity extends BaseActivity
 
         // Inflate tabs if single mode is disabled
         if (!singleMode) {
-            mTabLayout = (TabLayout) ((ViewStub) findViewById(R.id.stub_tabs)).inflate();
+            mTabLayout = (TabLayout) ((ViewStub) requireViewById(R.id.stub_tabs)).inflate();
         }
 
         // Disable swiping if single mode is enabled
@@ -1080,19 +1195,19 @@ public class MainActivity extends BaseActivity
 
             LogUtil.v("Starting main " + Authentication.name);
             Authentication.isLoggedIn = Reddit.appRestart.getBoolean("loggedin", false);
-            Authentication.name = Reddit.appRestart.getString("name", "LOGGEDOUT");
+            Authentication.name = PrefUtil.getString(Reddit.appRestart, "name", "LOGGEDOUT");
             UserSubscriptions.doMainActivitySubs(this);
         } else if (!first) {
             LogUtil.v("Starting main 2 " + Authentication.name);
             Authentication.isLoggedIn = Reddit.appRestart.getBoolean("loggedin", false);
-            Authentication.name = Reddit.appRestart.getString("name", "LOGGEDOUT");
-            Reddit.appRestart.edit().putBoolean("isRestarting", false).commit();
+            Authentication.name = PrefUtil.getString(Reddit.appRestart, "name", "LOGGEDOUT");
+            Reddit.appRestart.edit().putBoolean("isRestarting", false).apply();
             Reddit.isRestarting = false;
             UserSubscriptions.doMainActivitySubs(this);
         }
 
         final SharedPreferences seen = getSharedPreferences("SEEN", 0);
-        if (!seen.contains("isCleared") && !seen.getAll().isEmpty()
+        if ((!seen.contains("isCleared") && !seen.getAll().isEmpty())
                 || !Reddit.appRestart.contains("hasCleared")) {
 
             new AsyncTask<Void, Void, Void>() {
@@ -1168,19 +1283,10 @@ public class MainActivity extends BaseActivity
                     networkStateReceiver,
                     new IntentFilter(android.net.ConnectivityManager.CONNECTIVITY_ACTION));
         } catch (Exception e) {
-
+            // Registering the connectivity receiver twice, or on a
+            // finishing activity, is not worth crashing over.
         }
 
-        LogUtil.v("Installed browsers");
-        Intent intent = new Intent();
-        intent.setAction(Intent.ACTION_VIEW);
-        intent.setData(Uri.parse("http://ccrama.me/"));
-        List<ResolveInfo> allApps =
-                getPackageManager()
-                        .queryIntentActivities(intent, PackageManager.GET_DISABLED_COMPONENTS);
-        for (ResolveInfo i : allApps) {
-            if (i.activityInfo.isEnabled()) LogUtil.v(i.activityInfo.packageName);
-        }
     }
 
     @Override
@@ -1190,10 +1296,60 @@ public class MainActivity extends BaseActivity
         }
     }
 
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     NetworkStateReceiver networkStateReceiver;
 
     @Override
     public void networkUnavailable() {}
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        // Observing rather than being told the count gives both live updates while this screen
+        // runs and a fresh read when it comes back to the foreground, so a drawer built after a
+        // message was read never shows the pre-read number.
+        inboxCountObserver = InboxCount.observe(Reddit.appRestart, this::updateInboxBadge);
+    }
+
+    @Override
+    protected void onStop() {
+        if (inboxCountObserver != null) {
+            InboxCount.stopObserving(Reddit.appRestart, inboxCountObserver);
+            inboxCountObserver = null;
+        }
+        super.onStop();
+    }
+
+    /**
+     * Paints the drawer's unread badge. Only the logged-in drawer header carries the badge, and
+     * the header is re-inflated as the drawer is rebuilt, so this tolerates both a missing header
+     * and a header without the view.
+     */
+    void updateInboxBadge(int count) {
+        if (count == 0) {
+            NotificationManager notificationManager =
+                    ContextCompat.getSystemService(this, NotificationManager.class);
+            if (notificationManager != null) {
+                notificationManager.cancel(0);
+            }
+        }
+
+        if (headerMain == null) {
+            return;
+        }
+
+        TextView badge = headerMain.findViewById(R.id.count);
+        if (badge == null) {
+            return;
+        }
+
+        if (count == 0) {
+            badge.setVisibility(View.GONE);
+        } else {
+            badge.setVisibility(View.VISIBLE);
+            badge.setText(String.format(Locale.getDefault(), "%d", count));
+        }
+    }
 
     @Override
     public void onResume() {
@@ -1204,12 +1360,12 @@ public class MainActivity extends BaseActivity
                 && headerMain != null
                 && runAfterLoad == null) {
             new AsyncNotificationBadge(this).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-        } else if (Authentication.isLoggedIn && Authentication.name.equalsIgnoreCase("loggedout")) {
+        } else if (Authentication.isLoggedIn && Authentication.nameOrEmpty().equalsIgnoreCase("loggedout")) {
             restartTheme(); // force a restart because we should not be here
         }
 
         if (inNightMode != SettingValues.isNight()) {
-            ((SwitchCompat) drawerLayout.findViewById(R.id.toggle_night_mode))
+            ((SwitchCompat) drawerLayout.requireViewById(R.id.toggle_night_mode))
                     .setChecked(SettingValues.isNight());
             restartTheme();
         }
@@ -1246,17 +1402,27 @@ public class MainActivity extends BaseActivity
             if (SettingsGeneralFragment.searchChanged) {
                 drawerController.setDrawerSubList();
 
+                // Not requireViewById: R.id.drawer_divider lives in the drawer header
+                // (drawer_loggedin/loggedout/offline), which DrawerController adds to the sub list
+                // rather than the content view, so it is absent until that has run.
+                // ToolbarSearchController null-checks the same lookup on this same activity in four
+                // places, which is the contract to match here.
+                final View drawerDivider = findViewById(R.id.drawer_divider);
                 if (SettingValues.subredditSearchMethod
                         == Constants.SUBREDDIT_SEARCH_METHOD_DRAWER) {
-                    mToolbar.setOnLongClickListener(
+                    requireToolbar().setOnLongClickListener(
                             null); // remove the long click listener from the toolbar
-                    findViewById(R.id.drawer_divider).setVisibility(View.GONE);
+                    if (drawerDivider != null) {
+                        drawerDivider.setVisibility(View.GONE);
+                    }
                 } else if (SettingValues.subredditSearchMethod
                         == Constants.SUBREDDIT_SEARCH_METHOD_TOOLBAR) {
                     toolbarSearchController.setupSubredditSearchToolbar();
                 } else if (SettingValues.subredditSearchMethod
                         == Constants.SUBREDDIT_SEARCH_METHOD_BOTH) {
-                    findViewById(R.id.drawer_divider).setVisibility(View.GONE);
+                    if (drawerDivider != null) {
+                        drawerDivider.setVisibility(View.GONE);
+                    }
                     toolbarSearchController.setupSubredditSearchToolbar();
                     drawerController.setDrawerSubList();
                 }
@@ -1273,14 +1439,15 @@ public class MainActivity extends BaseActivity
         try {
             unregisterReceiver(networkStateReceiver);
         } catch (Exception ignored) {
-
+            // Not registered (registration above can fail), which is
+            // exactly what unregistering wants.
         }
         dismissProgressDialog();
         Slide.hasStarted = false;
         super.onDestroy();
     }
 
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
+    @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (event.getAction() != KeyEvent.ACTION_DOWN) return true;
         if (keyCode == KeyEvent.KEYCODE_SEARCH) {
             return onOptionsItemSelected(menu.findItem(R.id.search));
@@ -1342,57 +1509,7 @@ public class MainActivity extends BaseActivity
                 .apply();
 
         SettingValues.alwaysExternal = domains;
-    }
-
-    public void doFriends(final List<String> friends) {
-        runOnUiThread(
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        if (friends != null
-                                && !friends.isEmpty()
-                                && headerMain.findViewById(R.id.friends) != null) {
-                            headerMain.findViewById(R.id.friends).setVisibility(View.VISIBLE);
-                            headerMain
-                                    .findViewById(R.id.friends)
-                                    .setOnClickListener(
-                                            new OnSingleClickListener() {
-                                                @Override
-                                                public void onSingleClick(View view) {
-                                                    new MaterialAlertDialogBuilder(
-                                                                    new ContextThemeWrapper(
-                                                                            MainActivity.this,
-                                                                            new ColorPreferences(
-                                                                                            MainActivity
-                                                                                                    .this)
-                                                                                    .getFontStyle()
-                                                                                    .getBaseId()))
-                                                            .setTitle("Friends")
-                                                            .setItems(
-                                                                    friends.toArray(
-                                                                            new CharSequence[0]),
-                                                                    (dialog, which) -> {
-                                                                        Intent i =
-                                                                                new Intent(
-                                                                                        MainActivity
-                                                                                                .this,
-                                                                                        Profile
-                                                                                                .class);
-                                                                        i.putExtra(
-                                                                                Profile.EXTRA_PROFILE,
-                                                                                friends.get(which));
-                                                                        startActivity(i);
-                                                                        dialog.dismiss();
-                                                                    })
-                                                            .show();
-                                                }
-                                            });
-                        } else if (Authentication.isLoggedIn
-                                && headerMain.findViewById(R.id.friends) != null) {
-                            headerMain.findViewById(R.id.friends).setVisibility(View.GONE);
-                        }
-                    }
-                });
+        ContentType.invalidateTypeCache();
     }
 
     public void doPageSelectedComments(int position) {
@@ -1431,7 +1548,7 @@ public class MainActivity extends BaseActivity
         setRecentBar(usedArray.get(position));
 
         if (SettingValues.single) {
-            getSupportActionBar().setTitle(usedArray.get(position));
+            java.util.Objects.requireNonNull(getSupportActionBar()).setTitle(usedArray.get(position));
         } else {
             if (mTabLayout != null) {
                 mTabLayout.setSelectedTabIndicatorColor(
@@ -1475,8 +1592,9 @@ public class MainActivity extends BaseActivity
                 && currentOrientation == Configuration.ORIENTATION_LANDSCAPE) {
             position =
                     ((LinearLayoutManager)
-                                            ((SubmissionsView) adapter.getCurrentFragment())
-                                                    .rv.getLayoutManager())
+                                            java.util.Objects.requireNonNull(
+                                                    ((SubmissionsView) adapter.getCurrentFragment())
+                                                    .rv.getLayoutManager()))
                                     .findFirstCompletelyVisibleItemPosition()
                             - 1;
         } else if (((SubmissionsView) adapter.getCurrentFragment()).rv.getLayoutManager()
@@ -1484,8 +1602,9 @@ public class MainActivity extends BaseActivity
             int[] firstVisibleItems = null;
             firstVisibleItems =
                     ((CatchStaggeredGridLayoutManager)
-                                    ((SubmissionsView) adapter.getCurrentFragment())
-                                            .rv.getLayoutManager())
+                                    java.util.Objects.requireNonNull(
+                                            ((SubmissionsView) adapter.getCurrentFragment())
+                                            .rv.getLayoutManager()))
                             .findFirstCompletelyVisibleItemPositions(firstVisibleItems);
             if (firstVisibleItems != null && firstVisibleItems.length > 0) {
                 position = firstVisibleItems[0] - 1;
@@ -1493,8 +1612,9 @@ public class MainActivity extends BaseActivity
         } else {
             position =
                     ((PreCachingLayoutManager)
-                                            ((SubmissionsView) adapter.getCurrentFragment())
-                                                    .rv.getLayoutManager())
+                                            java.util.Objects.requireNonNull(
+                                                    ((SubmissionsView) adapter.getCurrentFragment())
+                                                    .rv.getLayoutManager()))
                                     .findFirstCompletelyVisibleItemPosition()
                             - 1;
         }
@@ -1503,6 +1623,7 @@ public class MainActivity extends BaseActivity
 
 
 
+    @SuppressWarnings("NullAway.Init") // assigned by SubmissionAdapter, SubredditPosts
     public static String randomoverride;
 
     public void reloadSubs() {
@@ -1532,7 +1653,7 @@ public class MainActivity extends BaseActivity
             }
 
             if (SettingValues.single) {
-                getSupportActionBar().setTitle(shouldLoad);
+                java.util.Objects.requireNonNull(getSupportActionBar()).setTitle(shouldLoad);
             }
 
             setToolbarClick();
@@ -1546,7 +1667,12 @@ public class MainActivity extends BaseActivity
             if (adapter != null && mTabLayout != null) {
                 mTabLayout.setSelectedTabIndicatorColor(
                         new ColorPreferences(MainActivity.this).getColor(usedArray.get(current)));
-                mTabLayout.setTabMode(usedArray.size() <= 3 ? TabLayout.MODE_FIXED : TabLayout.MODE_SCROLLABLE);
+                // Do not touch the tab mode here. activity_overview_tabs.xml declares scrollable,
+                // and that is the only mode this layout can render: the ViewStub that inflates it
+                // supplies its own wrap_content width, so MODE_FIXED gives every tab an equal
+                // share of a width measured as if the tabs were content-sized, which is too narrow
+                // for a label like "frontpage" and wraps it onto two lines. Only reloadSubs() ever
+                // changed the mode, so the tabs also stopped matching how they looked at launch.
 
                 // Add safety checks when setting tab text
                 for (int i = 0; i < mTabLayout.getTabCount(); i++) {
@@ -1591,7 +1717,9 @@ public class MainActivity extends BaseActivity
                             pager.setCurrentItem(usedArray.indexOf(subToDo));
 
                             int color = Palette.getColor(subToDo);
-                            hea.setBackgroundColor(color);
+                            if (hea != null) {
+                                hea.setBackgroundColor(color);
+                            }
                             header.setBackgroundColor(color);
                             if (accountsArea != null) {
                                 accountsArea.setBackgroundColor(Palette.getDarkerColor(color));
@@ -1604,15 +1732,149 @@ public class MainActivity extends BaseActivity
     }
 
     public void restartTheme() {
-        isRestart = true;
-        restartPage = getCurrentPage();
         Intent intent = this.getIntent();
         int page = pager.getCurrentItem();
         if (currentComment == page) page -= 1;
         intent.putExtra(EXTRA_PAGE_TO, page);
+        final Bundle current = new Bundle();
+        saveHibernateState(current);
+        FeedRestoreState.writeToIntent(intent, current);
         finish();
         startActivity(intent);
         overridePendingTransition(R.anim.fade_in_real, R.anim.fading_out_real);
+    }
+
+    /**
+     * Hands the pending restore to the one page it was recorded for, as fragment arguments, and to
+     * no other page. One-shot: it is cleared here so a later {@code reloadSubs()} -- which rebuilds
+     * the adapter and calls {@code getItem} again -- refetches normally instead of putting the
+     * cached listing back on screen.
+     *
+     * @param name the page's subreddit as the adapter resolved it, which for a multireddit is the
+     *     full {@code api/user/<name>/m/<multi>} path rather than the {@code /m/<multi>} the
+     *     snapshot recorded.
+     */
+    public void applyRestoreArgs(String name, Bundle args) {
+        restore.applyTo(name, multiNameToSubsMap.get(restore.subreddit), args);
+    }
+
+    /**
+     * Puts the comment page back over the restored feed, in the swipe-to-comments pager mode.
+     *
+     * <p>Replays exactly what tapping a post does in that mode -- name the submission, add the
+     * extra page, tell the adapter, move to it -- because the page only exists while
+     * {@code openingComments} holds a submission, and that is a live object which dies with the
+     * process. The submission is rebuilt from the same on-disk copy the thread itself is restored
+     * from, so nothing here needs the network.
+     *
+     * <p>Deferred until the pager has built the feed page: {@code storedFragment} is what stops the
+     * adapter tearing that page down when the extra one is added, and there is nothing to store
+     * before it exists.
+     */
+    private void reopenRestoredComments() {
+        final String fullname = commentRestore.submission;
+        if (fullname == null || !(adapter instanceof MainPagerAdapterComment) || pager == null) {
+            return;
+        }
+        Submission stored = null;
+        try {
+            stored =
+                    OfflineSubreddit.getSubmissionFromStorage(
+                            fullname.startsWith("t3_") ? fullname : "t3_" + fullname,
+                            this,
+                            true,
+                            new ObjectMapper().reader(),
+                            // The post's own subreddit is not known until it is parsed, and this
+                            // copy is only the header: the thread on screen is the one CommentPage
+                            // builds, tagged with the sort it resolved. The one branch that does
+                            // display this tree is the offline one, where no request for more
+                            // children can be made at all.
+                            SettingValues.defaultCommentSorting);
+        } catch (IOException e) {
+            LogUtil.e(e, "MainActivity.reopenRestoredComments failed");
+        }
+        if (stored == null) {
+            // The thread was never cached, or the system reclaimed it. The feed underneath is
+            // still restored, which is the half worth keeping.
+            commentRestore.submission = null;
+            return;
+        }
+        final MainPagerAdapterComment commentAdapter = (MainPagerAdapterComment) adapter;
+        openingComments = stored;
+        toOpenComments = pager.getCurrentItem() + 1;
+        currentComment = toOpenComments;
+        commentAdapter.storedFragment = commentAdapter.getCurrentFragment();
+        commentAdapter.size = toOpenComments + 1;
+        try {
+            commentAdapter.notifyDataSetChanged();
+        } catch (Exception ignored) {
+            // notifyDataSetChanged during a layout pass throws; the pager rebinds on the next pass
+            // anyway. Same guard the tap path uses.
+        }
+        // No smooth scroll: the user is being returned to a page they never left, not swiped to a
+        // new one.
+        pager.setCurrentItem(toOpenComments, false);
+    }
+
+    @Override
+    public void saveHibernateState(Bundle out) {
+        if (usedArray == null || usedArray.isEmpty() || pager == null) {
+            return;
+        }
+        int page = pager.getCurrentItem();
+        // The comment pager occupies a page of its own; the feed the user was on is the one before
+        // it, and that is the listing worth restoring.
+        final boolean onCommentPage =
+                commentPager && toOpenComments >= 0 && page == toOpenComments;
+        if (onCommentPage) {
+            page -= 1;
+        }
+        if (page < 0 || adapter == null) {
+            return;
+        }
+        // Asked of the adapter rather than read out of usedArray by index. The two are not the
+        // same numbering once hideSubredditTabs hides the ordinary subscriptions: the page would
+        // otherwise be recorded under the name of a subreddit that has no tab, and the resume
+        // came back on the right tab with a listing that never loaded.
+        final String sub = adapter.subredditForPage(page);
+        if (sub.isEmpty()) {
+            return;
+        }
+        // getCurrentFragment stays on the feed even while the comment page is showing -- the pager
+        // adapter tracks the thread separately -- so this is the listing either way.
+        final Fragment current = adapter.getCurrentFragment();
+        // The comment page is only recorded on top of a feed that recorded itself. Without that,
+        // out would carry a thread and no listing to put it back over, and being non-empty it
+        // would still replace the complete state already on disk.
+        if (!FeedRestoreState.capture(
+                out,
+                sub,
+                page,
+                current instanceof SubmissionsView ? (SubmissionsView) current : null,
+                header)) {
+            return;
+        }
+        if (onCommentPage
+                && openingComments != null
+                && adapter instanceof MainPagerAdapterComment) {
+            CommentRestoreState.capture(
+                    out,
+                    openingComments.getFullName(),
+                    ((MainPagerAdapterComment) adapter).currentComments());
+        }
+    }
+
+    @Override
+    public void restoreHibernateState(Bundle in) {
+        commentRestore.read(in);
+        restore.read(in);
+        if (!restore.isPending()) {
+            return;
+        }
+        // usedArray does not exist yet -- it is built by doMainActivitySubs, later in onCreate --
+        // so the page is resolved by name in setDataSet rather than trusted as an index here. The
+        // subscription list is rebuilt from prefs on every launch and its order differs offline.
+        toGoto = restore.page;
     }
 
     public void saveOffline(final List<Submission> submissions, final String subreddit) {
@@ -1644,7 +1906,8 @@ public class MainActivity extends BaseActivity
         if (((adapter.getCurrentFragment()) == null)) return;
         int[] firstVisibleItems =
                 ((CatchStaggeredGridLayoutManager)
-                                (((SubmissionsView) adapter.getCurrentFragment())
+                                java.util.Objects.requireNonNull(
+                                        ((SubmissionsView) adapter.getCurrentFragment())
                                         .rv.getLayoutManager()))
                         .findFirstVisibleItemPositions(null);
         if (firstVisibleItems != null && firstVisibleItems.length > 0) {
@@ -1679,15 +1942,42 @@ public class MainActivity extends BaseActivity
             pager.setAdapter(adapter);
 
             pager.setOffscreenPageLimit(1);
+            // A restore names the listing it wants rather than its index. usedArray is rebuilt from
+            // the subscription prefs on every launch, and offline it is intersected with whatever
+            // happens to be cached, so the index the user left on can point at a different
+            // subreddit by the time they come back.
+            if (restore.subreddit != null) {
+                // The adapter's numbering, not usedArray's: toGoto is handed to
+                // pager.setCurrentItem below, and the two disagree whenever hideSubredditTabs
+                // drops an ordinary subscription from the strip.
+                final int restored = adapter.pageForSubreddit(restore.subreddit);
+                if (restored >= 0) {
+                    toGoto = restored;
+                } else {
+                    // The subreddit is gone from the list -- unsubscribed on another device, or
+                    // simply not in the offline set. Nothing to restore onto.
+                    restore.subreddit = null;
+                }
+            }
             if (toGoto == -1) {
                 toGoto = 0;
             }
-            if (toGoto >= usedArray.size()) {
-                toGoto -= 1;
+            if (toGoto >= adapter.getCount()) {
+                toGoto = adapter.getCount() - 1;
             }
-            shouldLoad = usedArray.get(toGoto);
-            selectedSub = (usedArray.get(toGoto));
-            themeSystemBars(usedArray.get(toGoto));
+            // toGoto is a pager position -- restartTheme writes pager.getCurrentItem() into
+            // EXTRA_PAGE_TO and it is handed to pager.setCurrentItem below -- so the subreddit it
+            // names comes from the adapter. Indexing usedArray with it names a different
+            // subreddit whenever hideSubredditTabs leaves an ordinary subscription off the strip.
+            final String openingSub = adapter.subredditForPage(toGoto);
+            shouldLoad = openingSub;
+            selectedSub = openingSub;
+            // Sync the static current-position to the page actually shown at startup.
+            // pager.setCurrentItem(toGoto) is a no-op when toGoto == 0, so onPageSelected
+            // never fires to update it, leaving a stale value from a prior session (the
+            // process survives a back-button exit). See issue #303.
+            Reddit.currentPosition = toGoto;
+            themeSystemBars(openingSub);
 
             final String USEDARRAY_0 = usedArray.get(0);
             header.setBackgroundColor(Palette.getColor(USEDARRAY_0));
@@ -1709,13 +1999,18 @@ public class MainActivity extends BaseActivity
                     LayoutUtils.scrollToTabAfterLayout(mTabLayout, toGoto);
                 }
             } else {
-                getSupportActionBar().setTitle(usedArray.get(toGoto));
+                java.util.Objects.requireNonNull(getSupportActionBar()).setTitle(openingSub);
                 pager.setCurrentItem(toGoto);
             }
             setToolbarClick();
 
-            setRecentBar(usedArray.get(toGoto));
-            sidebarController.doSubSidebarNoLoad(usedArray.get(toGoto));
+            setRecentBar(openingSub);
+            sidebarController.doSubSidebarNoLoad(openingSub);
+            if (commentRestore.submission != null) {
+                // Posted so the pager has instantiated the feed page first; see
+                // reopenRestoredComments for why that matters.
+                pager.post(this::reopenRestoredComments);
+            }
         } else if (NetworkUtil.isConnected(this)) {
             UserSubscriptions.doMainActivitySubs(this);
         }
@@ -1734,7 +2029,7 @@ public class MainActivity extends BaseActivity
                     });
         } else {
             LogUtil.v("notnull");
-            mToolbar.setOnClickListener(
+            requireToolbar().setOnClickListener(
                     new View.OnClickListener() {
                         @Override
                         public void onClick(View v) {
@@ -1771,7 +2066,7 @@ public class MainActivity extends BaseActivity
 
     public void updateSubs(ArrayList<String> subs) {
         if (subs.isEmpty() && !NetworkUtil.isConnected(this)) {
-            findViewById(R.id.toolbar).setVisibility(View.GONE);
+            requireViewById(R.id.toolbar).setVisibility(View.GONE);
             d =
                     new MaterialAlertDialogBuilder(
                                     new ContextThemeWrapper(
@@ -1790,6 +2085,12 @@ public class MainActivity extends BaseActivity
                                     })
                             .setCancelable(false)
                             .show();
+            // Return rather than falling through. Nothing below builds anything useful without a
+            // drawer, and this branch leaves drawerLayout, usedArray and adapter unset -- which is
+            // what a NullAway.Init suppression on them was quietly claiming could not happen. The
+            // dialog is setCancelable(false) and both buttons finish() or restart the activity, so
+            // there is no path from here that wants the rest of this method.
+            return;
         } else {
             drawerLayout = (DrawerLayout) findViewById(R.id.drawer_layout);
             if (!getResources().getBoolean(R.bool.isTablet)) {
@@ -1807,7 +2108,9 @@ public class MainActivity extends BaseActivity
                 try {
                     setDataSet(subs);
                 } catch (Exception ignored) {
-
+                    // This repeats the unguarded setDataSet three lines up, so anything inherent
+                    // to the call has already thrown by here; what is left is a failure caused by
+                    // the doDrawer() in between, and the tabs are already populated either way.
                 }
                 loader.finish();
                 loader = null;
@@ -1842,7 +2145,7 @@ public class MainActivity extends BaseActivity
                     if (count == 2 || count == subs.size()) {
                         break;
                     }
-                    if (!s.contains("/m/")) {
+                    if (!s.contains("/m/") && !Megareddits.isKey(s)) {
                         Intent sub =
                                 new Intent(Intent.ACTION_VIEW, null, this, SubredditView.class);
                         sub.putExtra(SubredditView.EXTRA_SUBREDDIT, s);
@@ -1864,7 +2167,7 @@ public class MainActivity extends BaseActivity
                     if (count == 4 || count == subs.size()) {
                         break;
                     }
-                    if (!s.contains("/m/")) {
+                    if (!s.contains("/m/") && !Megareddits.isKey(s)) {
 
                         Intent sub =
                                 new Intent(Intent.ACTION_VIEW, null, this, SubredditView.class);
@@ -1896,7 +2199,13 @@ public class MainActivity extends BaseActivity
 
         Bitmap over =
                 DrawableUtil.drawableToBitmap(
-                        ResourcesCompat.getDrawable(getResources(), overlay, null));
+                        java.util.Objects.requireNonNull(
+                                ResourcesCompat.getDrawable(getResources(), overlay, null)));
+
+        if (over == null) {
+            // The overlay drawable produced no bitmap; the plain colored circle is still a usable icon.
+            return IconCompat.createWithBitmap(color);
+        }
 
         Canvas canvas = new Canvas(color);
         canvas.drawBitmap(

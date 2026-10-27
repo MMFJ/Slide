@@ -14,12 +14,14 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * A class that helps with HTTP requests and response parsing.
  *
  * <p>Created by Fernando Barillas on 7/13/16.
  */
+@NullMarked
 public class HttpUtil {
 
 
@@ -27,9 +29,9 @@ public class HttpUtil {
     public static final class ImgurMedia {
         public final String type;
         private final String url;
-        private final String mp4;
+        private final @Nullable String mp4;
 
-        private ImgurMedia(String type, String url, String mp4) {
+        private ImgurMedia(String type, String url, @Nullable String mp4) {
             this.type = type;
             this.url = url;
             this.mp4 = mp4;
@@ -52,34 +54,24 @@ public class HttpUtil {
 
     /**
      * Extracts the media type and links from either imgur response shape ("image" for the old
-     * gallery API, "data" for v3), or returns null when the response has neither.
+     * gallery API, "data" for v3), or returns null when the response has neither — or carries the
+     * key but not the link underneath it, which used to throw partway down the chain. Every caller
+     * answers null by loading the original url instead, so a reply that does not match either shape
+     * now falls back rather than crashing.
      */
     @Nullable
     public static ImgurMedia parseImgurMedia(@Nullable JsonObject result) {
         if (result != null && !result.isJsonNull() && result.has("image")) {
-            String type =
-                    result.get("image")
-                            .getAsJsonObject()
-                            .get("image")
-                            .getAsJsonObject()
-                            .get("type")
-                            .getAsString();
-            String urls =
-                    result.get("image")
-                            .getAsJsonObject()
-                            .get("links")
-                            .getAsJsonObject()
-                            .get("original")
-                            .getAsString();
-            return new ImgurMedia(type, urls, null);
+            final JsonObject image = GsonUtil.obj(result, "image");
+            String type = GsonUtil.string(GsonUtil.obj(image, "image"), "type", "");
+            String urls = GsonUtil.string(GsonUtil.obj(image, "links"), "original", "");
+            return urls.isEmpty() ? null : new ImgurMedia(type, urls, null);
         } else if (result != null && result.has("data")) {
-            String type = result.get("data").getAsJsonObject().get("type").getAsString();
-            String urls = result.get("data").getAsJsonObject().get("link").getAsString();
-            String mp4 = "";
-            if (result.get("data").getAsJsonObject().has("mp4")) {
-                mp4 = result.get("data").getAsJsonObject().get("mp4").getAsString();
-            }
-            return new ImgurMedia(type, urls, mp4);
+            final JsonObject data = GsonUtil.obj(result, "data");
+            String type = GsonUtil.string(data, "type", "");
+            String urls = GsonUtil.string(data, "link", "");
+            String mp4 = GsonUtil.string(data, "mp4", "");
+            return urls.isEmpty() ? null : new ImgurMedia(type, urls, mp4);
         }
         return null;
     }
@@ -96,7 +88,7 @@ public class HttpUtil {
      * @return A JsonObject representation of the API response, null when there was an error or
      *     Exception thrown by the HTTP call
      */
-    public static JsonObject getImgurJsonObject(
+    public static @Nullable JsonObject getImgurJsonObject(
             final OkHttpClient client,
             final Gson gson,
             final String apiUrl,
@@ -118,7 +110,7 @@ public class HttpUtil {
      * @return A JsonObject representation of the API response, null when there was an error or
      *     Exception thrown by the HTTP call
      */
-    public static JsonObject getJsonObject(
+    public static @Nullable JsonObject getJsonObject(
             final OkHttpClient client,
             final Gson gson,
             final String apiUrl,
@@ -157,7 +149,7 @@ public class HttpUtil {
      * @return A JsonObject representation of the API response, null when there was an error or
      *     Exception thrown by the HTTP call
      */
-    public static JsonArray getJsonArray(
+    public static @Nullable JsonArray getJsonArray(
             final OkHttpClient client, final Gson gson, final Request request) {
         if (client == null || gson == null || request == null) return null;
 
@@ -183,7 +175,7 @@ public class HttpUtil {
      * @return A JsonObject representation of the API response, null when there was an error or
      *     Exception thrown by the HTTP call
      */
-    public static JsonObject getJsonObject(
+    public static @Nullable JsonObject getJsonObject(
             final OkHttpClient client, final Gson gson, final String apiUrl) {
         return getJsonObject(client, gson, apiUrl, null);
     }

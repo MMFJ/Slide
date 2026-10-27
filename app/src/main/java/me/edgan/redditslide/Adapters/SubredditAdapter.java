@@ -19,6 +19,7 @@ import me.edgan.redditslide.Views.CatchStaggeredGridLayoutManager;
 import me.edgan.redditslide.Views.CommentOverflow;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.BlendModeUtil;
+import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
 import me.edgan.redditslide.util.SubmissionParser;
 import net.dean.jraw.models.Subreddit;
@@ -66,7 +67,7 @@ public class SubredditAdapter extends PaginatedListAdapter {
             holder.color.setBackgroundResource(R.drawable.circle);
             BlendModeUtil.tintDrawableAsModulate(
                     holder.color.getBackground(),
-                    Palette.getColor(sub.getDisplayName().toLowerCase(Locale.ENGLISH)));
+                    Palette.getColor(MiscUtil.orEmpty(sub.getDisplayName()).toLowerCase(Locale.ENGLISH)));
             holder.itemView.setOnClickListener(
                     new OnSingleClickListener() {
                         @Override
@@ -94,15 +95,19 @@ public class SubredditAdapter extends PaginatedListAdapter {
                             context.startActivityForResult(inte, 4);
                         }
                     });
-            if (sub.getDataNode().get("public_description_html").asText().equals("null")) {
+            final String description =
+                    sub.getDataNode().path("public_description_html").asText();
+            // An absent key reads as empty here rather than throwing, and an empty description
+            // hides the body for the same reason reddit's literal "null" does.
+            if (description.isEmpty() || description.equals("null")) {
                 holder.body.setVisibility(View.GONE);
                 holder.overflow.setVisibility(View.GONE);
             } else {
                 holder.body.setVisibility(View.VISIBLE);
                 holder.overflow.setVisibility(View.VISIBLE);
                 setViews(
-                        sub.getDataNode().get("public_description_html").asText().trim(),
-                        sub.getDisplayName().toLowerCase(Locale.ENGLISH),
+                        description.trim(),
+                        MiscUtil.orEmpty(sub.getDisplayName()).toLowerCase(Locale.ENGLISH),
                         holder.body,
                         holder.overflow);
             }
@@ -119,7 +124,7 @@ public class SubredditAdapter extends PaginatedListAdapter {
 
             final Runnable r =
                     new Runnable() {
-                        public void run() {
+                        @Override public void run() {
                             notifyItemChanged(
                                     dataSet.posts.size() + 1); // the loading spinner to replaced by
                             // nomoreposts.xml
@@ -132,10 +137,10 @@ public class SubredditAdapter extends PaginatedListAdapter {
             }
         }
         if (holder2 instanceof SpacerViewHolder) {
-            final int height = (context).findViewById(R.id.header).getHeight();
+            final int height = (context).requireViewById(R.id.header).getHeight();
 
             holder2.itemView
-                    .findViewById(R.id.height)
+                    .requireViewById(R.id.height)
                     .setLayoutParams(
                             new LinearLayout.LayoutParams(holder2.itemView.getWidth(), height));
             if (listView.getLayoutManager() instanceof CatchStaggeredGridLayoutManager) {

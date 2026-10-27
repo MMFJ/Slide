@@ -13,19 +13,18 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
+import androidx.annotation.Nullable;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
 import androidx.core.graphics.drawable.DrawableCompat;
 import androidx.core.widget.NestedScrollView;
-
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
-
 import java.util.ArrayList;
 import java.util.List;
-
 import me.edgan.redditslide.R;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * Drop-in replacement for the deprecated {@code com.cocosw:bottomsheet} library, rendered with the
@@ -37,6 +36,7 @@ import me.edgan.redditslide.R;
  * {@code onClick(dialog, which)}. Colors follow the host theme's {@code card_background},
  * {@code fontColor} and {@code tintColor} attributes so the sheet matches every Slide theme.
  */
+@NullMarked
 public class BottomSheet {
 
     private BottomSheet() {}
@@ -45,10 +45,10 @@ public class BottomSheet {
 
     private static class Item {
         final int id;
-        final Drawable icon;
-        final CharSequence title;
+        final @Nullable Drawable icon;
+        final @Nullable CharSequence title;
 
-        Item(int id, Drawable icon, CharSequence title) {
+        Item(int id, @Nullable Drawable icon, @Nullable CharSequence title) {
             this.id = id;
             this.icon = icon;
             this.title = title;
@@ -57,9 +57,10 @@ public class BottomSheet {
 
     public static class Builder {
         private final Context context;
-        private CharSequence title;
+        private @Nullable CharSequence title;
         private boolean grid;
-        private DialogInterface.OnClickListener listener;
+        private @Nullable DialogInterface.OnClickListener listener;
+        private @Nullable DialogInterface.OnClickListener longListener;
         private final List<Item> items = new ArrayList<>();
 
         public Builder(Context context) {
@@ -76,7 +77,7 @@ public class BottomSheet {
             return this;
         }
 
-        public Builder sheet(int id, Drawable icon, CharSequence title) {
+        public Builder sheet(int id, @Nullable Drawable icon, @Nullable CharSequence title) {
             items.add(new Item(id, icon, title));
             return this;
         }
@@ -109,6 +110,15 @@ public class BottomSheet {
 
         public Builder listener(DialogInterface.OnClickListener listener) {
             this.listener = listener;
+            return this;
+        }
+
+        /**
+         * Called with the item's id on a long press, after which the sheet is dismissed just as
+         * for a click. Without one, items do not react to long presses at all.
+         */
+        public Builder longListener(DialogInterface.OnClickListener longListener) {
+            this.longListener = longListener;
             return this;
         }
 
@@ -160,6 +170,13 @@ public class BottomSheet {
 
             dialog.setContentView(root);
             dialog.show();
+
+            // Open fully so long menus don't hide their last items behind the collapsed
+            // peek height; short menus are unaffected (they wrap to content height). Skip
+            // the collapsed state so a downward drag dismisses instead of snapping to peek.
+            final BottomSheetBehavior<?> behavior = dialog.getBehavior();
+            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            behavior.setSkipCollapsed(true);
             return dialog;
         }
 
@@ -216,7 +233,7 @@ public class BottomSheet {
 
             LinearLayout currentRow = null;
             for (int i = 0; i < items.size(); i++) {
-                if (i % GRID_COLUMNS == 0) {
+                if (i % GRID_COLUMNS == 0 || currentRow == null) {
                     currentRow = new LinearLayout(context);
                     currentRow.setOrientation(LinearLayout.HORIZONTAL);
                     column.addView(
@@ -281,9 +298,19 @@ public class BottomSheet {
                         }
                         dialog.dismiss();
                     });
+            if (longListener != null) {
+                view.setOnLongClickListener(
+                        v -> {
+                            if (longListener != null) {
+                                longListener.onClick(dialog, id);
+                            }
+                            dialog.dismiss();
+                            return true;
+                        });
+            }
         }
 
-        private static void applyIcon(ImageView iv, Drawable icon, int tintColor) {
+        private static void applyIcon(ImageView iv, @Nullable Drawable icon, int tintColor) {
             if (icon == null) {
                 iv.setVisibility(View.INVISIBLE);
                 return;
@@ -305,7 +332,7 @@ public class BottomSheet {
         return fallback;
     }
 
-    private static Drawable selectableItemBackground(Context context) {
+    private static @Nullable Drawable selectableItemBackground(Context context) {
         final TypedValue tv = new TypedValue();
         context.getTheme()
                 .resolveAttribute(android.R.attr.selectableItemBackground, tv, true);

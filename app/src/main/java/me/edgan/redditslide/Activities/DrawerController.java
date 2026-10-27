@@ -23,6 +23,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.view.ContextThemeWrapper;
 import androidx.appcompat.widget.SwitchCompat;
@@ -37,12 +38,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import me.edgan.redditslide.Adapters.SideArrayAdapter;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.Fragments.DrawerItemsDialog;
 import me.edgan.redditslide.Fragments.SubmissionsView;
+import me.edgan.redditslide.InboxCount;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
@@ -59,15 +60,22 @@ import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MaterialInputDialog;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
+import me.edgan.redditslide.util.PrefUtil;
 import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class DrawerController {
 
     private final MainActivity mainActivity;
+    @SuppressWarnings("NullAway.Init") // assigned in doDrawer
     ListView drawerSubList;
+    @SuppressWarnings("NullAway.Init") // assigned in setDrawerSubList
     EditText drawerSearch;
-    View hea;
+    @Nullable View hea;
+    @SuppressWarnings("NullAway.Init") // assigned in onDrawerClosed
     View accountsArea;
+    @SuppressWarnings("NullAway.Init") // assigned in setDrawerSubList
     SideArrayAdapter sideArrayAdapter;
     HashMap<String, String> accounts = new HashMap<>();
 
@@ -77,21 +85,31 @@ public class DrawerController {
     }
 
     public void doDrawer() {
-        drawerSubList = (ListView) mainActivity.findViewById(R.id.drawerlistview);
+        drawerSubList = (ListView) mainActivity.requireViewById(R.id.drawerlistview);
         drawerSubList.setDividerHeight(0);
         drawerSubList.setDescendantFocusability(ListView.FOCUS_BEFORE_DESCENDANTS);
+        // This list carries focusable children -- the search EditText in its header view -- and a
+        // ListView only manages focus among its items once it has been told they can hold it.
+        drawerSubList.setItemsCanFocus(true);
         final LayoutInflater inflater = mainActivity.getLayoutInflater();
         final View header;
 
-        if (Authentication.isLoggedIn && Authentication.didOnline) {
+        // Read once and use for every decision below. didOnline is a mutable static an auth
+        // callback can flip mid-method, and only drawer_loggedin and drawer_loggedout carry the
+        // support and prof views the tail of this method requires; re-reading it there could ask
+        // drawer_offline for ids it does not have.
+        final boolean didOnline = Authentication.didOnline;
+
+        if (Authentication.isLoggedIn && didOnline) {
 
             header = inflater.inflate(R.layout.drawer_loggedin, drawerSubList, false);
             mainActivity.headerMain = header;
-            hea = header.findViewById(R.id.back);
+            hea = header.requireViewById(R.id.back);
 
             drawerSubList.addHeaderView(header, null, false);
-            ((TextView) header.findViewById(R.id.name)).setText(Authentication.name);
-            header.findViewById(R.id.multi)
+            ((TextView) header.requireViewById(R.id.name)).setText(Authentication.name);
+            setMegaredditsClick(header);
+            header.requireViewById(R.id.multi)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -102,7 +120,7 @@ public class DrawerController {
                                     }
                                 }
                             });
-            header.findViewById(R.id.multi).setOnLongClickListener(new View.OnLongClickListener() {
+            header.requireViewById(R.id.multi).setOnLongClickListener(new View.OnLongClickListener() {
                 @Override
                 public boolean onLongClick(View view) {
                     showUsernameDialog(true);
@@ -110,7 +128,7 @@ public class DrawerController {
                 }
             });
 
-            header.findViewById(R.id.discover)
+            header.requireViewById(R.id.discover)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -120,7 +138,7 @@ public class DrawerController {
                                 }
                             });
 
-            header.findViewById(R.id.prof_click)
+            header.requireViewById(R.id.prof_click)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -130,7 +148,7 @@ public class DrawerController {
                                     mainActivity.startActivity(inte);
                                 }
                             });
-            header.findViewById(R.id.saved)
+            header.requireViewById(R.id.saved)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -141,7 +159,7 @@ public class DrawerController {
                                     mainActivity.startActivity(inte);
                                 }
                             });
-            header.findViewById(R.id.local_saved)
+            header.requireViewById(R.id.local_saved)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -151,7 +169,7 @@ public class DrawerController {
                                     mainActivity.startActivity(inte);
                                 }
                             });
-            header.findViewById(R.id.later)
+            header.requireViewById(R.id.later)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -161,7 +179,7 @@ public class DrawerController {
                                     mainActivity.startActivity(inte);
                                 }
                             });
-            header.findViewById(R.id.history)
+            header.requireViewById(R.id.history)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -172,7 +190,7 @@ public class DrawerController {
                                     mainActivity.startActivity(inte);
                                 }
                             });
-            header.findViewById(R.id.commented)
+            header.requireViewById(R.id.commented)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -183,7 +201,7 @@ public class DrawerController {
                                     mainActivity.startActivity(inte);
                                 }
                             });
-            header.findViewById(R.id.submitted)
+            header.requireViewById(R.id.submitted)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -194,7 +212,7 @@ public class DrawerController {
                                     mainActivity.startActivity(inte);
                                 }
                             });
-            header.findViewById(R.id.upvoted)
+            header.requireViewById(R.id.upvoted)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -210,15 +228,15 @@ public class DrawerController {
              * If the user is a known mod, show the "Moderation" drawer item quickly to stop the UI
              * from jumping
              */
-            header.findViewById(R.id.mod).setVisibility(View.GONE);
+            header.requireViewById(R.id.mod).setVisibility(View.GONE);
             if (Authentication.mod && UserSubscriptions.modOf != null && !UserSubscriptions.modOf.isEmpty()) {
-                header.findViewById(R.id.mod).setVisibility(View.VISIBLE);
+                header.requireViewById(R.id.mod).setVisibility(View.VISIBLE);
             }
 
             // update notification badge
             final LinearLayout profStuff = header.findViewById(R.id.accountsarea);
             profStuff.setVisibility(View.GONE);
-            mainActivity.findViewById(R.id.back)
+            mainActivity.requireViewById(R.id.back)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
@@ -226,16 +244,16 @@ public class DrawerController {
                                     if (profStuff.getVisibility() == View.GONE) {
                                         expand(profStuff);
                                         header.setContentDescription(mainActivity.getResources().getString(R.string.btn_collapse));
-                                        AnimatorUtil.flipAnimator(false, header.findViewById(R.id.headerflip)).start();
+                                        AnimatorUtil.flipAnimator(false, header.requireViewById(R.id.headerflip)).start();
                                     } else {
                                         collapse(profStuff);
                                         header.setContentDescription(mainActivity.getResources().getString(R.string.btn_expand));
-                                        AnimatorUtil.flipAnimator(true, header.findViewById(R.id.headerflip)).start();
+                                        AnimatorUtil.flipAnimator(true, header.requireViewById(R.id.headerflip)).start();
                                     }
                                 }
                             });
 
-            for (String s : Authentication.authentication.getStringSet("accounts", new HashSet<String>())) {
+            for (String s : PrefUtil.getStringSet(Authentication.authentication, "accounts", new HashSet<String>())) {
                 if (s.contains(":")) {
                     accounts.put(s.split(":")[0], s.split(":")[1]);
                 } else {
@@ -248,9 +266,9 @@ public class DrawerController {
             for (final String accName : keys) {
                 LogUtil.v(accName);
                 final View t = mainActivity.getLayoutInflater().inflate(R.layout.account_textview_white, accountList, false);
-                ((TextView) t.findViewById(R.id.name)).setText(accName);
-                LogUtil.v("Adding click to " + ((TextView) t.findViewById(R.id.name)).getText());
-                t.findViewById(R.id.remove)
+                ((TextView) t.requireViewById(R.id.name)).setText(accName);
+                LogUtil.v("Adding click to " + ((TextView) t.requireViewById(R.id.name)).getText());
+                t.requireViewById(R.id.remove)
                         .setOnClickListener(
                                 new View.OnClickListener() {
                                     @Override
@@ -264,21 +282,20 @@ public class DrawerController {
                                                 .setNegativeButton(
                                                         R.string.btn_delete,
                                                         (dialog2, which2) -> {
-                                                            Set<String> accounts2 = Authentication.authentication.getStringSet("accounts", new HashSet<>());
-                                                            Set<String> done = new HashSet<>();
-
-                                                            for (String s : accounts2) {
-                                                                if (!s.contains(accName)) {
-                                                                    done.add(s);
-                                                                }
-                                                            }
-
-                                                            Authentication.authentication
-                                                                    .edit()
-                                                                    .putStringSet("accounts", done)
-                                                                    .commit();
+                                                            Authentication.forgetAccount(accName);
+                                                            Authentication.clearWebViewCookies();
                                                             dialog2.dismiss();
                                                             accountList.removeView(t);
+
+                                                            // Drop the account from the in-memory
+                                                            // lists as well: the fallback below
+                                                            // indexes "tokens" by position in
+                                                            // keys, and forgetAccount has just
+                                                            // taken this account's token out of
+                                                            // it.
+                                                            accounts.remove(accName);
+                                                            keys.remove(accName);
+
                                                             if (accName.equalsIgnoreCase(Authentication.name)) {
                                                                 boolean d = false;
 
@@ -292,27 +309,30 @@ public class DrawerController {
                                                                             LogUtil.v(e.getKey() + ":" + e.getValue());
                                                                         }
 
-                                                                        if (accounts.containsKey(s) && !accounts.get(s).isEmpty()) {
+                                                                        if (accounts.containsKey(s) && !accounts.getOrDefault(s, "").isEmpty()) {
                                                                             Authentication.authentication
                                                                                 .edit()
                                                                                 .putString("lasttoken", accounts.get(s))
                                                                                 .remove("backedCreds")
                                                                                 .commit();
                                                                         } else {
-                                                                            ArrayList<String>tokens = new ArrayList<>(Authentication.authentication
-                                                                                .getStringSet("tokens", new HashSet<>()));
+                                                                            final String legacy = Authentication.legacyTokenAt(keys.indexOf(s));
 
-                                                                            int index = keys.indexOf(s);
-
-                                                                            if (keys.indexOf(s) > tokens.size()) {
-                                                                                index -= 1;
+                                                                            if (legacy != null) {
+                                                                                Authentication.authentication
+                                                                                    .edit()
+                                                                                    .putString("lasttoken", legacy)
+                                                                                    .remove("backedCreds")
+                                                                                    .commit();
+                                                                            } else {
+                                                                                // No token to match this account to: end the session instead of leaving the
+                                                                                // previous account's cached credentials in place under the new name.
+                                                                                Authentication.authentication
+                                                                                    .edit()
+                                                                                    .remove("lasttoken")
+                                                                                    .remove("backedCreds")
+                                                                                    .commit();
                                                                             }
-
-                                                                            Authentication.authentication
-                                                                                .edit()
-                                                                                .putString("lasttoken", tokens.get(index))
-                                                                                .remove("backedCreds")
-                                                                                .commit();
                                                                         }
 
                                                                         Authentication.name = s;
@@ -333,10 +353,6 @@ public class DrawerController {
                                                                     UserSubscriptions.switchAccounts();
                                                                     Reddit.forceRestart(mainActivity, true);
                                                                 }
-
-                                                            } else {
-                                                                accounts.remove(accName);
-                                                                keys.remove(accName);
                                                             }
                                                         })
                                                 .setPositiveButton(R.string.btn_cancel, null)
@@ -347,12 +363,12 @@ public class DrawerController {
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
-                                String accName = ((TextView) t.findViewById(R.id.name)).getText().toString();
+                                String accName = ((TextView) t.requireViewById(R.id.name)).getText().toString();
                                 LogUtil.v("Found name is " + accName);
 
                                 if (!accName.equalsIgnoreCase(Authentication.name)) {
                                     LogUtil.v("Switching to " + accName);
-                                    if (!accounts.get(accName).isEmpty()) {
+                                    if (!accounts.getOrDefault(accName, "").isEmpty()) {
                                         LogUtil.v("Using token " + accounts.get(accName));
                                         Authentication.authentication
                                             .edit()
@@ -360,12 +376,23 @@ public class DrawerController {
                                             .remove("backedCreds")
                                             .apply();
                                     } else {
-                                        ArrayList<String> tokens = new ArrayList<>(Authentication.authentication.getStringSet("tokens", new HashSet<String>()));
-                                        Authentication.authentication
-                                            .edit()
-                                            .putString("lasttoken", tokens.get(keys.indexOf(accName)))
-                                            .remove("backedCreds")
-                                            .apply();
+                                        final String legacy = Authentication.legacyTokenAt(keys.indexOf(accName));
+
+                                        if (legacy != null) {
+                                            Authentication.authentication
+                                                .edit()
+                                                .putString("lasttoken", legacy)
+                                                .remove("backedCreds")
+                                                .apply();
+                                        } else {
+                                            // No token to match this account to: end the session instead of leaving the
+                                            // previous account's cached credentials in place under the new name.
+                                            Authentication.authentication
+                                                .edit()
+                                                .remove("lasttoken")
+                                                .remove("backedCreds")
+                                                .apply();
+                                        }
                                     }
 
                                     Authentication.name = accName;
@@ -380,25 +407,25 @@ public class DrawerController {
                 accountList.addView(t);
             }
 
-            header.findViewById(R.id.godown)
+            header.requireViewById(R.id.godown)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
                                 public void onClick(View view) {
-                                    LinearLayout body = header.findViewById(R.id.expand_profile);
+                                    LinearLayout body = header.requireViewById(R.id.expand_profile);
                                     if (body.getVisibility() == View.GONE) {
                                         expand(body);
                                         AnimatorUtil.flipAnimator(false, view).start();
-                                        view.findViewById(R.id.godown).setContentDescription(mainActivity.getResources().getString(R.string.btn_collapse));
+                                        view.requireViewById(R.id.godown).setContentDescription(mainActivity.getResources().getString(R.string.btn_collapse));
                                     } else {
                                         collapse(body);
                                         AnimatorUtil.flipAnimator(true, view).start();
-                                        view.findViewById(R.id.godown).setContentDescription(mainActivity.getResources().getString(R.string.btn_expand));
+                                        view.requireViewById(R.id.godown).setContentDescription(mainActivity.getResources().getString(R.string.btn_expand));
                                     }
                                 }
                             });
 
-            header.findViewById(R.id.guest_mode)
+            header.requireViewById(R.id.guest_mode)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -410,12 +437,17 @@ public class DrawerController {
                                         .remove("lasttoken")
                                         .remove("backedCreds")
                                         .apply();
+                                    // The stored accounts survive guest mode, but the session
+                                    // behind them must not: without this the shared WebView jar
+                                    // keeps the reddit.com cookies, and the in-app browser and
+                                    // wiki viewer stay signed in as the account we just left.
+                                    Authentication.clearWebViewCookies();
                                     UserSubscriptions.switchAccounts();
                                     Reddit.forceRestart(mainActivity, true);
                                 }
                             });
 
-            header.findViewById(R.id.add)
+            header.requireViewById(R.id.add)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -424,7 +456,7 @@ public class DrawerController {
                                     mainActivity.startActivity(inte);
                                 }
                             });
-            header.findViewById(R.id.offline)
+            header.requireViewById(R.id.offline)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -436,7 +468,7 @@ public class DrawerController {
                                     Reddit.forceRestart(mainActivity, false);
                                 }
                             });
-            header.findViewById(R.id.inbox)
+            header.requireViewById(R.id.inbox)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -448,37 +480,41 @@ public class DrawerController {
 
             mainActivity.headerMain = header;
 
+            // Re-inflating the header replaces the badge view, so repaint it from the stored
+            // count rather than waiting on the fetch below, which is slower and can fail.
+            mainActivity.updateInboxBadge(InboxCount.get(Reddit.appRestart));
+
             if (mainActivity.runAfterLoad == null) {
                 new AsyncNotificationBadge(mainActivity).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
             }
 
-        } else if (Authentication.didOnline) {
+        } else if (didOnline) {
             header = inflater.inflate(R.layout.drawer_loggedout, drawerSubList, false);
             drawerSubList.addHeaderView(header, null, false);
             mainActivity.headerMain = header;
-            hea = header.findViewById(R.id.back);
+            hea = header.requireViewById(R.id.back);
 
             final LinearLayout profStuff = header.findViewById(R.id.accountsarea);
             profStuff.setVisibility(View.GONE);
-            mainActivity.findViewById(R.id.back)
+            mainActivity.requireViewById(R.id.back)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
                                 public void onClick(View v) {
                                     if (profStuff.getVisibility() == View.GONE) {
                                         expand(profStuff);
-                                        AnimatorUtil.flipAnimator(false, header.findViewById(R.id.headerflip)).start();
-                                        header.findViewById(R.id.headerflip).setContentDescription(mainActivity.getResources().getString(R.string.btn_collapse));
+                                        AnimatorUtil.flipAnimator(false, header.requireViewById(R.id.headerflip)).start();
+                                        header.requireViewById(R.id.headerflip).setContentDescription(mainActivity.getResources().getString(R.string.btn_collapse));
                                     } else {
                                         collapse(profStuff);
-                                        AnimatorUtil.flipAnimator(true, header.findViewById(R.id.headerflip)).start();
-                                        header.findViewById(R.id.headerflip).setContentDescription(mainActivity.getResources().getString(R.string.btn_expand));
+                                        AnimatorUtil.flipAnimator(true, header.requireViewById(R.id.headerflip)).start();
+                                        header.requireViewById(R.id.headerflip).setContentDescription(mainActivity.getResources().getString(R.string.btn_expand));
                                     }
                                 }
                             });
             final HashMap<String, String> accounts = new HashMap<>();
 
-            for (String s : Authentication.authentication.getStringSet("accounts", new HashSet<String>())) {
+            for (String s : PrefUtil.getStringSet(Authentication.authentication, "accounts", new HashSet<String>())) {
                 if (s.contains(":")) {
                     accounts.put(s.split(":")[0], s.split(":")[1]);
                 } else {
@@ -492,8 +528,8 @@ public class DrawerController {
             for (final String accName : keys) {
                 LogUtil.v(accName);
                 final View t = mainActivity.getLayoutInflater().inflate(R.layout.account_textview_white, accountList, false);
-                ((TextView) t.findViewById(R.id.name)).setText(accName);
-                t.findViewById(R.id.remove)
+                ((TextView) t.requireViewById(R.id.name)).setText(accName);
+                t.requireViewById(R.id.remove)
                         .setOnClickListener(
                                 new View.OnClickListener() {
                                     @Override
@@ -504,18 +540,18 @@ public class DrawerController {
                                             .setNegativeButton(
                                                     R.string.btn_delete,
                                                     (dialog2, which2) -> {
-                                                        Set<String> accounts2 = Authentication.authentication.getStringSet("accounts", new HashSet<>());
-                                                        Set<String> done = new HashSet<>();
-
-                                                        for (String s : accounts2) {
-                                                            if (!s.contains(accName)) {
-                                                                done.add(s);
-                                                            }
-                                                        }
-
-                                                        Authentication.authentication.edit().putStringSet("accounts", done).commit();
+                                                        Authentication.forgetAccount(accName);
+                                                        Authentication.clearWebViewCookies();
                                                         dialog2.dismiss();
                                                         accountList.removeView(t);
+
+                                                        // Drop the account from the in-memory
+                                                        // lists as well: the fallback below
+                                                        // indexes "tokens" by position in keys,
+                                                        // and forgetAccount has just taken this
+                                                        // account's token out of it.
+                                                        accounts.remove(accName);
+                                                        keys.remove(accName);
 
                                                         if (accName.equalsIgnoreCase(Authentication.name)) {
                                                             boolean d = false;
@@ -524,25 +560,36 @@ public class DrawerController {
                                                                 if (!s.equalsIgnoreCase(accName)) {
                                                                     d = true;
                                                                     LogUtil.v("Switching to " + s);
-                                                                    if (!accounts.get(s).isEmpty()) {
+                                                                    if (!accounts.getOrDefault(s, "").isEmpty()) {
                                                                         Authentication.authentication
                                                                                 .edit()
                                                                                 .putString("lasttoken", accounts.get(s))
                                                                                 .remove("backedCreds")
                                                                                 .commit();
                                                                     } else {
-                                                                        ArrayList<String>tokens = new ArrayList<>(Authentication.authentication
-                                                                            .getStringSet("tokens", new HashSet<>()));
-                                                                        Authentication.authentication
-                                                                            .edit()
-                                                                            .putString("lasttoken", tokens.get(keys.indexOf(s)))
-                                                                            .remove("backedCreds")
-                                                                            .commit();
+                                                                        final String legacy = Authentication.legacyTokenAt(keys.indexOf(s));
+
+                                                                        if (legacy != null) {
+                                                                            Authentication.authentication
+                                                                                .edit()
+                                                                                .putString("lasttoken", legacy)
+                                                                                .remove("backedCreds")
+                                                                                .commit();
+                                                                        } else {
+                                                                            // No token to match this account to: end the session instead of leaving the
+                                                                            // previous account's cached credentials in place under the new name.
+                                                                            Authentication.authentication
+                                                                                .edit()
+                                                                                .remove("lasttoken")
+                                                                                .remove("backedCreds")
+                                                                                .commit();
+                                                                        }
                                                                     }
 
                                                                     Authentication.name = s;
                                                                     UserSubscriptions.switchAccounts();
                                                                     Reddit.forceRestart(mainActivity, true);
+                                                                    break;
                                                                 }
                                                             }
 
@@ -560,9 +607,6 @@ public class DrawerController {
                                                                     mainActivity,
                                                                     true);
                                                             }
-                                                        } else {
-                                                            accounts.remove(accName);
-                                                            keys.remove(accName);
                                                         }
                                                     })
                                             .setPositiveButton(R.string.btn_cancel, null)
@@ -574,19 +618,30 @@ public class DrawerController {
                             @Override
                             public void onSingleClick(View v) {
                                 if (!accName.equalsIgnoreCase(Authentication.name)) {
-                                    if (!accounts.get(accName).isEmpty()) {
+                                    if (!accounts.getOrDefault(accName, "").isEmpty()) {
                                         Authentication.authentication
                                             .edit()
                                             .putString("lasttoken", accounts.get(accName))
                                             .remove("backedCreds")
                                             .commit();
                                     } else {
-                                        ArrayList<String> tokens = new ArrayList<>(Authentication.authentication.getStringSet("tokens", new HashSet<String>()));
-                                        Authentication.authentication
-                                            .edit()
-                                            .putString("lasttoken", tokens.get(keys.indexOf(accName)))
-                                            .remove("backedCreds")
-                                            .commit();
+                                        final String legacy = Authentication.legacyTokenAt(keys.indexOf(accName));
+
+                                        if (legacy != null) {
+                                            Authentication.authentication
+                                                .edit()
+                                                .putString("lasttoken", legacy)
+                                                .remove("backedCreds")
+                                                .commit();
+                                        } else {
+                                            // No token to match this account to: end the session instead of leaving the
+                                            // previous account's cached credentials in place under the new name.
+                                            Authentication.authentication
+                                                .edit()
+                                                .remove("lasttoken")
+                                                .remove("backedCreds")
+                                                .commit();
+                                        }
                                     }
 
                                     // Removing this will break Guest mode
@@ -600,7 +655,7 @@ public class DrawerController {
                 accountList.addView(t);
             }
 
-            header.findViewById(R.id.add)
+            header.requireViewById(R.id.add)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -609,7 +664,7 @@ public class DrawerController {
                                     mainActivity.startActivity(inte);
                                 }
                             });
-            header.findViewById(R.id.offline)
+            header.requireViewById(R.id.offline)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -623,7 +678,8 @@ public class DrawerController {
                             });
             mainActivity.headerMain = header;
 
-            header.findViewById(R.id.multi)
+            setMegaredditsClick(header);
+            header.requireViewById(R.id.multi)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
@@ -658,9 +714,9 @@ public class DrawerController {
             header = inflater.inflate(R.layout.drawer_offline, drawerSubList, false);
             mainActivity.headerMain = header;
             drawerSubList.addHeaderView(header, null, false);
-            hea = header.findViewById(R.id.back);
+            hea = header.requireViewById(R.id.back);
 
-            header.findViewById(R.id.online)
+            header.requireViewById(R.id.online)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -671,26 +727,26 @@ public class DrawerController {
                             });
         }
 
-        final LinearLayout expandSettings = header.findViewById(R.id.expand_settings);
-        header.findViewById(R.id.godown_settings)
+        final LinearLayout expandSettings = header.requireViewById(R.id.expand_settings);
+        header.requireViewById(R.id.godown_settings)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
                                 if (expandSettings.getVisibility() == View.GONE) {
                                     expand(expandSettings);
-                                    header.findViewById(R.id.godown_settings).setContentDescription(mainActivity.getResources().getString(R.string.btn_collapse));
+                                    header.requireViewById(R.id.godown_settings).setContentDescription(mainActivity.getResources().getString(R.string.btn_collapse));
                                     AnimatorUtil.flipAnimator(false, v).start();
                                 } else {
                                     collapse(expandSettings);
-                                    header.findViewById(R.id.godown_settings).setContentDescription(mainActivity.getResources().getString(R.string.btn_expand));
+                                    header.requireViewById(R.id.godown_settings).setContentDescription(mainActivity.getResources().getString(R.string.btn_expand));
                                     AnimatorUtil.flipAnimator(true, v).start();
                                 }
                             }
                         });
 
         { // Set up quick setting toggles
-            final SwitchCompat toggleNightMode = expandSettings.findViewById(R.id.toggle_night_mode);
+            final SwitchCompat toggleNightMode = expandSettings.requireViewById(R.id.toggle_night_mode);
             toggleNightMode.setVisibility(View.VISIBLE);
             toggleNightMode.setChecked(mainActivity.inNightMode);
             toggleNightMode.setOnCheckedChangeListener(
@@ -702,7 +758,7 @@ public class DrawerController {
                         }
                     });
 
-            final SwitchCompat toggleImmersiveMode = expandSettings.findViewById(R.id.toggle_immersive_mode);
+            final SwitchCompat toggleImmersiveMode = expandSettings.requireViewById(R.id.toggle_immersive_mode);
             toggleImmersiveMode.setChecked(SettingValues.immersiveMode);
             toggleImmersiveMode.setOnCheckedChangeListener(
                     new CompoundButton.OnCheckedChangeListener() {
@@ -722,7 +778,7 @@ public class DrawerController {
                         }
                     });
 
-            final SwitchCompat toggleNSFW = expandSettings.findViewById(R.id.toggle_nsfw);
+            final SwitchCompat toggleNSFW = expandSettings.requireViewById(R.id.toggle_nsfw);
             toggleNSFW.setChecked(SettingValues.showNSFWContent);
             toggleNSFW.setOnCheckedChangeListener(
                     new CompoundButton.OnCheckedChangeListener() {
@@ -737,7 +793,7 @@ public class DrawerController {
                         }
                     });
 
-            final SwitchCompat toggleRightThumbnails = expandSettings.findViewById(R.id.toggle_right_thumbnails);
+            final SwitchCompat toggleRightThumbnails = expandSettings.requireViewById(R.id.toggle_right_thumbnails);
             toggleRightThumbnails.setChecked(SettingValues.switchThumb);
             toggleRightThumbnails.setOnCheckedChangeListener(
                     new CompoundButton.OnCheckedChangeListener() {
@@ -752,7 +808,7 @@ public class DrawerController {
                         }
                     });
 
-            final SwitchCompat toggleReaderMode = expandSettings.findViewById(R.id.toggle_reader_mode);
+            final SwitchCompat toggleReaderMode = expandSettings.requireViewById(R.id.toggle_reader_mode);
             toggleReaderMode.setChecked(SettingValues.readerMode);
             toggleReaderMode.setOnCheckedChangeListener(
                     new CompoundButton.OnCheckedChangeListener() {
@@ -767,7 +823,7 @@ public class DrawerController {
                     });
         }
 
-        header.findViewById(R.id.manage)
+        header.requireViewById(R.id.manage)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -776,11 +832,19 @@ public class DrawerController {
                                 mainActivity.startActivity(i);
                             }
                         });
-        if (Authentication.didOnline) {
-            View support = header.findViewById(R.id.support);
+        if (didOnline) {
+            View support = header.requireViewById(R.id.support);
 
             support.setVisibility(View.GONE);
-            header.findViewById(R.id.prof)
+            header.requireViewById(R.id.users)
+                .setOnClickListener(new OnSingleClickListener() {
+                    @Override
+                    public void onSingleClick(View view) {
+                        Intent inte = new Intent(mainActivity, Users.class);
+                        mainActivity.startActivity(inte);
+                    }
+                });
+            header.requireViewById(R.id.prof)
                 .setOnClickListener(new OnSingleClickListener() {
                     @Override
                     public void onSingleClick(View view) {
@@ -790,7 +854,7 @@ public class DrawerController {
 
         }
 
-        header.findViewById(R.id.settings)
+        header.requireViewById(R.id.settings)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -803,7 +867,7 @@ public class DrawerController {
                             }
                         });
 
-        final Toolbar toolbar = (Toolbar) mainActivity.findViewById(R.id.toolbar);
+        final Toolbar toolbar = (Toolbar) mainActivity.requireViewById(R.id.toolbar);
 
         final androidx.appcompat.app.ActionBarDrawerToggle actionBarDrawerToggle =
                 new androidx.appcompat.app.ActionBarDrawerToggle(mainActivity, mainActivity.drawerLayout, toolbar, R.string.btn_open, R.string.btn_close) {
@@ -856,7 +920,7 @@ public class DrawerController {
         mainActivity.drawerLayout.addDrawerListener(actionBarDrawerToggle);
 
         actionBarDrawerToggle.syncState();
-        header.findViewById(R.id.back).setBackgroundColor(Palette.getColor("alsdkfjasld"));
+        header.requireViewById(R.id.back).setBackgroundColor(Palette.getColor("alsdkfjasld"));
         accountsArea = header.findViewById(R.id.accountsarea);
 
         if (accountsArea != null) {
@@ -865,6 +929,22 @@ public class DrawerController {
 
         setDrawerSubList();
         hideDrawerItems();
+    }
+
+    /** The Megareddits row, in the logged-in and the guest drawer alike: they need no account. */
+    private void setMegaredditsClick(View header) {
+        header.requireViewById(R.id.mega)
+                .setOnClickListener(
+                        new OnSingleClickListener() {
+                            @Override
+                            public void onSingleClick(View view) {
+                                if (mainActivity.runAfterLoad == null) {
+                                    Intent inte =
+                                            new Intent(mainActivity, MegaredditOverview.class);
+                                    mainActivity.startActivity(inte);
+                                }
+                            }
+                        });
     }
 
     public void hideDrawerItems() {
@@ -897,7 +977,7 @@ public class DrawerController {
             drawerSubList.setFocusable(false);
 
             mainActivity.headerMain
-                .findViewById(R.id.close_search_drawer)
+                .requireViewById(R.id.close_search_drawer)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -909,13 +989,25 @@ public class DrawerController {
             drawerSearch.setOnFocusChangeListener(
                     new View.OnFocusChangeListener() {
                         @Override
-                        public void onFocusChange(View v, boolean hasFocus) {
-                            if (hasFocus) {
-                                mainActivity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
-                                drawerSubList.smoothScrollToPositionFromTop(1, drawerSearch.getHeight(), 100);
-                            } else {
-                                mainActivity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-                            }
+                        public void onFocusChange(View v, final boolean hasFocus) {
+                            // Posted, not run inline. This EditText lives in drawerSubList's header
+                            // view, so it is a descendant of the list, and ListView.layoutChildren()
+                            // moves focus among its children part-way through a pass -- which can
+                            // deliver this callback from inside that layout. Scrolling the same
+                            // list or resizing the window from there would re-enter a layout that
+                            // is still running, so both wait for the next frame.
+                            v.post(
+                                    new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            if (hasFocus) {
+                                                mainActivity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
+                                                drawerSubList.smoothScrollToPositionFromTop(1, drawerSearch.getHeight(), 100);
+                                            } else {
+                                                mainActivity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+                                            }
+                                        }
+                                    });
                         }
                     });
             drawerSearch.setOnEditorActionListener(
@@ -929,7 +1021,16 @@ public class DrawerController {
                             String searchText = drawerSearch.getText().toString().toLowerCase(Locale.ENGLISH);
                             boolean searchSubFound = mainActivity.usedArray.contains(searchText);
                             int searchSubIndex = mainActivity.usedArray.indexOf(searchText);
-                            int sideArrayAdapterIndex = mainActivity.usedArray.indexOf(sideArrayAdapter.fitems.get(0));
+                            // Read the first suggestion only when there is one. This ran before the
+                            // null check below and threw IndexOutOfBoundsException on an empty
+                            // result list -- which is what the search box holds whenever the typed
+                            // text matches no subreddit, the very case this handler exists for.
+                            int sideArrayAdapterIndex =
+                                    (sideArrayAdapter.fitems == null
+                                                    || sideArrayAdapter.fitems.isEmpty())
+                                            ? -1
+                                            : mainActivity.usedArray.indexOf(
+                                                    sideArrayAdapter.fitems.get(0));
 
                             if (arg1 == EditorInfo.IME_ACTION_SEARCH) {
                                 // If it the input text doesn't match a subreddit from the list exactly, openInSubView is true
@@ -971,7 +1072,7 @@ public class DrawerController {
                         }
                     });
 
-            final View close = mainActivity.findViewById(R.id.close_search_drawer);
+            final View close = mainActivity.requireViewById(R.id.close_search_drawer);
             close.setVisibility(View.GONE);
 
             drawerSearch.addTextChangedListener(

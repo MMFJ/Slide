@@ -326,11 +326,6 @@
                 <activity android:name=".Activities.MakeExternal"/>
 
                 <activity
-                        android:name=".ui.settings.SettingsSynccit"
-                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
-                        android:theme="@style/swipeable"
-                        android:windowSoftInputMode="adjustResize"/>
-                <activity
                         android:name=".ui.settings.ManageOfflineContent"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"
@@ -392,6 +387,12 @@
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
+                        android:name=".Activities.ModmailThread"
+                        android:alwaysRetainTaskState="true"
+                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+                        android:theme="@style/swipeable"
+                        android:windowSoftInputMode="adjustResize"/>
+                <activity
                         android:name=".Activities.MediaView"
                         android:alwaysRetainTaskState="true"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
@@ -438,11 +439,6 @@
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeableweb"/>
                 <activity
-                        android:name=".Activities.FullscreenVideo"
-                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
-                        android:hardwareAccelerated="true"
-                        android:theme="@style/swipeable"/>
-                <activity
                         android:name=".Activities.Wiki"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
@@ -463,8 +459,25 @@
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
+                        android:name=".ui.settings.SettingsMegareddits"
+                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+                        android:theme="@style/swipeable"/>
+                <activity
+                        android:name=".Activities.MegaredditCount"
+                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+                        android:theme="@style/swipeable"/>
+                <activity
+                        android:name=".Activities.MegaredditOverview"
+                        android:alwaysRetainTaskState="true"
+                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+                        android:theme="@style/swipeable"/>
+                <activity
                         android:name=".Activities.MultiredditOverview"
                         android:alwaysRetainTaskState="true"
+                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+                        android:theme="@style/swipeable"/>
+                <activity
+                        android:name=".Activities.Users"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
@@ -716,10 +729,6 @@
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
                         android:theme="@style/swipeable"/>
                 <activity
-                        android:name=".ui.settings.SettingsModeration"
-                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
-                        android:theme="@style/swipeable"/>
-                <activity
                         android:name=".Activities.LiveThread"
                         android:alwaysRetainTaskState="true"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
@@ -734,6 +743,14 @@
                                 <action android:name="APPWIDGET_CONFIGURE"/>
                         </intent-filter>
                 </activity>
+                <activity
+                        android:name=".Activities.CreateMegareddit"
+                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+                        android:theme="@style/swipeable"/>
+                <activity
+                        android:name=".Activities.MegaredditSection"
+                        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+                        android:theme="@style/swipeable"/>
                 <activity
                         android:name=".Activities.CreateMulti"
                         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
@@ -800,6 +817,7 @@
 
                 <receiver android:name=".Notifications.CheckForMail" android:exported="false"></receiver>
                 <receiver android:name=".Notifications.CheckForMailSingle" android:exported="false"></receiver>
+                <receiver android:name=".Notifications.TokenRefreshReceiver" android:exported="false"></receiver>
 
                 <receiver android:name=".Autocache.CacheAll" android:exported="false"></receiver>
 

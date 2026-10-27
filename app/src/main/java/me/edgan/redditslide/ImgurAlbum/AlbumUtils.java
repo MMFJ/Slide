@@ -1,12 +1,14 @@
 package me.edgan.redditslide.ImgurAlbum;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.AsyncTask;
 import androidx.annotation.NonNull;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.io.IOException;
@@ -14,20 +16,24 @@ import java.util.ArrayList;
 import java.util.List;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SecretConstants;
+import me.edgan.redditslide.util.GsonUtil;
 import me.edgan.redditslide.util.HttpUtil;
 import me.edgan.redditslide.util.LogUtil;
 import okhttp3.OkHttpClient;
+import org.jspecify.annotations.Nullable;
 
 /** Created by carlo_000 on 2/1/2016. */
 public class AlbumUtils {
 
+    // Populated by Reddit.onCreate (Reddit.java:471), before anything can request an album.
+    @SuppressWarnings("NullAway.Init")
     public static SharedPreferences albumRequests;
 
+    /**
+     * @return the text after the last dash, or null when the string holds no dash.
+     */
+    @Nullable
     public static String substringAfterLastDash(String s) {
-        if (s == null) {
-            return null;
-        }
-
         int lastDashIndex = s.lastIndexOf('-');
 
         // Only return the substring if a dash is found.
@@ -38,7 +44,11 @@ public class AlbumUtils {
         }
     }
 
-    private static String getHash(String s) {
+    @Nullable
+    private static String getHash(@Nullable String s) {
+        if (s == null) {
+            return null;
+        }
         String last = substringAfterLastDash(s);
         LogUtil.v(s);
         LogUtil.v("1 " + last);
@@ -78,10 +88,120 @@ public class AlbumUtils {
         }
     }
 
+    // The imgur album hash for a share URL. Extracted from GetAlbumWithCallback's constructor so the
+    // feed's tap-target prefetch derives the identical hash the viewer uses.
+    @Nullable
+    static String deriveAlbumHash(@Nullable String url) {
+        if (url == null) {
+            return null;
+        }
+        if (url.contains("/layout/")) {
+            url = url.substring(0, url.indexOf("/layout"));
+        }
+        String rawDat = cutEnds(url);
+        if (rawDat.endsWith("/")) {
+            rawDat = rawDat.substring(0, rawDat.length() - 1);
+        }
+        if (rawDat.substring(rawDat.lastIndexOf("/") + 1).length() < 4) {
+            rawDat = rawDat.replace(rawDat.substring(rawDat.lastIndexOf("/")), "");
+        }
+        if (rawDat.contains("?")) {
+            rawDat = rawDat.substring(0, rawDat.indexOf("?"));
+        }
+        return getHash(rawDat);
+    }
+
+    /**
+     * Resolve the display URL of an imgur album's first still image by calling the imgur API on the
+     * CURRENT thread — callers MUST be off the main thread. Returns the same URL the album viewer
+     * requests ({@code Image.getImageUrl()} = {@code i.imgur.com/{hash}{ext}}), or null if the album
+     * can't be resolved or its first item is animated/absent. Used by the feed's tap-target prefetch
+     * to warm an album's first image ahead of a tap, mirroring the reddit-gallery path. Reads the
+     * image {@code link} straight from the JSON (no SingleImage/Image round-trip) and reuses this
+     * class's {@code getHash} so the reconstructed URL matches the viewer's cache entry exactly.
+     */
+    @Nullable
+    public static String getFirstAlbumImageUrlBlocking(
+            final Context context, @Nullable final String url) {
+        try {
+            String hash = deriveAlbumHash(url);
+            if (hash == null) {
+                return null;
+            }
+            if (hash.startsWith("/")) {
+                hash = hash.substring(1);
+            }
+            // Albums are a single hash; if a comma list slipped through, the leading entry is the
+            // album whose first image we want.
+            final int comma = hash.indexOf(",");
+            if (comma != -1) {
+                hash = hash.substring(0, comma);
+            }
+            if (hash.trim().isEmpty()) {
+                return null;
+            }
+
+            final String apiUrl = "https://api.imgur.com/3/album/" + hash;
+            final JsonObject result =
+                    HttpUtil.getImgurJsonObject(
+                            Reddit.client,
+                            new Gson(),
+                            apiUrl,
+                            SecretConstants.getImgurApiKey(context));
+            if (result == null
+                    || !result.has("success")
+                    || !GsonUtil.bool(result, "success", false)
+                    || !result.has("data")) {
+                return null;
+            }
+
+            final JsonObject data = GsonUtil.obj(result, "data");
+            final JsonObject firstImage;
+            if (GsonUtil.bool(data, "is_album", false)) {
+                final JsonArray images = GsonUtil.array(data, "images");
+                if (images.size() == 0 || !images.get(0).isJsonObject()) {
+                    return null;
+                }
+                firstImage = images.get(0).getAsJsonObject();
+            } else {
+                firstImage = data; // a bare imgur image, not an album
+            }
+
+            if (!firstImage.has("link")) {
+                return null;
+            }
+            final String link = GsonUtil.string(firstImage, "link", "");
+            if (!link.contains(".")) {
+                return null;
+            }
+            // Skip an animated first item — the viewer opens those as gif/mp4, not a still-image warm
+            // (mirrors convertToSingle's detection: the "animated" flag or a gif/mp4 link).
+            final boolean animated =
+                    GsonUtil.bool(firstImage, "animated", false)
+                            || link.contains(".gif")
+                            || link.endsWith(".mp4");
+            if (animated) {
+                return null;
+            }
+            final String imgHash = getHash(link);
+            if (imgHash == null || imgHash.isEmpty()) {
+                return null;
+            }
+            final String ext = link.substring(link.lastIndexOf("."));
+            return "https://i.imgur.com/" + imgHash + ext;
+        } catch (Exception e) {
+            LogUtil.e(e, "Album first-image prefetch resolve failed for " + url);
+            return null;
+        }
+    }
+
     public static class GetAlbumWithCallback
             extends AsyncTask<String, Void, ArrayList<JsonElement>> {
 
-        public String hash;
+        // Null when the share URL held nothing hash-shaped; doInBackground reports that as an
+        // unresolvable album rather than dereferencing it.
+        @Nullable public String hash;
+
         public String type;
 
         public Activity baseActivity;
@@ -96,25 +216,7 @@ public class AlbumUtils {
 
             this.baseActivity = baseActivity;
 
-            if (url.contains("/layout/")) {
-                url = url.substring(0, url.indexOf("/layout"));
-            }
-
-            String rawDat = cutEnds(url);
-
-            if (rawDat.endsWith("/")) {
-                rawDat = rawDat.substring(0, rawDat.length() - 1);
-            }
-
-            if (rawDat.substring(rawDat.lastIndexOf("/") + 1).length() < 4) {
-                rawDat = rawDat.replace(rawDat.substring(rawDat.lastIndexOf("/")), "");
-            }
-
-            if (rawDat.contains("?")) {
-                rawDat = rawDat.substring(0, rawDat.indexOf("?"));
-            }
-
-            hash = getHash(rawDat);
+            hash = deriveAlbumHash(url);
             type = "album";
 
             client = Reddit.client;
@@ -122,36 +224,78 @@ public class AlbumUtils {
             imgurKey = SecretConstants.getImgurApiKey(baseActivity);
         }
 
-        public void doWithData(List<Image> data) {
+        /**
+         * Hands the album's images to the caller.
+         *
+         * @return whether {@code data} holds anything to work with. False means nothing usable came
+         *     back and {@link #onError()} has already been told; an override must return without
+         *     touching the list, since indexing it would throw. The boolean is the contract rather
+         *     than a bare void — matching {@link
+         *     me.edgan.redditslide.Tumblr.TumblrUtils.GetTumblrPostWithCallback#doWithData} — because
+         *     every override calls {@code super} first and the earlier void version let them carry on
+         *     into an empty list.
+         */
+        public boolean doWithData(@Nullable List<Image> data) {
             if (data == null || data.isEmpty()) {
                 onError();
+                return false;
             }
+            return true;
         }
 
         public void doWithDataSingle(final SingleImage data) {
-            doWithData(
-                new ArrayList<Image>() {
-                    {
-                        this.add(convertToSingle(data));
-                    }
-                });
+            // convertToSingle returns null when the response is unusable. Adding that null would
+            // hand the adapters a list containing null, which crashes them while the list measures;
+            // an empty list routes to the failure path doWithData already has.
+            final Image converted = convertToSingle(data);
+            final ArrayList<Image> images = new ArrayList<>();
+            if (converted != null) {
+                images.add(converted);
+            }
+            doWithData(images);
         }
 
+        /**
+         * One API entry as an {@link Image}, or null when it has nothing usable in it.
+         *
+         * <p>Reports nothing itself, deliberately: {@link #onError()} is one report per load, and this
+         * runs per entry — the album loop below calls it once for every image in the album. Reporting
+         * from here put a modal "album not found" dialog over an album that had loaded, because one
+         * of its entries was unusable, and reported twice for a single image (once here, once from
+         * {@link #doWithData} being handed the empty list). Every caller already handles the null:
+         * the album loop skips and logs it, {@code jsons.isEmpty()} reports an album where nothing
+         * parsed, and {@link #doWithDataSingle} routes it into {@code doWithData}'s own error path.
+         */
+        @Nullable
         public Image convertToSingle(SingleImage data) {
             try {
                 final Image toDo = new Image();
+                final String link = data.getLink();
                 boolean animated = data.getAnimated() != null ? data.getAnimated() : false;
-                toDo.setAnimated(animated || data.getLink().contains(".gif"));
+                toDo.setAnimated(animated || (link != null && link.contains(".gif")));
 
-                if (data.getAdditionalProperties().containsKey("mp4")
-                        && !data.getAdditionalProperties().get("mp4").equals("")) {
-                    toDo.setHash(getHash(data.getAdditionalProperties().get("mp4").toString()));
+                final Object mp4 = data.getAdditionalProperties().get("mp4");
+                // "".equals(mp4) rather than mp4.equals(""): the key can be present with a null
+                // value, which containsKey does not rule out.
+                if (mp4 != null && !"".equals(mp4)) {
+                    toDo.setHash(getHash(mp4.toString()));
                 } else {
-                    toDo.setHash(getHash(data.getLink()));
+                    toDo.setHash(getHash(link));
                 }
 
                 toDo.setTitle(data.getTitle());
-                toDo.setExt(data.getLink().substring(data.getLink().lastIndexOf(".")));
+                // Without an extension there is no url to build: Image.getImageUrl() concatenates
+                // hash and ext unconditionally, and its consumers (the grid, both pager pages, the
+                // save paths, the peek view) are not null-tolerant. Exclude the entry rather than
+                // letting a half-built one out, which doWithDataSingle turns into the error path.
+                final int dot = link == null ? -1 : link.lastIndexOf('.');
+                if (link == null || dot < 0) {
+                    LogUtil.e("convertToSingle: no extension in link [" + link + "]");
+                    return null;
+                }
+                toDo.setExt(link.substring(dot));
+                // SingleImage's width and height are nullable Integers and are copied through as
+                // such; AlbumView null-checks them before using them to reserve a row's height.
                 toDo.setHeight(data.getHeight());
                 toDo.setWidth(data.getWidth());
 
@@ -160,31 +304,35 @@ public class AlbumUtils {
                 ObjectMapper objectMapper = new ObjectMapper();
 
                 try {
-                    String dataJson = data != null ? objectMapper.writeValueAsString(data) : "null";
+                    String dataJson = objectMapper.writeValueAsString(data);
                     LogUtil.e(e, "convertToSingle error, data [" + dataJson + "]");
                 } catch (JsonProcessingException ex) {
                     LogUtil.e(ex, "Error serializing data to JSON for logging");
                 }
 
-                onError();
-
                 return null;
             }
         }
 
-        JsonElement[] target;
-        int count;
-        int done;
-
-        AlbumImage album;
-
         @Override
+        @Nullable
         protected ArrayList<JsonElement> doInBackground(final String... sub) {
+            String hash = this.hash;
+            if (hash == null) {
+                LogUtil.w("No imgur hash could be derived; nothing to fetch");
+                if (baseActivity != null) {
+                    baseActivity.runOnUiThread(this::onError);
+                }
+                return null;
+            }
             if (hash.startsWith("/")) {
                 hash = hash.substring(1);
+                this.hash = hash;
             }
 
-            final JsonElement[] target;
+            // Entries stay null for a hash that was empty or whose fetch threw; the loop
+            // below skips them.
+            final @Nullable JsonElement[] target;
             final ArrayList<Image> jsons = new ArrayList<>();
 
             String[] hashes = hash.split(",");
@@ -222,13 +370,14 @@ public class AlbumUtils {
                 if (el.isJsonObject()) {
                     JsonObject resultObj = el.getAsJsonObject();
 
-                    if (resultObj.has("success") && resultObj.get("success").getAsBoolean() && resultObj.has("data")) {
-                        JsonObject dataObj = resultObj.getAsJsonObject("data");
-                        boolean isAlbum = dataObj.has("is_album") && dataObj.get("is_album").getAsBoolean();
+                    if (GsonUtil.bool(resultObj, "success", false) && resultObj.has("data")) {
+                        JsonObject dataObj = GsonUtil.obj(resultObj, "data");
+                        boolean isAlbum = GsonUtil.bool(dataObj, "is_album", false);
 
                         if (isAlbum) {
-                            if (dataObj.has("images") && dataObj.get("images").isJsonArray()) {
-                                for (JsonElement imageElement : dataObj.getAsJsonArray("images")) {
+                            final JsonElement imagesElement = dataObj.get("images");
+                            if (imagesElement != null && imagesElement.isJsonArray()) {
+                                for (JsonElement imageElement : imagesElement.getAsJsonArray()) {
                                     try {
                                         SingleImage imageInData = new ObjectMapper().readValue(imageElement.toString(), SingleImage.class);
 
@@ -276,8 +425,8 @@ public class AlbumUtils {
                             }
                         }
                     } else {
-                        int status = resultObj.has("status") ? resultObj.get("status").getAsInt() : -1;
-                        LogUtil.w("Imgur API call failed or missing 'data' for hash " + currentHash + ". Success: " + (resultObj.has("success") ? resultObj.get("success").getAsBoolean() : "N/A") + ", Status: " + status + ". Response: " + resultObj.toString());
+                        String status = GsonUtil.string(resultObj, "status", "-1");
+                        LogUtil.w("Imgur API call failed or missing 'data' for hash " + currentHash + ". Success: " + (resultObj.has("success") ? GsonUtil.bool(resultObj, "success", false) : "N/A") + ", Status: " + status + ". Response: " + resultObj.toString());
                     }
                 } else {
                     LogUtil.w("Non-object JSON element received for Imgur API call for hash: " + currentHash + ". Element: " + el.toString());
@@ -287,7 +436,9 @@ public class AlbumUtils {
             if (baseActivity != null) {
                 if (jsons.isEmpty()) {
                     LogUtil.w("No images successfully processed from hash(es): " + hash);
-                    onError();
+                    // Main thread, like the doWithData path below: the overrides show a dialog,
+                    // start an activity or rebuild the peek view.
+                    baseActivity.runOnUiThread(this::onError);
                 } else {
                     baseActivity.runOnUiThread(
                         new Runnable() {

@@ -7,7 +7,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.TextView;
 import android.widget.Toast;
-
+import androidx.annotation.Nullable;
 import me.edgan.redditslide.Activities.BaseActivityAnim;
 import me.edgan.redditslide.BuildConfig;
 import me.edgan.redditslide.OpenRedditLink;
@@ -15,11 +15,13 @@ import me.edgan.redditslide.R;
 import me.edgan.redditslide.util.ClipboardUtil;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.MiscUtil;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by l3d00m on 11/12/2015. */
+@NullMarked
 public class SettingsAbout extends BaseActivityAnim {
 
-    public void onCreate(Bundle savedInstanceState) {
+    @Override public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         applyColorTheme();
         setContentView(R.layout.activity_settings_about);
@@ -28,11 +30,11 @@ public class SettingsAbout extends BaseActivityAnim {
 
         setupAppBar(R.id.toolbar, R.string.settings_title_about, true, true);
 
-        View privacy = findViewById(R.id.privacy);
-        View report = findViewById(R.id.report);
-        View libs = findViewById(R.id.libs);
-        View changelog = findViewById(R.id.changelog);
-        final TextView version = (TextView) findViewById(R.id.version);
+        View privacy = requireViewById(R.id.privacy);
+        View report = requireViewById(R.id.report);
+        View libs = requireViewById(R.id.libs);
+        View changelog = requireViewById(R.id.changelog);
+        final TextView version = (TextView) requireViewById(R.id.version);
 
         version.setText("Slide v" + BuildConfig.VERSION_NAME);
 
@@ -82,7 +84,7 @@ public class SettingsAbout extends BaseActivityAnim {
                         LinkUtil.openExternally("https://github.com/edgan/Slide/issues");
                     }
                 });
-        findViewById(R.id.sub)
+        requireViewById(R.id.sub)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -93,7 +95,7 @@ public class SettingsAbout extends BaseActivityAnim {
                                         true);
                             }
                         });
-        findViewById(R.id.rate)
+        requireViewById(R.id.rate)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override

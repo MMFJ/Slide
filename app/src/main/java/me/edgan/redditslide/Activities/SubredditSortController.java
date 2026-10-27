@@ -9,6 +9,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.PopupMenu;
 import me.edgan.redditslide.Fragments.SubmissionsView;
+import me.edgan.redditslide.Megareddits;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.util.DialogUtil;
@@ -16,15 +17,16 @@ import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.SortingUtil;
 import net.dean.jraw.paginators.Sorting;
 import net.dean.jraw.paginators.TimePeriod;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * Handles the sorting selection logic for subreddits within MainActivity.
  */
+@NullMarked
 public class SubredditSortController {
 
     private final MainActivity activity;
 
-    Sorting sorts;
     TimePeriod time = TimePeriod.DAY;
 
 
@@ -34,22 +36,28 @@ public class SubredditSortController {
 
     public void openPopup() {
         PopupMenu popup =
-                new PopupMenu(activity, activity.findViewById(R.id.anchor), Gravity.RIGHT);
+                new PopupMenu(activity, activity.requireViewById(R.id.anchor), Gravity.RIGHT);
         String id =
-                ((SubmissionsView) (((MainPagerAdapter) activity.pager.getAdapter()).getCurrentFragment()))
+                ((SubmissionsView) (((MainPagerAdapter) java.util.Objects.requireNonNull(activity.pager.getAdapter())).getCurrentFragment()))
                         .id;
 
-        final Spannable[] base = SortingUtil.getSortingSpannables(id);
+        // A Megareddit draws from every sort at once unless one is picked, so it is the only kind
+        // of tab that is offered "All", and the only one whose menu starts there.
+        final boolean mega = Megareddits.isKey(id);
+        final Spannable[] base =
+                mega
+                        ? SortingUtil.getMegaredditSortingSpannables(id)
+                        : SortingUtil.getSortingSpannables(id);
         for (Spannable s : base) {
             // Do not add option for "Best" in any subreddit except for the frontpage.
             if (!id.equals("frontpage") && s.toString().equals(activity.getString(R.string.sorting_best))) {
                 continue;
             }
-            MenuItem m = popup.getMenu().add(s);
+            popup.getMenu().add(s);
         }
         popup.setOnMenuItemClickListener(
                 new PopupMenu.OnMenuItemClickListener() {
-                    public boolean onMenuItemClick(MenuItem item) {
+                    @Override public boolean onMenuItemClick(MenuItem item) {
                         int i = 0;
                         for (Spannable s : base) {
                             if (s.equals(item.getTitle())) {
@@ -59,6 +67,10 @@ public class SubredditSortController {
                         }
 
                         LogUtil.v("Chosen is " + i);
+                        if (mega) {
+                            chooseMegaredditSort(id, i);
+                            return true;
+                        }
                         switch (i) {
                             case 0:
                                 if (id.equals("frontpage")) {
@@ -115,19 +127,42 @@ public class SubredditSortController {
         popup.show();
     }
 
+    /**
+     * Applies the Megareddit sort menu's {@code chosen} entry: 0 is "All", and the rest are the
+     * ordinary sorts in the order {@link Megareddits#ALL_SORTS} walks them.
+     */
+    private void chooseMegaredditSort(String id, int chosen) {
+        if (chosen == 0) {
+            Megareddits.setSortAll(id, true);
+            activity.reloadSubs();
+            return;
+        }
+        if (chosen < 1 || chosen > Megareddits.ALL_SORTS.size()) {
+            return;
+        }
+        Sorting sorting = Megareddits.ALL_SORTS.get(chosen - 1);
+        Megareddits.setSortAll(id, false);
+        SortingUtil.setSorting(id, sorting);
+        if (sorting == Sorting.TOP || sorting == Sorting.CONTROVERSIAL) {
+            openPopupTime();
+        } else {
+            activity.reloadSubs();
+        }
+    }
+
     public void openPopupTime() {
         PopupMenu popup =
-                new PopupMenu(activity, activity.findViewById(R.id.anchor), Gravity.RIGHT);
+                new PopupMenu(activity, activity.requireViewById(R.id.anchor), Gravity.RIGHT);
         String id =
-                ((SubmissionsView) (((MainPagerAdapter) activity.pager.getAdapter()).getCurrentFragment()))
+                ((SubmissionsView) (((MainPagerAdapter) java.util.Objects.requireNonNull(activity.pager.getAdapter())).getCurrentFragment()))
                         .id;
         final Spannable[] base = SortingUtil.getSortingTimesSpannables(id);
         for (Spannable s : base) {
-            MenuItem m = popup.getMenu().add(s);
+            popup.getMenu().add(s);
         }
         popup.setOnMenuItemClickListener(
                 new PopupMenu.OnMenuItemClickListener() {
-                    public boolean onMenuItemClick(MenuItem item) {
+                    @Override public boolean onMenuItemClick(MenuItem item) {
                         LogUtil.v("Chosen is " + item.getOrder());
                         int i = 0;
                         for (Spannable s : base) {
@@ -140,7 +175,7 @@ public class SubredditSortController {
                             case 0:
                                 SortingUtil.setTime(
                                         ((SubmissionsView)
-                                                        (((MainPagerAdapter) activity.pager.getAdapter())
+                                                        (((MainPagerAdapter) java.util.Objects.requireNonNull(activity.pager.getAdapter()))
                                                                 .getCurrentFragment()))
                                                 .id,
                                         TimePeriod.HOUR);
@@ -149,7 +184,7 @@ public class SubredditSortController {
                             case 1:
                                 SortingUtil.setTime(
                                         ((SubmissionsView)
-                                                        (((MainPagerAdapter) activity.pager.getAdapter())
+                                                        (((MainPagerAdapter) java.util.Objects.requireNonNull(activity.pager.getAdapter()))
                                                                 .getCurrentFragment()))
                                                 .id,
                                         TimePeriod.DAY);
@@ -158,7 +193,7 @@ public class SubredditSortController {
                             case 2:
                                 SortingUtil.setTime(
                                         ((SubmissionsView)
-                                                        (((MainPagerAdapter) activity.pager.getAdapter())
+                                                        (((MainPagerAdapter) java.util.Objects.requireNonNull(activity.pager.getAdapter()))
                                                                 .getCurrentFragment()))
                                                 .id,
                                         TimePeriod.WEEK);
@@ -167,7 +202,7 @@ public class SubredditSortController {
                             case 3:
                                 SortingUtil.setTime(
                                         ((SubmissionsView)
-                                                        (((MainPagerAdapter) activity.pager.getAdapter())
+                                                        (((MainPagerAdapter) java.util.Objects.requireNonNull(activity.pager.getAdapter()))
                                                                 .getCurrentFragment()))
                                                 .id,
                                         TimePeriod.MONTH);
@@ -176,7 +211,7 @@ public class SubredditSortController {
                             case 4:
                                 SortingUtil.setTime(
                                         ((SubmissionsView)
-                                                        (((MainPagerAdapter) activity.pager.getAdapter())
+                                                        (((MainPagerAdapter) java.util.Objects.requireNonNull(activity.pager.getAdapter()))
                                                                 .getCurrentFragment()))
                                                 .id,
                                         TimePeriod.YEAR);
@@ -185,7 +220,7 @@ public class SubredditSortController {
                             case 5:
                                 SortingUtil.setTime(
                                         ((SubmissionsView)
-                                                        (((MainPagerAdapter) activity.pager.getAdapter())
+                                                        (((MainPagerAdapter) java.util.Objects.requireNonNull(activity.pager.getAdapter()))
                                                                 .getCurrentFragment()))
                                                 .id,
                                         TimePeriod.ALL);
@@ -227,7 +262,7 @@ public class SubredditSortController {
                         SettingValues.setSubSorting(sort, time, sub);
                         SortingUtil.setSorting(sub, sort);
                         SortingUtil.setTime(sub, time);
-                        final TextView sortTextView = dialoglayout.findViewById(R.id.sort);
+                        final TextView sortTextView = dialoglayout.requireViewById(R.id.sort);
                         if (SettingValues.hasSort(sub)) {
                             Sorting sortingis = SettingValues.getBaseSubmissionSort(sub);
                             sortTextView.setText(

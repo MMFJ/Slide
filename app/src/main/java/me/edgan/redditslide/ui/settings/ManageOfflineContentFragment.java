@@ -16,9 +16,11 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import me.edgan.redditslide.Autocache.AutoCacheScheduler;
 import me.edgan.redditslide.CommentCacheAsync;
+import me.edgan.redditslide.Megareddits;
 import me.edgan.redditslide.OfflineSubreddit;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
@@ -26,9 +28,12 @@ import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.NetworkUtil;
+import me.edgan.redditslide.util.PrefUtil;
 import me.edgan.redditslide.util.StringUtil;
 import me.edgan.redditslide.util.TimeUtils;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class ManageOfflineContentFragment {
 
     private Activity context;
@@ -39,13 +44,13 @@ public class ManageOfflineContentFragment {
 
     public void Bind() {
         if (!NetworkUtil.isConnected(context)) SettingsThemeFragment.changed = true;
-        context.findViewById(R.id.manage_history_clear_all)
+        context.requireViewById(R.id.manage_history_clear_all)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
                                 boolean wifi = Reddit.cachedData.getBoolean("wifiOnly", false);
-                                String sync = Reddit.cachedData.getString("toCache", "");
+                                String sync = PrefUtil.getString(Reddit.cachedData, "toCache", "");
                                 int hour = (Reddit.cachedData.getInt("hour", 0));
                                 int minute = (Reddit.cachedData.getInt("minute", 0));
                                 Reddit.cachedData.edit().clear().apply();
@@ -60,24 +65,23 @@ public class ManageOfflineContentFragment {
                             }
                         });
         if (NetworkUtil.isConnectedNoOverride(context)) {
-            context.findViewById(R.id.manage_history_sync_now)
+            context.requireViewById(R.id.manage_history_sync_now)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
                                 public void onClick(View v) {
                                     new CommentCacheAsync(
                                                     context,
-                                                    Reddit.cachedData
-                                                            .getString("toCache", "")
+                                                    PrefUtil.getString(Reddit.cachedData, "toCache", "")
                                                             .split(","))
                                             .execute();
                                 }
                             });
         } else {
-            context.findViewById(R.id.manage_history_sync_now).setVisibility(View.GONE);
+            context.requireViewById(R.id.manage_history_sync_now).setVisibility(View.GONE);
         }
         {
-            SwitchCompat single = context.findViewById(R.id.manage_history_wifi);
+            SwitchCompat single = context.requireViewById(R.id.manage_history_wifi);
 
             single.setChecked(Reddit.cachedData.getBoolean("wifiOnly", false));
             single.setOnCheckedChangeListener(
@@ -93,13 +97,13 @@ public class ManageOfflineContentFragment {
         final List<String> commentDepths = ImmutableList.of("2", "4", "6", "8", "10");
         final String[] commentDepthArray = new String[commentDepths.size()];
 
-        context.findViewById(R.id.manage_history_comments_depth)
+        context.requireViewById(R.id.manage_history_comments_depth)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
                                 final String commentDepth =
-                                        SettingValues.prefs.getString(
+                                        PrefUtil.getString(SettingValues.prefs,
                                                 SettingValues.COMMENT_DEPTH, "2");
                                 DialogUtil.showWithCardBackground(new AlertDialog.Builder(context)
                                         .setTitle(R.string.comments_depth)
@@ -120,13 +124,13 @@ public class ManageOfflineContentFragment {
         final List<String> commentCounts = ImmutableList.of("20", "40", "60", "80", "100");
         final String[] commentCountArray = new String[commentCounts.size()];
 
-        context.findViewById(R.id.manage_history_comments_count)
+        context.requireViewById(R.id.manage_history_comments_count)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
                                 final String commentCount =
-                                        SettingValues.prefs.getString(
+                                        PrefUtil.getString(SettingValues.prefs,
                                                 SettingValues.COMMENT_COUNT, "2");
                                 DialogUtil.showWithCardBackground(new AlertDialog.Builder(context)
                                         .setTitle(R.string.comments_count)
@@ -144,7 +148,7 @@ public class ManageOfflineContentFragment {
                             }
                         });
 
-        context.findViewById(R.id.manage_history_autocache)
+        context.requireViewById(R.id.manage_history_autocache)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -159,7 +163,7 @@ public class ManageOfflineContentFragment {
                                 int i = 0;
                                 List<String> s2 = new ArrayList<>();
                                 Collections.addAll(
-                                        s2, Reddit.cachedData.getString("toCache", "").split(","));
+                                        s2, PrefUtil.getString(Reddit.cachedData, "toCache", "").split(","));
 
                                 for (String s : sorted) {
                                     all[i] = s;
@@ -183,7 +187,7 @@ public class ManageOfflineContentFragment {
                                                 })
                                         .setTitle(R.string.multireddit_selector)
                                         .setPositiveButton(
-                                                context.getString(R.string.btn_add).toUpperCase(),
+                                                context.getString(R.string.btn_add).toUpperCase(Locale.getDefault()),
                                                 (dialog, which) -> {
                                                     Reddit.cachedData
                                                             .edit()
@@ -198,7 +202,7 @@ public class ManageOfflineContentFragment {
                             }
                         });
         updateTime();
-        context.findViewById(R.id.manage_history_autocache_time_touch)
+        context.requireViewById(R.id.manage_history_autocache_time_touch)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -245,9 +249,9 @@ public class ManageOfflineContentFragment {
 
     public void updateBackup() {
         subsToBack = new ArrayList<>();
-        Collections.addAll(subsToBack, Reddit.cachedData.getString("toCache", "").split(","));
+        Collections.addAll(subsToBack, PrefUtil.getString(Reddit.cachedData, "toCache", "").split(","));
         TextView text = context.findViewById(R.id.manage_history_autocache_text);
-        if (!Reddit.cachedData.getString("toCache", "").contains(",") || subsToBack.isEmpty()) {
+        if (!PrefUtil.getString(Reddit.cachedData, "toCache", "").contains(",") || subsToBack.isEmpty()) {
             text.setText(R.string.settings_backup_none);
         } else {
             StringBuilder toSayBuilder = new StringBuilder();
@@ -262,7 +266,7 @@ public class ManageOfflineContentFragment {
     }
 
     public ArrayList<String> domains = new ArrayList<>();
-    List<String> subsToBack;
+    List<String> subsToBack = new ArrayList<>();
 
     public void updateFilters() {
         if (context.findViewById(R.id.manage_history_domainlist) != null) {
@@ -279,7 +283,7 @@ public class ManageOfflineContentFragment {
                         sub = multiNameToSubsMap.get(sub);
                     }
                     final String name =
-                            (sub.contains("/m/") ? sub : "/r/" + sub)
+                            (sub.contains("/m/") || Megareddits.isKey(sub) ? sub : "/r/" + sub)
                                     + " → "
                                     + (Long.parseLong(split[1]) == 0
                                             ? context.getString(
@@ -297,8 +301,8 @@ public class ManageOfflineContentFragment {
                                             context.findViewById(R.id.manage_history_domainlist),
                                             false);
 
-                    ((TextView) t.findViewById(R.id.name)).setText(name);
-                    t.findViewById(R.id.remove)
+                    ((TextView) t.requireViewById(R.id.name)).setText(name);
+                    t.requireViewById(R.id.remove)
                             .setOnClickListener(
                                     new View.OnClickListener() {
                                         @Override

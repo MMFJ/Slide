@@ -8,12 +8,15 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import androidx.appcompat.app.AlertDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import me.edgan.redditslide.Megareddits;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * Utility class for handling content filtering dialogs
  */
+@NullMarked
 public class FilterContentUtil {
 
     /**
@@ -33,16 +36,15 @@ public class FilterContentUtil {
         customDialogView.addView(filterContent);
 
         // Get references to the list views
-        final ListView regularListView = filterContent.findViewById(R.id.regular_content_list);
-        final ListView nsfwListView = filterContent.findViewById(R.id.nsfw_content_list);
+        final ListView regularListView = filterContent.requireViewById(R.id.regular_content_list);
+        final ListView nsfwListView = filterContent.requireViewById(R.id.nsfw_content_list);
 
         // Create a wrapper class to hold the lists reference that can be modified
         class ListsHolder {
-            FilterUtil.FilterLists lists;
+            FilterUtil.FilterLists lists = FilterUtil.setupFilterLists(activity, subreddit, false);
         }
 
         final ListsHolder listsHolder = new ListsHolder();
-        listsHolder.lists = FilterUtil.setupFilterLists(activity, subreddit, false);
 
         FilterUtil.setupListViews(activity, regularListView, nsfwListView, listsHolder.lists);
 
@@ -51,6 +53,8 @@ public class FilterContentUtil {
             displayName = "frontpage";
         } else if (subreddit.contains("/m/")) {
             displayName = subreddit.substring(subreddit.indexOf("/m/"));
+        } else if (Megareddits.isKey(subreddit)) {
+            displayName = subreddit;
         } else {
             displayName = "/r/" + subreddit;
         }

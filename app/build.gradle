@@ -9,17 +9,22 @@ import org.gradle.api.provider.Property
 import org.gradle.workers.WorkAction
 import org.gradle.workers.WorkParameters
 import org.gradle.workers.WorkerExecutor
+import net.ltgt.gradle.errorprone.CheckSeverity
 import javax.inject.Inject
 import java.io.Serializable
 import java.util.Properties
 
 plugins {
     id 'com.android.application'
+    // AGP 9's built-in Kotlin (bundled Kotlin 2.2.10), so there is no separate kotlin-android
+    // plugin version to keep in step with AGP. Kotlin sources live in app/src/main/kotlin.
+    id 'com.android.built-in-kotlin'
     id 'com.gladed.androidgitversion' version '0.4.14'
-    id 'com.github.ben-manes.versions' version '0.54.0'
+    id 'com.github.ben-manes.versions' version '0.61.0'
     id 'com.github.breadmoirai.github-release' version '2.5.2'
-    id 'com.diffplug.spotless' version '8.5.1'
-    id 'io.github.takahirom.roborazzi' version '1.64.0'
+    id 'com.diffplug.spotless' version '8.9.0'
+    id 'io.github.takahirom.roborazzi' version '1.71.0'
+    id 'net.ltgt.errorprone' version '5.1.0'
     id 'jacoco'
 }
 
@@ -40,9 +45,9 @@ android {
         minSdk 29
         targetSdk 36
         vectorDrawables.useSupportLibrary true
-        versionCode 778
-        // Mod versioning: cygnusx-1-org/Slide version (7.7.8) + build number
-        versionName "7.7.8.0"
+        versionCode 808
+        // Mod versioning: cygnusx-1-org/Slide version (8.0.8) + MMFJ build number
+        versionName "8.0.8.0"
     }
 
     flavorDimensions "variant"
@@ -123,6 +128,12 @@ android {
             includeAndroidResources = true
             returnDefaultValues = true
             all {
+                // Gradle defaults the test JVM to 512m, which the Roborazzi goldens outgrew: at the
+                // widest configuration a row is ~2800px across and MaxHeightImageView lets an image
+                // reach 3200px tall, so a single ARGB_8888 capture is ~36 MB before Roborazzi's own
+                // copy of it. Raising this rather than dropping the wide cases, since the widest
+                // layout is the one most worth a golden.
+                maxHeapSize = '2g'
                 jvmArgs = [
                     '-Xshare:off',
                     '--add-opens=java.base/java.lang=ALL-UNNAMED',
@@ -191,6 +202,106 @@ configurations {
     }
 }
 
+// net.ltgt.errorprone has no Android Gradle Plugin support: it creates the errorprone
+// configuration but wires it to nothing, and leaves the options.errorprone extension disabled.
+// Every variant's <variant>AnnotationProcessor extends annotationProcessor, so this one line puts
+// Error Prone on the processor path for all four variants.
+configurations.named('annotationProcessor') { extendsFrom configurations.errorprone }
+// Same for unit tests: every variant's <variant>UnitTestAnnotationProcessor extends
+// testAnnotationProcessor. See NULLAWAY.md phase 7.
+configurations.named('testAnnotationProcessor') { extendsFrom configurations.errorprone }
+
+// NullAway rollout, phase 0. Only code marked @NullMarked is analyzed, so this is a no-op until
+// the first package-info.java lands. See NULLAWAY.md.
+tasks.withType(JavaCompile).configureEach { task ->
+    // Error Prone is on the annotationProcessor and testAnnotationProcessor paths only. Any other
+    // test component (androidTest, test fixtures) extends neither, so it must stay disabled there
+    // or javac fails outright with "plug-in not found: ErrorProne".
+    boolean isUnitTest = task.name.contains('UnitTest')
+    boolean isOtherTest = !isUnitTest && task.name.contains('Test')
+    options.errorprone {
+        enabled = !isOtherTest
+        // NullAway only. Error Prone's other checks have never run against this codebase;
+        // adopting them is NULLAWAY.md phase 9, with its own cleanup budget. Disabling them
+        // explicitly also pins behaviour: a future Error Prone release cannot add a check that
+        // breaks the build.
+        disableAllChecks = true
+        check('NullAway', CheckSeverity.ERROR)
+        // Error Prone's own checks, named one by one rather than by dropping disableAllChecks.
+        // That keeps the phase 0 pinning rationale: a future Error Prone release cannot add a
+        // check that breaks this build. Three of the thirteen NULLAWAY.md phase 9 proposed are
+        // deliberately absent — ReferenceEquality, MissingCasesInEnumSwitch and StringSplitter —
+        // see that phase for the measurements behind each.
+        ['ComplexBooleanConstant', 'DoubleBraceInitialization', 'EmptyCatch', 'EqualsHashCode',
+         'IdentityBinaryExpression', 'MissingOverride', 'NarrowingCompoundAssignment',
+         'OperatorPrecedence', 'StringCaseLocaleUsage', 'UnusedVariable'].each {
+            check(it, CheckSeverity.ERROR)
+        }
+        // dataBinding and viewBinding are enabled, so generated *Binding classes, R, and
+        // BuildConfig compile in the same javac invocation.
+        excludedPaths = '.*/build/generated/.*'
+        option('NullAway:OnlyNullMarked', 'true')
+        // Checks array components, which is the half of it this codebase can use. Its generics
+        // checking needs TYPE_USE annotations *and* a @NullMarked generic class, and phase 16
+        // measured that the second requirement is the binding one: a type argument written on an
+        // unannotated generic is accepted and then ignored, so List<@Nullable X> costs
+        // assignment-compatibility churn at every override and buys no dereference checking at
+        // all. The generics this app instantiates are java.util.*, so that half stays inert
+        // whatever annotation dialect the 289 files use. The four generic classes declared
+        // in-tree ARE checked, and would need `T extends @Nullable Object` to accept a nullable
+        // type argument at all. See NULLAWAY.md phases 7 and 16.
+        option('NullAway:JSpecifyMode', 'true')
+        // Honor @Nullable found on unannotated third-party code: getIntent().getExtras() and
+        // Intent.getAction() are caught this way, and so is most of androidx —
+        // Fragment.getTag(), getView(), getParentFragment() and getHost() all fire.
+        option('NullAway:AcknowledgeRestrictiveAnnotations', 'true')
+        // NullAway ships DefaultLibraryModels.NONNULL_RETURNS, which declares a handful of
+        // pervasive Android accessors non-null and so overrides both the option above and any
+        // model of ours. That, not "androidx is out of reach", is why phases 0, 7 and 8 could not
+        // reach Fragment.getActivity()/getContext(). Dropping the two entries makes their real
+        // androidx @Nullable visible and put 285 call sites under the checker; see NULLAWAY.md
+        // phase 14.
+        //
+        // The key is class + bare method name. A signature ("getActivity()") silently matches
+        // nothing, which is how this option first read as broken.
+        //
+        // findViewById is deliberately NOT listed. Activity.findViewById and View.findViewById
+        // carry no nullability annotation at all — AOSP says so in a source comment — so skipping
+        // their model changes nothing. Those sites are source changes or nothing.
+        //
+        // Everything phase 14 measured and left for later is now listed too, so the whole of
+        // NONNULL_RETURNS that this codebase actually calls is dropped rather than half of it.
+        // Re-measured rather than trusted, and both numbers had moved: getArguments cost 22
+        // findings (the phase predicted 23) and ContextCompat.getDrawable cost 2 where the phase
+        // measured zero. The four that really are free are listed anyway — the entry is what
+        // stops a future call site being waved through. See NULLAWAY.md phase 14.
+        //
+        // Fragment.onCreateView is deliberately NOT listed: the model constrains what an override
+        // may return, and returning null from onCreateView is legal and used here.
+        option('NullAway:IgnoreLibraryModelsFor',
+                'androidx.fragment.app.Fragment.getActivity'
+                        + ',androidx.fragment.app.Fragment.getContext'
+                        + ',androidx.fragment.app.Fragment.getArguments'
+                        + ',android.view.ViewGroup.getChildAt'
+                        + ',android.view.View.getResources'
+                        + ',android.content.res.Resources.getDrawable'
+                        + ',androidx.core.content.ContextCompat.getDrawable'
+                        + ',androidx.appcompat.content.res.AppCompatResources.getDrawable'
+                        + ',android.support.design.widget.TextInputLayout.getEditText')
+        // Read assertNotNull(x) / assertThat(x).isNotNull() as null checks. Only meaningful in
+        // the unit-test compiles, but harmless in the others.
+        option('NullAway:HandleTestAssertionLibraries', 'true')
+    }
+    // Error Prone forces a forked javac on JDK 16+; this box has no swap, so cap the child JVM.
+    // javac defaults both of these to 100 and truncates silently. Two NULLAWAY.md phases were
+    // planned from a count that had been capped at exactly 100 (phase 9 from warnings, phase 12
+    // from errors), so raise them here rather than remembering to do it while measuring. This is a
+    // javac option, not an Error Prone one: it belongs in compilerArgs, and errorproneArgs is
+    // silently ignored for it.
+    options.compilerArgs.addAll(['-Xmaxerrs', '1000', '-Xmaxwarns', '1000'])
+    options.forkOptions.memoryMaximumSize = '2g'
+}
+
 def githubPropertiesFile = rootProject.file("github.properties")
 
 if (githubPropertiesFile.exists()) {
@@ -198,7 +309,9 @@ if (githubPropertiesFile.exists()) {
     githubProperties.load(new FileInputStream(githubPropertiesFile))
 
     githubRelease {
-        def releaseNotes = System.getenv("RELEASE_NOTES") ?: "Automated release of version ${android.defaultConfig.versionName ?: "default-version"}"
+        def releaseNotesProvider = providers.gradleProperty("releaseNotes")
+            .orElse(providers.environmentVariable("RELEASE_NOTES"))
+        def releaseNotes = releaseNotesProvider.getOrElse("")
 
         token = githubProperties["githubToken"]
         owner = "edgan"
@@ -219,6 +332,19 @@ if (githubPropertiesFile.exists()) {
             releaseAssets = apkFiles
         }
     }
+
+    tasks.matching { it.name == "githubRelease" }.configureEach {
+        doFirst {
+            def releaseNotes = providers.gradleProperty("releaseNotes")
+                .orElse(providers.environmentVariable("RELEASE_NOTES"))
+                .getOrElse("")
+            if (releaseNotes.trim().isEmpty()) {
+                throw new GradleException(
+                    "Release notes are required. Pass -PreleaseNotes or set RELEASE_NOTES."
+                )
+            }
+        }
+    }
 } else {
     println("Warning: github.properties file not found. Skipping GitHub release configuration.")
 }
@@ -226,15 +352,19 @@ if (githubPropertiesFile.exists()) {
 dependencies {
 /** Flavors **/
     // For Google Sign-In
-    withGPlayImplementation 'com.google.android.gms:play-services-auth:20.6.0'
+    withGPlayImplementation 'com.google.android.gms:play-services-auth:21.6.0'
     // For the REST API Client
-    withGPlayImplementation 'com.google.http-client:google-http-client:2.1.0'
-    withGPlayImplementation 'com.google.api-client:google-api-client-android:2.7.1'
-    withGPlayImplementation 'com.google.api-client:google-api-client-gson:2.7.1'
-    withGPlayImplementation 'com.google.apis:google-api-services-drive:v3-rev20241206-2.0.0'
+    withGPlayImplementation 'com.google.http-client:google-http-client:2.2.0'
+    // google-api-client pins these two siblings at 2.0.0 and nothing contests them, so they
+    // would lag google-http-client by two minors. Declared here to keep the family in lockstep.
+    withGPlayImplementation 'com.google.http-client:google-http-client-gson:2.2.0'
+    withGPlayImplementation 'com.google.http-client:google-http-client-apache-v2:2.2.0'
+    withGPlayImplementation 'com.google.api-client:google-api-client-android:2.9.0'
+    withGPlayImplementation 'com.google.api-client:google-api-client-gson:2.9.0'
+    withGPlayImplementation 'com.google.apis:google-api-services-drive:v3-rev20260720-2.0.0'
 
 /** Custom **/
-    implementation 'com.github.edgan:JRAW:da624454c6'
+    implementation 'com.github.edgan:JRAW:40c5baef6b'
 
     // Stock commonmark 0.13.0 (Apache-2.0) — shared by Slide's richtext/editor code and
     // Markwon. Replaced the old Haptic-Apps fork (commonmark 0.5.0 + a one-line heading
@@ -244,6 +374,15 @@ dependencies {
     implementation "com.atlassian.commonmark:commonmark-ext-gfm-strikethrough:$commonmarkVersion"
     implementation "com.atlassian.commonmark:commonmark-ext-gfm-tables:$commonmarkVersion"
     implementation 'com.github.Haptic-Apps:JReadability:bb291880a5'
+    // JReadability is a prebuilt 2021 jar pinning jsoup 1.9.2, and nothing else on the classpath
+    // requests jsoup — so there was no competing version for Gradle to resolve against and the
+    // 2016 release stood. That reached ReaderMode, which parses whatever page a link points at
+    // (CVE-2021-37714: crafted HTML makes the parser loop forever; the catch there cannot help).
+    // ReaderMode also imports org.jsoup directly, so this was a compile dependency arriving
+    // transitively either way. 1.23.1, NOT 1.14.2: the range 1.14.3-1.22.2 is affected by
+    // CVE-2026-71497, which 1.9.2 predates, so a smaller bump only trades one advisory for
+    // another. See docs/DEPENDENCY_AUDIT.md.
+    implementation 'org.jsoup:jsoup:1.23.1'
     implementation 'com.github.edgan:Android-RobotoTextView:d368c94b3c'
 
     // Markwon (Apache-2.0) — Continuum-style markdown renderer (issue #179).
@@ -260,26 +399,30 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'androidx.browser:browser:1.10.0'
     implementation 'androidx.cardview:cardview:1.0.0'
-    implementation 'androidx.core:core:1.18.0'
+    implementation 'androidx.core:core:1.19.0'
     implementation 'androidx.fragment:fragment:1.8.9'
     implementation 'androidx.media:media:1.8.0'
     implementation 'androidx.recyclerview:recyclerview:1.4.0'
     implementation 'androidx.webkit:webkit:1.16.0'
-    implementation 'com.google.android.material:material:1.13.0'
+    implementation 'com.google.android.material:material:1.14.0'
     implementation "androidx.concurrent:concurrent-futures:1.3.0"
-    implementation "androidx.lifecycle:lifecycle-runtime:2.10.0"
+    implementation "androidx.lifecycle:lifecycle-runtime:2.11.0"
     implementation "androidx.databinding:databinding-runtime:9.2.1"
     implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.2.0"
     implementation "androidx.localbroadcastmanager:localbroadcastmanager:1.1.0"
 /** ExoPlayer **/
     // Application level media player
-    implementation "androidx.media3:media3-exoplayer:1.10.1"
-    implementation "androidx.media3:media3-ui:1.10.1"
-    implementation "androidx.media3:media3-common:1.10.1"
-    implementation("androidx.media3:media3-exoplayer-dash:1.10.1")
-    implementation "androidx.media3:media3-datasource-okhttp:1.10.1"
+    implementation "androidx.media3:media3-exoplayer:1.11.0"
+    implementation "androidx.media3:media3-ui:1.11.0"
+    implementation "androidx.media3:media3-common:1.11.0"
+    implementation("androidx.media3:media3-exoplayer-dash:1.11.0")
+    implementation "androidx.media3:media3-datasource-okhttp:1.11.0"
 
 /** Third-party **/
+    // JRAW and org.mp4parser request slf4j-api 1.7.13/1.8.0-beta4; nothing else contests
+    // it, so a 2018 beta ships. Declared here purely to lift it to the current 2.0.x line.
+    implementation 'org.slf4j:slf4j-api:2.0.18'
+
     // Good for debugging JRAW
     //implementation 'org.slf4j:slf4j-android:1.7.36'
 
@@ -289,7 +432,7 @@ dependencies {
 /**** Frontend (UI-related) ****/
 
     // Color picker (used by the in-app Draw screen)
-    implementation 'com.github.skydoves:colorpickerview:2.3.0'
+    implementation 'com.github.skydoves:colorpickerview:2.4.0'
 
     // Snackbar engagement for rating
     implementation 'com.github.ligi.snackengage:snackengage-core:0.30'
@@ -298,7 +441,7 @@ dependencies {
     // Image loading, caching, and displaying
     //  NOTE: Replace with Glide/Picasso
     // com.nostra13.universalimageloader:universal-image-loader
-    implementation 'com.github.edgan:Android-Universal-Image-Loader:644f0269eb@aar'
+    implementation 'com.github.edgan:Android-Universal-Image-Loader:56dd05d80f@aar'
 
     // Custom image view for photo galleries and large images
     implementation 'com.github.davemorrissey:subsampling-scale-image-view:173e421fdb'
@@ -346,6 +489,9 @@ dependencies {
     // Utilities to assist with developing IO functionality
     implementation 'commons-io:commons-io:2.22.0'
 
+    // Read and write AES-encrypted zip archives
+    implementation 'net.lingala.zip4j:zip4j:2.11.6'
+
 
     // HTTP client
     // BOM aligns okhttp, okhttp-android, and the okhttp-urlconnection that JRAW
@@ -359,9 +505,30 @@ dependencies {
 
     // Read, write, and create MP4 files
     implementation 'org.mp4parser:isoparser:1.9.56'
-    implementation 'org.mp4parser:muxer:1.9.56'
+    // muxer's POM declares junit at compile scope (isoparser correctly uses provided), so
+    // JUnit 4.12 and hamcrest would otherwise ship in the APK. Neither mp4parser jar
+    // references org.junit, so excluding it is safe. See CVE-2020-15250.
+    implementation('org.mp4parser:muxer:1.9.56') {
+        exclude group: 'junit', module: 'junit'
+    }
 
-    implementation 'com.fasterxml.jackson.core:jackson-databind:2.21.3'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.22.1'
+
+/** Null checking **/
+    // NullAway runs as an Error Prone plugin. See NULLAWAY.md for the rollout plan. Pin these
+    // literally: a dynamic version could enable a new check and break the build at any time.
+    errorprone 'com.google.errorprone:error_prone_core:2.50.0'
+    errorprone 'com.uber.nullaway:nullaway:0.13.8'
+    // Models the nullability of dependencies whose source we cannot change — Jackson, GSON and
+    // Apache Commons. NULLAWAY.md phase 8. JRAW and UIL are our own forks, so they are annotated
+    // at the source in phase 10 rather than modelled here; the module's staged JRAW entries are
+    // not returned by nullableReturns() and so are inert.
+    errorprone project(':nullaway-models')
+    // Annotations only (~4 KB) and needed at compile time only. Used solely for @NullMarked;
+    // nullable annotations stay on androidx.annotation.Nullable, which NullAway recognizes by
+    // simple name.
+    compileOnly 'org.jspecify:jspecify:1.0.1'
+    testCompileOnly 'org.jspecify:jspecify:1.0.1'
 
 /** Testing **/
     testImplementation 'junit:junit:4.13.2'
@@ -373,8 +540,8 @@ dependencies {
     // Roborazzi: render submission layouts at arbitrary smallest-width-dp configs (no emulator)
     // and diff them against committed golden PNGs. Driven by recordRoborazziWithGPlayDebug /
     // verifyRoborazziWithGPlayDebug / compareRoborazziWithGPlayDebug. See RoborazziLayoutTest.
-    testImplementation 'io.github.takahirom.roborazzi:roborazzi:1.64.0'
-    testImplementation 'io.github.takahirom.roborazzi:roborazzi-junit-rule:1.64.0'
+    testImplementation 'io.github.takahirom.roborazzi:roborazzi:1.71.0'
+    testImplementation 'io.github.takahirom.roborazzi:roborazzi-junit-rule:1.71.0'
 }
 
 spotless {
@@ -384,6 +551,13 @@ spotless {
         removeUnusedImports()
         trimTrailingWhitespace()
         leadingTabsToSpaces(4)
+    }
+    // Whitespace only, deliberately: a real Kotlin formatter (ktfmt/ktlint) would add a dependency
+    // for the handful of .kt files here, and these are the same rules the java block enforces.
+    format 'kotlinSrc', {
+        target '**/*.kt'
+        leadingTabsToSpaces(4)
+        trimTrailingWhitespace()
     }
     format 'misc', {
         target '**/*.gradle', '**/*.md', '**/.gitignore'
@@ -408,17 +582,89 @@ tasks.register('auditDialogBackgrounds', Exec) {
 }
 tasks.named('check') { dependsOn 'auditDialogBackgrounds' }
 
+// The two random-subreddit lists ship as assets, but the files in src/main/assets are symlinks
+// into the sibling repo (see docs / RANDOM-SUBREDDITS-HANDOFF.md) so they are never duplicated
+// here and a `git pull` there is picked up by the next build.
+//
+// A dangling symlink is the failure mode worth guarding: AGP's asset merge silently skips a link
+// it cannot resolve, so the APK builds, installs and runs, and the omission only shows up as a
+// random subreddit that never resolves on a device with no network. Fail the build instead.
+//
+// Wired into preBuild so it runs before the asset merge on every variant, and into `check` so it
+// is part of the gate even when nothing is being assembled.
+tasks.register('verifyRandomSubredditAssets') {
+    group = 'verification'
+    description = 'Fail if the bundled random-subreddit list assets are missing or dangling symlinks.'
+
+    def assets = ['subreddits-sfw.txt', 'subreddits-nsfw.txt'].collect {
+        new File(projectDir, "src/main/assets/${it}")
+    }
+    // Track the link and its target so a re-pointed or updated list re-runs the check.
+    inputs.files(assets).withPropertyName('listAssets').optional(true)
+
+    doLast {
+        def problems = []
+        assets.each { link ->
+            if (!link.exists()) {
+                // exists() follows the link, so this covers both "absent" and "dangles".
+                def target = java.nio.file.Files.isSymbolicLink(link.toPath())
+                        ? java.nio.file.Files.readSymbolicLink(link.toPath()).toString()
+                        : null
+                problems << (target != null
+                        ? "${link.name}: dangling symlink -> ${target}"
+                        : "${link.name}: missing")
+            } else if (link.length() == 0L) {
+                problems << "${link.name}: resolves but is empty"
+            }
+        }
+        if (problems) {
+            throw new GradleException(
+                    "Random-subreddit list assets are not usable:\n  " + problems.join('\n  ') +
+                    "\n\nThese are symlinks into the sibling subreddit-lists repo. Clone it beside" +
+                    " this one:\n  git clone https://github.com/cygnusx-1-org/subreddit-lists" +
+                    " ${rootDir.parentFile}/subreddit-lists")
+        }
+    }
+}
+tasks.named('preBuild') { dependsOn 'verifyRandomSubredditAssets' }
+tasks.named('check') { dependsOn 'verifyRandomSubredditAssets' }
+
+// Roborazzi screenshot goldens, gated. GitHub CI is disabled for this fork, so `check` on a
+// developer's machine is the only gate there is -- a golden mismatch that merely writes a diff
+// image and reports success is a mismatch nobody sees. Depending on the verify task instead
+// switches the unit-test run into verify mode, so layout drift fails the build.
+//
+// withGPlayDebug is the authoritative variant: the goldens were recorded with
+// recordRoborazziWithGPlayDebug (see RoborazziLayoutTest) and every golden in
+// src/test/screenshots belongs to that run. `check` runs both flavours' unit tests, so the
+// noGPlay run stays compare-only; do not add verifyRoborazziNoGPlayDebug beside this one, since
+// two verify tasks over one golden set would fail on any flavour difference that is not a
+// layout change.
+//
+// To accept an intended layout change: ./gradlew :app:recordRoborazziWithGPlayDebug, then
+// review and commit the regenerated PNGs.
+tasks.named('check') { dependsOn 'verifyRoborazziWithGPlayDebug' }
+
 // Custom APK/AAB names, reimplemented on AGP 9's new Variant API (the legacy
 // applicationVariants.outputs.outputFileName / bundle rename was removed by the new DSL).
 // Naming rules preserved from before: withGPlay -> "slide-<versionName>", noGPlay ->
 // "slide-noGPlay-<versionName>". versionName is androidGitVersion.name(), constant across variants.
+// Debug builds get a "-debug" tag so they can't be mistaken for (or overwrite) a release file. It
+// goes before androidGitVersion's trailing "-dirty" (default format %tag%%-count%%-gcommit%%-dirty%)
+// so the name reads slide-<version>-debug-dirty rather than slide-<version>-dirty-debug.
 def bundleBaseNames = [:]
 androidComponents {
     onVariants(selector().all()) { variant ->
         def flavor = variant.flavorName
+        def versionName = android.defaultConfig.versionName
+        if (variant.buildType == "debug") {
+            versionName = versionName.endsWith("-dirty")
+                ? versionName.substring(0, versionName.length() - "-dirty".length()) + "-debug-dirty"
+                : "${versionName}-debug".toString()
+        }
         def baseName = (flavor != null && flavor.contains("withGPlay"))
-            ? "slide-${android.defaultConfig.versionName}".toString()
-            : "slide-${flavor}-${android.defaultConfig.versionName}".toString()
+            ? "slide-${versionName}".toString()
+            : "slide-${flavor}-${versionName}".toString()
         bundleBaseNames[variant.name] = baseName
 
         // Rename the APK (Slide ships a single universal APK per variant; no ABI splits).
@@ -485,6 +731,13 @@ abstract class RenameApksTask extends DefaultTask {
 
     @TaskAction
     void taskAction() {
+        // Wipe stale APKs from previous builds so an old versionName file (e.g. slide-7.7.8.apk)
+        // doesn't linger beside the current one (slide-7.7.9.apk). versionName is git-derived, so
+        // the filename changes every release and the leftovers would otherwise accumulate here and
+        // get swept up by the GitHub release upload's "*.apk" glob.
+        outFolder.get().asFile.listFiles(
+            { File f -> f.name.endsWith(".apk") } as java.io.FileFilter)?.each { it.delete() }
+
         transformationRequest.get().submit(
             this,
             workerExecutor.noIsolation(),
@@ -498,3 +751,4 @@ abstract class RenameApksTask extends DefaultTask {
         )
     }
 }
+

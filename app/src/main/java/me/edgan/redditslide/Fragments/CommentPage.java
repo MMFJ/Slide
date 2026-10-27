@@ -27,11 +27,13 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.view.ContextThemeWrapper;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
@@ -52,7 +54,6 @@ import me.edgan.redditslide.Activities.Album;
 import me.edgan.redditslide.Activities.AlbumPager;
 import me.edgan.redditslide.Activities.CommentSearch;
 import me.edgan.redditslide.Activities.CommentsScreen;
-import me.edgan.redditslide.Activities.FullscreenVideo;
 import me.edgan.redditslide.Activities.GalleryImage;
 import me.edgan.redditslide.Activities.MainActivity;
 import me.edgan.redditslide.Activities.MediaView;
@@ -95,6 +96,7 @@ import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.handler.ToolbarScrollHideHandler;
 import me.edgan.redditslide.ui.settings.SettingsSubAdapter;
 import me.edgan.redditslide.util.BlendModeUtil;
+import me.edgan.redditslide.util.CommentLimit;
 import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.FileUtil;
 import me.edgan.redditslide.util.LayoutUtils;
@@ -104,7 +106,9 @@ import me.edgan.redditslide.util.MaterialProgressDialog;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
+import me.edgan.redditslide.util.PrefUtil;
 import me.edgan.redditslide.util.ReauthNotifier;
+import me.edgan.redditslide.util.ScrollAnchor;
 import me.edgan.redditslide.util.StringUtil;
 import me.edgan.redditslide.util.SubmissionParser;
 import me.edgan.redditslide.util.SubmissionThumbnailHelper;
@@ -136,9 +140,54 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
     boolean loadMore;
     private SwipeRefreshLayout mSwipeRefreshLayout;
     public RecyclerView rv;
+
+    /**
+     * Fragment arguments that put this page back where the user left it after the app was closed.
+     * The comments themselves are refetched — nothing caches them on an ordinary read — so the
+     * anchor is a comment fullname, matched against the tree that comes back, and the recorded
+     * position is only a fallback for a comment that has since been deleted.
+     */
+    public static final String ARG_RESTORE_ANCHOR_ID = "restoreAnchorId";
+
+    public static final String ARG_RESTORE_ANCHOR_POSITION = "restoreAnchorPosition";
+    public static final String ARG_RESTORE_ANCHOR_OFFSET = "restoreAnchorOffset";
+    public static final String ARG_RESTORE_COLLAPSED = "restoreCollapsed";
+    public static final String ARG_RESTORE_COLLAPSED_ROOTS = "restoreCollapsedRoots";
+    public static final String ARG_RESTORE_TOOLBAR_HIDDEN = "restoreToolbarHidden";
+
+    @Nullable private String restoreAnchorId;
+    private int restoreAnchorPosition = ScrollAnchor.NO_POSITION;
+    private int restoreAnchorOffset;
+    @Nullable private ArrayList<String> restoreCollapsed;
+    @Nullable private ArrayList<String> restoreCollapsedRoots;
+    private boolean restorePending;
+    private boolean restoreToolbarHidden;
     private int page;
+    // comments and adapter are both built in onCreateView, before any of the callbacks below
+    // can run.
+    // onCreateView calls doAdapter() unconditionally, which assigns this on every branch -- except the catch(IndexOutOfBoundsException) that returns early. See NULLAWAY.md phase 12.
+    @SuppressWarnings("NullAway.Init")
     private SubmissionComments comments;
+
     private boolean single;
+
+    /**
+     * Which cache slot the next comment fetch reads; see {@link CommentLimit}. A fresh {@link
+     * SubmissionComments} is built for every load and every refresh of this page, so the counter has
+     * to live out here to advance at all. Seeded randomly per page so re-opening a submission does
+     * not go straight back to the previous visit's slot.
+     */
+    private int commentLimitRotation = CommentLimit.newRotation();
+
+    /**
+     * The submission's comment count as the feed knew it, for pages opened from a feed. Null on a
+     * permalink/deep-link open, where only the id is known until the fetch comes back.
+     */
+    @Nullable private Integer knownCommentCount;
+
+    // onCreateView -> doAdapter assigns this, but only inside the suggested-sort branches; the file already null-checks it at doAdapter itself. See NULLAWAY.md phase 12.
+
+    @SuppressWarnings("NullAway.Init") // assigned in doAdapter/doData
     public CommentAdapter adapter;
     private String fullname;
 
@@ -146,7 +195,16 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
     // buttons (gated on that flag) reappear without the user having to reopen the page.
     private final ReauthNotifier.Listener reauthListener =
             () -> {
-                if (adapter != null) {
+                if (adapter == null) return;
+                // A reauth can complete at any moment (including from the background keep-warm
+                // refresh), so this can land mid-layout/scroll, where notifying throws
+                // "Cannot call this method while RecyclerView is computing a layout or scrolling".
+                if (rv != null && rv.isComputingLayout()) {
+                    rv.post(
+                            () -> {
+                                if (adapter != null) adapter.notifyDataSetChanged();
+                            });
+                } else {
                     adapter.notifyDataSetChanged();
                 }
             };
@@ -162,19 +220,29 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
     private boolean currentlySubbed;
     private boolean collapsed = SettingValues.collapseCommentsDefault;
 
-    public void doResult(Intent data) {
-        if (data.hasExtra("fullname")) {
-            String fullname = data.getExtras().getString("fullname");
+    public void doResult(@Nullable Intent data) {
+        // A detached fragment has no host here; there is nothing to act on.
+        final Context context = getContext();
+        if (context == null) {
+            return;
+        }
+        if (data != null && data.hasExtra("fullname")) {
+            Bundle extras = data.getExtras();
+            String fullname = extras == null ? null : extras.getString("fullname");
 
-            adapter.currentSelectedItem = fullname;
-            adapter.reset(getContext(), comments, rv, comments.submission, true);
+            adapter.currentSelectedItem = fullname == null ? "" : fullname;
+            adapter.reset(context, comments, rv, comments.submission, true);
             adapter.notifyDataSetChanged();
             int i = 2;
             for (CommentObject n : comments.comments) {
-                if (n instanceof CommentItem
-                        && n.comment.getComment().getFullName().contains(fullname)) {
-                    ((PreCachingLayoutManagerComments) rv.getLayoutManager())
-                            .scrollToPositionWithOffset(i, toolbar.getHeight());
+                final String nFullname =
+                        n instanceof CommentItem ? n.comment.getComment().getFullName() : null;
+                if (nFullname != null
+                        && nFullname.contains(fullname)) {
+                    if (rv.getLayoutManager() != null) {
+                        ((PreCachingLayoutManagerComments) rv.getLayoutManager())
+                                .scrollToPositionWithOffset(i, toolbar.getHeight());
+                    }
                     break;
                 }
                 i++;
@@ -183,17 +251,18 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
     }
 
     @Override
-    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 423 && resultCode == Activity.RESULT_OK) {
             doResult(data);
-        } else if (requestCode == 3333) {
+        } else if (requestCode == 3333 && getFragmentManager() != null) {
             for (Fragment fragment : getFragmentManager().getFragments()) {
                 fragment.onActivityResult(requestCode, resultCode, data);
             }
         }
     }
 
+    @SuppressWarnings("NullAway.Init") // built in onCreateView
     ToolbarScrollHideHandler toolbarScroll;
     public Toolbar toolbar;
     public int headerHeight;
@@ -202,7 +271,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
     public void doTopBar(Submission s) {
         archived = s.isArchived();
         locked = s.isLocked();
-        contest = s.getDataNode().get("contest_mode").asBoolean();
+        contest = s.getDataNode().path("contest_mode").asBoolean();
         doTopBar();
     }
 
@@ -211,21 +280,33 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         if (adapter2 != null) adapter2.notifyItemChanged(0);
     }
 
+    /** True when the auto-hiding toolbar is scrolled away, so a restore can put it back that way. */
+    public boolean isToolbarHidden() {
+        final View header = v == null ? null : v.findViewById(R.id.header);
+        return header != null && header.getTranslationY() != 0f;
+    }
+
     public void doRefresh(boolean b) {
+        if (b && restorePending) {
+            // The thread is being fetched to put the user back where they were, not because they
+            // asked for it again. A progress bar across the top reads as a reload of a page they
+            // never left.
+            return;
+        }
         if (b) {
-            v.findViewById(R.id.progress).setVisibility(View.VISIBLE);
+            v.requireViewById(R.id.progress).setVisibility(View.VISIBLE);
         } else {
-            v.findViewById(R.id.progress).setVisibility(View.GONE);
+            v.requireViewById(R.id.progress).setVisibility(View.GONE);
         }
     }
 
     public void doTopBar() {
-        final View loadallV = v.findViewById(R.id.loadall);
-        final View npV = v.findViewById(R.id.np);
-        final View archivedV = v.findViewById(R.id.archived);
-        final View lockedV = v.findViewById(R.id.locked);
-        final View headerV = v.findViewById(R.id.toolbar);
-        final View contestV = v.findViewById(R.id.contest);
+        final View loadallV = v.requireViewById(R.id.loadall);
+        final View npV = v.requireViewById(R.id.np);
+        final View archivedV = v.requireViewById(R.id.archived);
+        final View lockedV = v.requireViewById(R.id.locked);
+        final View headerV = v.requireViewById(R.id.toolbar);
+        final View contestV = v.requireViewById(R.id.contest);
 
         shownHeaders = 0;
 
@@ -322,16 +403,24 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
     @Override
     public View onCreateView(
-            LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+            LayoutInflater inflater,
+            @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState) {
         LayoutInflater localInflater = inflater.cloneInContext(contextThemeWrapper);
         v = localInflater.inflate(R.layout.fragment_verticalcontenttoolbar, container, false);
 
         rv = v.findViewById(R.id.vertical_content);
         rv.setLayoutManager(mLayoutManager);
-        rv.getLayoutManager().scrollToPosition(0);
+        mLayoutManager.scrollToPosition(0);
+        if (restorePending) {
+            // Comments are refetched rather than restored from cache, so there is a wait before
+            // the position can be applied. Hidden from here rather than from the end of that wait,
+            // or the page shows the top of the thread while it loads and then jumps down.
+            ScrollAnchor.hideUntilSettled(rv, ScrollAnchor.FETCH_REVEAL_TIMEOUT_MS);
+        }
 
-        toolbar = v.findViewById(R.id.toolbar);
-        toolbar.setPopupTheme(new ColorPreferences(getActivity()).getFontStyle().getBaseId());
+        toolbar = v.requireViewById(R.id.toolbar);
+        toolbar.setPopupTheme(new ColorPreferences(requireActivity()).getFontStyle().getBaseId());
 
         if (!SettingValues.fabComments || archived || np || locked) {
             v.findViewById(R.id.comment_floating_action_button).setVisibility(View.GONE);
@@ -347,11 +436,17 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                     new View.OnClickListener() {
                         @Override
                         public void onClick(View v) {
+                            // A detached fragment has no host here; there is nothing to act on.
+                            final FragmentActivity activity = getActivity();
+                            final Context context = getContext();
+                            if (activity == null || context == null) {
+                                return;
+                            }
                             final View replyView =
                                     LayoutInflater.from(
                                                     new ContextThemeWrapper(
                                                             getActivity(),
-                                                            new ColorPreferences(getActivity())
+                                                            new ColorPreferences(activity)
                                                                     .getFontStyle()
                                                                     .getBaseId()))
                                             .inflate(R.layout.edit_comment, null);
@@ -362,15 +457,15 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                             .create();
 
                             // Make the account selector visible
-                            replyView.findViewById(R.id.profile).setVisibility(View.VISIBLE);
+                            replyView.requireViewById(R.id.profile).setVisibility(View.VISIBLE);
 
-                            final EditText e = replyView.findViewById(R.id.entry);
+                            final EditText e = replyView.requireViewById(R.id.entry);
 
                             // Tint the replyLine appropriately if the base theme is Light or Sepia
                             if (SettingValues.currentTheme == 1
                                     || SettingValues.currentTheme == 5) {
                                 final int TINT =
-                                        ContextCompat.getColor(getContext(), R.color.md_grey_600);
+                                        ContextCompat.getColor(context, R.color.md_grey_600);
 
                                 e.setHintTextColor(TINT);
                                 BlendModeUtil.tintDrawableAsSrcIn(e.getBackground(), TINT);
@@ -388,13 +483,17 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         new String[] {adapter.submission.getAuthor()});
                             }
 
-                            replyDialog
-                                    .getWindow()
-                                    .setSoftInputMode(
-                                            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+                            if (replyDialog.getWindow() != null) {
+                                replyDialog
+                                        .getWindow()
+                                        .setSoftInputMode(
+                                                WindowManager.LayoutParams
+                                                        .SOFT_INPUT_ADJUST_RESIZE);
+                            }
+                            DialogUtil.requestLayoutWhenImeHides(replyDialog);
 
                             replyView
-                                    .findViewById(R.id.cancel)
+                                    .requireViewById(R.id.cancel)
                                     .setOnClickListener(
                                             new View.OnClickListener() {
                                                 @Override
@@ -402,19 +501,26 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                     replyDialog.dismiss();
                                                 }
                                             });
-                            final TextView profile = replyView.findViewById(R.id.profile);
+                            final TextView profile = replyView.requireViewById(R.id.profile);
                             final String[] changedProfile = {Authentication.name};
                             profile.setText("/u/" + changedProfile[0]);
                             profile.setOnClickListener(
                                     new View.OnClickListener() {
                                         @Override
                                         public void onClick(View v) {
+                                            // A detached fragment has no host here; there is nothing to act on.
+                                            final Context context = getContext();
+                                            if (context == null) {
+                                                return;
+                                            }
                                             final HashMap<String, String> accounts =
                                                     new HashMap<>();
 
                                             for (String s :
-                                                    Authentication.authentication.getStringSet(
-                                                            "accounts", new HashSet<String>())) {
+                                                    PrefUtil.getStringSet(
+                                                            Authentication.authentication,
+                                                            "accounts",
+                                                            new HashSet<String>())) {
                                                 if (s.contains(":")) {
                                                     accounts.put(s.split(":")[0], s.split(":")[1]);
                                                 } else {
@@ -430,7 +536,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                             new ContextThemeWrapper(
                                                                     getContext(),
                                                                     new ColorPreferences(
-                                                                                    getContext())
+                                                                                    context)
                                                                             .getFontStyle()
                                                                             .getBaseId()));
                                             builder.setTitle(
@@ -447,7 +553,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         }
                                     });
                             replyView
-                                    .findViewById(R.id.submit)
+                                    .requireViewById(R.id.submit)
                                     .setOnClickListener(
                                             new View.OnClickListener() {
                                                 @Override
@@ -473,15 +579,15 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         }
         if (fab != null) fab.show();
         resetScroll(false);
-        fastScroll = v.findViewById(R.id.commentnav);
+        fastScroll = v.requireViewById(R.id.commentnav);
         if (!SettingValues.fastscroll) {
             fastScroll.setVisibility(View.GONE);
         } else {
             if (!SettingValues.showCollapseExpand) {
-                v.findViewById(R.id.collapse_expand).setVisibility(View.GONE);
+                v.requireViewById(R.id.collapse_expand).setVisibility(View.GONE);
             } else {
-                v.findViewById(R.id.collapse_expand).setVisibility(View.VISIBLE);
-                v.findViewById(R.id.collapse_expand)
+                v.requireViewById(R.id.collapse_expand).setVisibility(View.VISIBLE);
+                v.requireViewById(R.id.collapse_expand)
                         .setOnClickListener(
                                 new View.OnClickListener() {
                                     @Override
@@ -497,7 +603,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     }
                                 });
             }
-            v.findViewById(R.id.down)
+            v.requireViewById(R.id.down)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
@@ -509,7 +615,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     }
                                 }
                             });
-            v.findViewById(R.id.up)
+            v.requireViewById(R.id.up)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
@@ -519,11 +625,16 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                             && adapter.keys.size() > 0) goUp();
                                 }
                             });
-            v.findViewById(R.id.nav)
+            v.requireViewById(R.id.nav)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
                                 public void onClick(View v) {
+                                    // A detached fragment has no host here; there is nothing to act on.
+                                    final FragmentActivity activity = getActivity();
+                                    if (activity == null) {
+                                        return;
+                                    }
                                     if (adapter != null && adapter.currentComments != null) {
                                         int parentCount = 0;
                                         int opCount = 0;
@@ -555,14 +666,14 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                         && o.comment
                                                                 .getComment()
                                                                 .getDataNode()
-                                                                .get("body_html")
+                                                                .path("body_html")
                                                                 .asText()
                                                                 .contains("&lt;/a")) {
                                                     linkCount++;
                                                 }
                                             }
                                         }
-                                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
+                                        DialogUtil.showWithCardBackground(new AlertDialog.Builder(activity)
                                                 .setTitle(R.string.set_nav_mode)
                                                 .setSingleChoiceItems(
                                                         StringUtil.stringToArray(
@@ -613,7 +724,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                     currentSort =
                                                                             CommentNavType.TIME;
                                                                     LayoutInflater inflater1 =
-                                                                            getActivity()
+                                                                            activity
                                                                                     .getLayoutInflater();
                                                                     final View dialoglayout =
                                                                             inflater1.inflate(
@@ -679,7 +790,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                                             TimeUtils
                                                                                                                             .getTimeAgo(
                                                                                                                                     sortTime,
-                                                                                                                                    getActivity())
+                                                                                                                                    activity)
                                                                                                                     + " ("
                                                                                                                     + commentcount
                                                                                                                     + " comments)");
@@ -688,7 +799,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
                                                                     final AlertDialog timeDialog =
                                                                             new AlertDialog.Builder(
-                                                                                            getActivity())
+                                                                                            activity)
                                                                                     .setView(
                                                                                             dialoglayout)
                                                                                     .setPositiveButton(
@@ -698,7 +809,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                     .create();
                                                                     DialogUtil
                                                                             .matchDialogToCardBackground(
-                                                                                    getActivity(),
+                                                                                    activity,
                                                                                     timeDialog);
                                                                     timeDialog.show();
                                                                     break;
@@ -727,19 +838,21 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                             });
         }
 
-        v.findViewById(R.id.up)
+        v.requireViewById(R.id.up)
                 .setOnLongClickListener(
                         new View.OnLongClickListener() {
                             @Override
                             public boolean onLongClick(View v) {
                                 // Scroll to top
-                                rv.getLayoutManager().scrollToPosition(1);
+                                if (rv.getLayoutManager() != null) {
+                                    rv.getLayoutManager().scrollToPosition(1);
+                                }
                                 return true;
                             }
                         });
 
         if (SettingValues.voteGestures) {
-            v.findViewById(R.id.up)
+            v.requireViewById(R.id.up)
                     .setOnTouchListener(
                             new OnFlingGestureListener() {
                                 @Override
@@ -771,7 +884,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         }
 
         if (SettingValues.voteGestures) {
-            v.findViewById(R.id.down)
+            v.requireViewById(R.id.down)
                     .setOnTouchListener(
                             new OnFlingGestureListener() {
                                 @Override
@@ -804,14 +917,15 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
         toolbar.setBackgroundColor(Palette.getColor(subreddit));
 
-        mSwipeRefreshLayout = v.findViewById(R.id.activity_main_swipe_refresh_layout);
-        mSwipeRefreshLayout.setColorSchemeColors(Palette.getColors(subreddit, getActivity()));
+        mSwipeRefreshLayout = v.requireViewById(R.id.activity_main_swipe_refresh_layout);
+        mSwipeRefreshLayout.setColorSchemeColors(Palette.getColors(subreddit, requireActivity()));
 
         mSwipeRefreshLayout.setOnRefreshListener(
                 new SwipeRefreshLayout.OnRefreshListener() {
                     @Override
                     public void onRefresh() {
                         if (comments != null) {
+                            advanceCommentLimitRotation();
                             comments.loadMore(adapter, subreddit, true);
                         } else {
                             mSwipeRefreshLayout.setRefreshing(false);
@@ -839,8 +953,10 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        ((LinearLayoutManager) rv.getLayoutManager())
-                                .scrollToPositionWithOffset(1, headerHeight);
+                        if (rv.getLayoutManager() != null) {
+                            ((LinearLayoutManager) rv.getLayoutManager())
+                                    .scrollToPositionWithOffset(1, headerHeight);
+                        }
                         resetScroll(false);
                     }
                 });
@@ -848,22 +964,34 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
         doTopBar();
 
-        if (Authentication.didOnline && !NetworkUtil.isConnectedNoOverride(getActivity())) {
-            DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
+        if (Authentication.didOnline && !NetworkUtil.isConnectedNoOverride(requireActivity())) {
+            DialogUtil.showWithCardBackground(new AlertDialog.Builder(requireActivity())
                     .setTitle(R.string.err_title)
                     .setMessage(R.string.err_connection_failed_msg)
                     .setNegativeButton(
                             R.string.btn_close,
                             (dialog, which) -> {
-                                if (!(getActivity() instanceof MainActivity)) {
-                                    getActivity().finish();
+                                // The dialog has its own window and can outlive the fragment's
+                                // view; a detached host has nothing to finish.
+                                final FragmentActivity activity = getActivity();
+                                if (activity == null) {
+                                    return;
+                                }
+                                if (!(activity instanceof MainActivity)) {
+                                    activity.finish();
                                 }
                             })
                     .setPositiveButton(
                             R.string.btn_offline,
                             (dialog, which) -> {
                                 Reddit.appRestart.edit().putBoolean("forceoffline", true).commit();
-                                Reddit.forceRestart(getActivity(), false);
+                                // Guarded after the write, not before it: the preference is the
+                                // part that has to survive, and only the restart needs a host.
+                                final FragmentActivity activity = getActivity();
+                                if (activity == null) {
+                                    return;
+                                }
+                                Reddit.forceRestart(activity, false);
                             })
                     );
         }
@@ -875,12 +1003,16 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         return v;
     }
 
-    public boolean onMenuItemClick(MenuItem item) {
+    @Override public boolean onMenuItemClick(MenuItem item) {
+        // A detached fragment has no host here; there is nothing to act on.
+        final FragmentActivity activity = getActivity();
+        if (activity == null) {
+            return false;
+        }
         int itemId = item.getItemId();
         if (itemId == R.id.search) {
             if (comments.comments != null && comments.submission != null) {
                 DataShare.sharedComments = comments.comments;
-                DataShare.subAuthor = comments.submission.getAuthor();
                 Intent i = new Intent(getActivity(), CommentSearch.class);
                 if (getActivity() instanceof MainActivity) {
                     getActivity().startActivityForResult(i, 423);
@@ -894,7 +1026,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
             return true;
         } else if (itemId == R.id.related) {
                 if (adapter.submission.isSelfPost()) {
-                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
+                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(activity)
                             .setTitle("Selftext posts have no related submissions")
                             .setPositiveButton(R.string.btn_ok, null)
                             );
@@ -912,14 +1044,14 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                             if (c.comment
                                     .getComment()
                                     .getDataNode()
-                                    .get("body_html")
+                                    .path("body_html")
                                     .asText()
                                     .contains("&lt;/a")) {
                                 String body =
                                         c.comment
                                                 .getComment()
                                                 .getDataNode()
-                                                .get("body_html")
+                                                .path("body_html")
                                                 .asText();
                                 String url;
                                 String[] split = body.split("&lt;a href=\"");
@@ -960,7 +1092,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                 }
                 return true;
         } else if (itemId == R.id.sort) {
-            openPopup(toolbar);
+            openPopup();
             return true;
         } else if (itemId == R.id.content) {
                 {
@@ -978,7 +1110,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         myIntent.putExtra(
                                                 EXTRA_SUBMISSION_TITLE,
                                                 FileUtil.buildDownloadName(adapter.submission));
-                                        getActivity().startActivity(myIntent);
+                                        activity.startActivity(myIntent);
 
                                     } else {
                                         LinkUtil.openExternally(adapter.submission.getUrl());
@@ -994,10 +1126,10 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     if (adapter.submission.getDataNode().has("preview")
                                             && adapter.submission
                                                     .getDataNode()
-                                                    .get("preview")
-                                                    .get("images")
-                                                    .get(0)
-                                                    .get("source")
+                                                    .path("preview")
+                                                    .path("images")
+                                                    .path(0)
+                                                    .path("source")
                                                     .has("height")
                                             && type
                                                     != ContentType.Type
@@ -1008,35 +1140,16 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         String previewUrl =
                                                 adapter.submission
                                                         .getDataNode()
-                                                        .get("preview")
-                                                        .get("images")
-                                                        .get(0)
-                                                        .get("source")
-                                                        .get("url")
+                                                        .path("preview")
+                                                        .path("images")
+                                                        .path(0)
+                                                        .path("source")
+                                                        .path("url")
                                                         .asText();
                                         i2.putExtra(MediaView.EXTRA_DISPLAY_URL, previewUrl);
                                     }
                                     i2.putExtra(MediaView.EXTRA_URL, adapter.submission.getUrl());
-                                    getActivity().startActivity(i2);
-                                    break;
-                                case EMBEDDED:
-                                    if (SettingValues.video) {
-                                        String data =
-                                                adapter.submission
-                                                        .getDataNode()
-                                                        .get("media_embed")
-                                                        .get("content")
-                                                        .asText();
-                                        {
-                                            Intent i =
-                                                    new Intent(
-                                                            getActivity(), FullscreenVideo.class);
-                                            i.putExtra(FullscreenVideo.EXTRA_HTML, data);
-                                            getActivity().startActivity(i);
-                                        }
-                                    } else {
-                                        LinkUtil.openExternally(adapter.submission.getUrl());
-                                    }
+                                    activity.startActivity(i2);
                                     break;
                                 case REDDIT_GALLERY:
                                     // Instead of opening externally, parse the gallery and open RedditGallery or RedditGalleryPager in-app
@@ -1050,12 +1163,12 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
                                     try {
                                         ArrayList<GalleryImage> images = new ArrayList<>();
-                                        JsonNode galleryItems = adapter.submission.getDataNode().get("gallery_data").get("items");
-                                        JsonNode mediaMetadata = adapter.submission.getDataNode().get("media_metadata");
+                                        JsonNode galleryItems = adapter.submission.getDataNode().path("gallery_data").path("items");
+                                        JsonNode mediaMetadata = adapter.submission.getDataNode().path("media_metadata");
 
                                         // Build up our list of GalleryImage objects
                                         for (JsonNode galleryItem : galleryItems) {
-                                            String mediaId = galleryItem.get("media_id").asText();
+                                            String mediaId = galleryItem.path("media_id").asText();
                                             JsonNode metaNode = mediaMetadata.get(mediaId);
                                             if (metaNode != null) {
                                                 images.add(new GalleryImage(metaNode));
@@ -1080,7 +1193,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                             // Pass the list of GalleryImage via a Serializable extra
                                             i.putExtra(RedditGallery.GALLERY_URLS, images);
                                             startActivity(i);
-                                            getActivity().overridePendingTransition(R.anim.slideright, R.anim.fade_out);
+                                            activity.overridePendingTransition(R.anim.slideright, R.anim.fade_out);
                                         } else {
                                             // Open the vertical Gallery
                                             Intent i = new Intent(getActivity(), RedditGallery.class);
@@ -1092,7 +1205,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                             // Pass the list of GalleryImage via a Serializable extra
                                             i.putExtra(RedditGallery.GALLERY_URLS, images);
                                             startActivity(i);
-                                            getActivity().overridePendingTransition(R.anim.slideright, R.anim.fade_out);
+                                            activity.overridePendingTransition(R.anim.slideright, R.anim.fade_out);
                                         }
                                     } catch (Exception e) {
                                         LogUtil.e(e, "CommentPage.Pager failed");
@@ -1102,17 +1215,17 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     break;
                                 case REDDIT:
                                     SubmissionThumbnailHelper.openRedditContent(
-                                            adapter.submission.getUrl(), getActivity());
+                                            adapter.submission.getUrl(), activity);
                                     break;
                                 case LINK:
                                     LinkUtil.openUrl(
                                             adapter.submission.getUrl(),
                                             Palette.getColor(adapter.submission.getSubredditName()),
-                                            getActivity());
+                                            activity);
                                     break;
                                 case NONE:
                                 case SELF:
-                                    if (adapter.submission.getSelftext().isEmpty()) {
+                                    if (MiscUtil.orEmpty(adapter.submission.getSelftext()).isEmpty()) {
                                         Snackbar s =
                                                 Snackbar.make(
                                                         rv,
@@ -1128,11 +1241,11 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         adapter.setViews(
                                                 adapter.submission
                                                         .getDataNode()
-                                                        .get("selftext_html")
+                                                        .path("selftext_html")
                                                         .asText(),
-                                                adapter.submission.getSubredditName(),
-                                                dialoglayout.findViewById(R.id.firstTextView),
-                                                dialoglayout.findViewById(R.id.commentOverflow));
+                                                MiscUtil.orEmpty(adapter.submission.getSubredditName()),
+                                                dialoglayout.requireViewById(R.id.firstTextView),
+                                                dialoglayout.requireViewById(R.id.commentOverflow));
 
                                         DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
                                                 .setView(dialoglayout)
@@ -1156,8 +1269,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         i.putExtra(
                                                 EXTRA_SUBMISSION_TITLE,
                                                 FileUtil.buildDownloadName(adapter.submission));
-                                        getActivity().startActivity(i);
-                                        getActivity()
+                                        activity.startActivity(i);
+                                        activity
                                                 .overridePendingTransition(
                                                         R.anim.slideright, R.anim.fade_out);
                                     } else {
@@ -1178,8 +1291,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                             i.putExtra(
                                                     Album.EXTRA_URL, adapter.submission.getUrl());
                                         }
-                                        getActivity().startActivity(i);
-                                        getActivity()
+                                        activity.startActivity(i);
+                                        activity
                                                 .overridePendingTransition(
                                                         R.anim.slideright, R.anim.fade_out);
                                     } else {
@@ -1188,13 +1301,13 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     break;
                                 case IMAGE:
                                     SubmissionThumbnailHelper.openImage(
-                                            type, getActivity(), adapter.submission, null, -1);
+                                            type, activity, adapter.submission, null, -1);
                                     break;
                                 case VREDDIT_REDIRECT:
                                 case VREDDIT_DIRECT:
                                 case GIF:
                                     SubmissionThumbnailHelper.openGif(
-                                            getActivity(), adapter.submission, -1);
+                                            activity, adapter.submission, -1);
                                     break;
                                 case VIDEO:
                                     if (!LinkUtil.tryOpenWithVideoPlugin(
@@ -1202,7 +1315,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         LinkUtil.openUrl(
                                                 adapter.submission.getUrl(),
                                                 Palette.getStatusBarColor(),
-                                                getActivity());
+                                                activity);
                                     }
                             }
                         } else {
@@ -1214,6 +1327,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         } else if (itemId == R.id.reload) {
             if (comments != null) {
                 mSwipeRefreshLayout.setRefreshing(true);
+                advanceCommentLimitRotation();
                 comments.loadMore(adapter, subreddit);
             }
             return true;
@@ -1223,7 +1337,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
             }
             return true;
         } else if (itemId == android.R.id.home) {
-            getActivity().getOnBackPressedDispatcher().onBackPressed();
+            activity.getOnBackPressedDispatcher().onBackPressed();
             return true;
         }
         return false;
@@ -1237,42 +1351,61 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
         @Override
         public void onPostExecute(final Subreddit baseSub) {
+            // Dismiss before the detachment check, not after it: this dialog belongs to the
+            // window, not to the fragment, so a page removed from a still-live activity while
+            // the sidebar request was in flight would otherwise leave it spinning forever.
             try {
                 d.dismiss();
             } catch (Exception e) {
-
+                // The progress dialog is already gone, which is the state
+                // this wanted.
+            }
+            // A detached fragment has no host here; there is nothing to act on.
+            final FragmentActivity activity = getActivity();
+            final Context context = getContext();
+            if (activity == null || context == null) {
+                return;
             }
             if (baseSub != null) {
                 currentlySubbed = Authentication.isLoggedIn && baseSub.isUserSubscriber();
-                subreddit = baseSub.getDisplayName();
-                try {
+                subreddit = MiscUtil.orEmpty(baseSub.getDisplayName());
+                // Detached: no inflater and no window to show the sidebar dialog in. This is the
+                // "activity has been killed" case the empty catch at the end of this block used to
+                // swallow -- decided once, up front, instead of caught 709 lines later. Every other
+                // dereference inside is sidebar.findViewById on a layout this method just
+                // inflated, so a null there is a missing id in R.layout.subinfo, not a runtime state.
+                final androidx.fragment.app.FragmentActivity sidebarActivity = getActivity();
+                if (sidebarActivity == null) {
+                    return;
+                }
+                {
                     View sidebar =
-                            getActivity().getLayoutInflater().inflate(R.layout.subinfo, null);
+                            sidebarActivity.getLayoutInflater().inflate(R.layout.subinfo, null);
                     {
-                        sidebar.findViewById(R.id.loader).setVisibility(View.GONE);
-                        sidebar.findViewById(R.id.sidebar_text).setVisibility(View.GONE);
-                        sidebar.findViewById(R.id.sub_title).setVisibility(View.GONE);
-                        sidebar.findViewById(R.id.subscribers).setVisibility(View.GONE);
-                        sidebar.findViewById(R.id.active_users).setVisibility(View.GONE);
+                        sidebar.requireViewById(R.id.loader).setVisibility(View.GONE);
+                        sidebar.requireViewById(R.id.sidebar_text).setVisibility(View.GONE);
+                        sidebar.requireViewById(R.id.sub_title).setVisibility(View.GONE);
+                        sidebar.requireViewById(R.id.subscribers).setVisibility(View.GONE);
+                        sidebar.requireViewById(R.id.active_users).setVisibility(View.GONE);
 
-                        sidebar.findViewById(R.id.header_sub)
+                        sidebar.requireViewById(R.id.header_sub)
                                 .setBackgroundColor(Palette.getColor(subreddit));
-                        ((TextView) sidebar.findViewById(R.id.sub_infotitle)).setText(subreddit);
+                        ((TextView) sidebar.requireViewById(R.id.sub_infotitle)).setText(subreddit);
 
                         // Sidebar buttons should use subreddit's accent color
-                        int subColor = new ColorPreferences(getContext()).getColor(subreddit);
-                        ((TextView) sidebar.findViewById(R.id.theme_text)).setTextColor(subColor);
-                        ((TextView) sidebar.findViewById(R.id.wiki_text)).setTextColor(subColor);
-                        ((TextView) sidebar.findViewById(R.id.post_text)).setTextColor(subColor);
-                        ((TextView) sidebar.findViewById(R.id.mods_text)).setTextColor(subColor);
-                        ((TextView) sidebar.findViewById(R.id.flair_text)).setTextColor(subColor);
+                        int subColor = new ColorPreferences(context).getColor(subreddit);
+                        ((TextView) sidebar.requireViewById(R.id.theme_text)).setTextColor(subColor);
+                        ((TextView) sidebar.requireViewById(R.id.wiki_text)).setTextColor(subColor);
+                        ((TextView) sidebar.requireViewById(R.id.post_text)).setTextColor(subColor);
+                        ((TextView) sidebar.requireViewById(R.id.mods_text)).setTextColor(subColor);
+                        ((TextView) sidebar.requireViewById(R.id.flair_text)).setTextColor(subColor);
                     }
                     {
-                        sidebar.findViewById(R.id.loader).setVisibility(View.VISIBLE);
+                        sidebar.requireViewById(R.id.loader).setVisibility(View.VISIBLE);
                         loaded = true;
 
                         {
-                            View submit = (sidebar.findViewById(R.id.submit));
+                            View submit = (sidebar.requireViewById(R.id.submit));
 
                             if (!Authentication.isLoggedIn || !Authentication.didOnline) {
                                 submit.setVisibility(View.GONE);
@@ -1285,15 +1418,20 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                     new OnSingleClickListener() {
                                         @Override
                                         public void onSingleClick(View view) {
+                                            // A detached fragment has no host here; there is nothing to act on.
+                                            final FragmentActivity activity = getActivity();
+                                            if (activity == null) {
+                                                return;
+                                            }
                                             Intent inte = new Intent(getActivity(), Submit.class);
                                             inte.putExtra(Submit.EXTRA_SUBREDDIT, subreddit);
 
-                                            getActivity().startActivity(inte);
+                                            activity.startActivity(inte);
                                         }
                                     });
                         }
 
-                        sidebar.findViewById(R.id.wiki)
+                        sidebar.requireViewById(R.id.wiki)
                                 .setOnClickListener(
                                         new View.OnClickListener() {
                                             @Override
@@ -1303,7 +1441,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                 startActivity(i);
                                             }
                                         });
-                        sidebar.findViewById(R.id.submit)
+                        sidebar.requireViewById(R.id.submit)
                                 .setOnClickListener(
                                         new View.OnClickListener() {
                                             @Override
@@ -1313,28 +1451,38 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                 startActivity(i);
                                             }
                                         });
-                        sidebar.findViewById(R.id.syncflair)
+                        sidebar.requireViewById(R.id.syncflair)
                                 .setOnClickListener(
                                         new View.OnClickListener() {
                                             @Override
                                             public void onClick(View v) {
-                                                ImageFlairs.syncFlairs(getContext(), subreddit);
+                                                // A detached fragment has no host here; there is nothing to act on.
+                                                final Context context = getContext();
+                                                if (context == null) {
+                                                    return;
+                                                }
+                                                ImageFlairs.syncFlairs(context, subreddit);
                                             }
                                         });
-                        sidebar.findViewById(R.id.theme)
+                        sidebar.requireViewById(R.id.theme)
                                 .setOnClickListener(
                                         new View.OnClickListener() {
                                             @Override
                                             public void onClick(View v) {
+                                                // A detached fragment has no host here; there is nothing to act on.
+                                                final FragmentActivity activity = getActivity();
+                                                if (activity == null) {
+                                                    return;
+                                                }
                                                 int style =
-                                                        new ColorPreferences(getActivity())
+                                                        new ColorPreferences(activity)
                                                                 .getThemeSubreddit(subreddit);
 
                                                 final Context contextThemeWrapper =
                                                         new ContextThemeWrapper(
                                                                 getActivity(), style);
                                                 LayoutInflater localInflater =
-                                                        getActivity()
+                                                        activity
                                                                 .getLayoutInflater()
                                                                 .cloneInContext(
                                                                         contextThemeWrapper);
@@ -1346,17 +1494,22 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                 ArrayList<String> arrayList = new ArrayList<>();
                                                 arrayList.add(subreddit);
                                                 SettingsSubAdapter.showSubThemeEditor(
-                                                        arrayList, getActivity(), dialoglayout);
+                                                        arrayList, activity, dialoglayout);
                                             }
                                         });
-                        sidebar.findViewById(R.id.mods)
+                        sidebar.requireViewById(R.id.mods)
                                 .setOnClickListener(
                                         new View.OnClickListener() {
                                             @Override
                                             public void onClick(View v) {
+                                                // A detached fragment has no host here; there is nothing to act on.
+                                                final FragmentActivity activity = getActivity();
+                                                if (activity == null) {
+                                                    return;
+                                                }
                                                 final Dialog d =
                                                         new MaterialProgressDialog.Builder(
-                                                                        getActivity())
+                                                                        activity)
                                                                 .title(R.string.sidebar_findingmods)
                                                                 .cancelable(true)
                                                                 .content(R.string.misc_please_wait)
@@ -1364,7 +1517,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                 .show()
                                                                 .getDialog();
                                                 new AsyncTask<Void, Void, Void>() {
-                                                    ArrayList<UserRecord> mods;
+                                                    ArrayList<UserRecord> mods = new ArrayList<>();
 
                                                     @Override
                                                     protected Void doInBackground(Void... params) {
@@ -1388,17 +1541,27 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
                                                     @Override
                                                     protected void onPostExecute(Void aVoid) {
+                                                        // Dismiss before the detachment check:
+                                                        // the dialog belongs to the window, so
+                                                        // returning above it left the moderator
+                                                        // spinner on screen for good.
+                                                        d.dismiss();
+                                                        // A detached fragment has no host here;
+                                                        // there is nothing to act on.
+                                                        final FragmentActivity activity = getActivity();
+                                                        if (activity == null) {
+                                                            return;
+                                                        }
                                                         final ArrayList<String> names =
                                                                 new ArrayList<>();
                                                         for (UserRecord rec : mods) {
                                                             names.add(rec.getFullName());
                                                         }
-                                                        d.dismiss();
                                                         new MaterialAlertDialogBuilder(
                                                                         new ContextThemeWrapper(
                                                                                 getActivity(),
                                                                                 new ColorPreferences(
-                                                                                                getActivity())
+                                                                                                activity)
                                                                                         .getFontStyle()
                                                                                         .getBaseId()))
                                                                 .setTitle(
@@ -1440,24 +1603,24 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                 }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
                                             }
                                         });
-                        sidebar.findViewById(R.id.flair).setVisibility(View.GONE);
+                        sidebar.requireViewById(R.id.flair).setVisibility(View.GONE);
                     }
                     {
-                        sidebar.findViewById(R.id.loader).setVisibility(View.GONE);
+                        sidebar.requireViewById(R.id.loader).setVisibility(View.GONE);
 
                         if (baseSub.getSidebar() != null && !baseSub.getSidebar().isEmpty()) {
-                            sidebar.findViewById(R.id.sidebar_text).setVisibility(View.VISIBLE);
+                            sidebar.requireViewById(R.id.sidebar_text).setVisibility(View.VISIBLE);
 
                             final String text =
-                                    baseSub.getDataNode().get("description_html").asText();
+                                    baseSub.getDataNode().path("description_html").asText();
                             final SpoilerRobotoTextView body =
-                                    sidebar.findViewById(R.id.sidebar_text);
-                            CommentOverflow overflow = sidebar.findViewById(R.id.commentOverflow);
-                            setViews(text, baseSub.getDisplayName(), body, overflow);
+                                    sidebar.requireViewById(R.id.sidebar_text);
+                            CommentOverflow overflow = sidebar.requireViewById(R.id.commentOverflow);
+                            setViews(text, MiscUtil.orEmpty(baseSub.getDisplayName()), body, overflow);
                         } else {
-                            sidebar.findViewById(R.id.sidebar_text).setVisibility(View.GONE);
+                            sidebar.requireViewById(R.id.sidebar_text).setVisibility(View.GONE);
                         }
-                        View collection = sidebar.findViewById(R.id.collection);
+                        View collection = sidebar.requireViewById(R.id.collection);
                         if (Authentication.isLoggedIn) {
                             collection.setOnClickListener(
                                     new View.OnClickListener() {
@@ -1469,12 +1632,19 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
                                                 @Override
                                                 protected Void doInBackground(Void... params) {
+                                                    // Background thread: the page can detach before the sync finishes.
+                                                    final Context context = getContext();
+                                                    if (context == null) {
+                                                        return null;
+                                                    }
                                                     if (UserSubscriptions.multireddits == null) {
                                                         UserSubscriptions.syncMultiReddits(
-                                                                getContext());
+                                                                context);
                                                     }
                                                     for (MultiReddit r :
-                                                            UserSubscriptions.multireddits) {
+                                                            UserSubscriptions.multireddits == null
+                                                                    ? new ArrayList<MultiReddit>()
+                                                                    : UserSubscriptions.multireddits) {
                                                         multis.put(r.getDisplayName(), r);
                                                     }
                                                     return null;
@@ -1482,11 +1652,16 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
                                                 @Override
                                                 protected void onPostExecute(Void aVoid) {
+                                                    // A detached fragment has no host here; there is nothing to act on.
+                                                    final Context context = getContext();
+                                                    if (context == null) {
+                                                        return;
+                                                    }
                                                     new MaterialAlertDialogBuilder(
                                                                     new ContextThemeWrapper(
                                                                             getContext(),
                                                                             new ColorPreferences(
-                                                                                            getContext())
+                                                                                            context)
                                                                                     .getFontStyle()
                                                                                     .getBaseId()))
                                                             .setTitle(
@@ -1516,6 +1691,13 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                                 Void
                                                                                                                 ...
                                                                                                         params) {
+                                                                                    // Runs on a background thread: the page can detach before the multireddit call
+                                                                                    // returns, and there is then no window to report success or failure in.
+                                                                                    final FragmentActivity activity = getActivity();
+                                                                                    final Context context = getContext();
+                                                                                    if (activity == null || context == null) {
+                                                                                        return null;
+                                                                                    }
                                                                                     try {
                                                                                         final String
                                                                                                 multiName =
@@ -1529,10 +1711,17 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                                 subs =
                                                                                                         new ArrayList<
                                                                                                                 String>();
+                                                                                        final MultiReddit
+                                                                                                chosenMulti =
+                                                                                                        multis.get(
+                                                                                                                multiName);
+                                                                                        if (chosenMulti
+                                                                                                == null) {
+                                                                                            return null;
+                                                                                        }
                                                                                         for (MultiSubreddit
                                                                                                 sub :
-                                                                                                        multis.get(
-                                                                                                                        multiName)
+                                                                                                        chosenMulti
                                                                                                                 .getSubreddits()) {
                                                                                             subs
                                                                                                     .add(
@@ -1557,9 +1746,9 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
                                                                                         UserSubscriptions
                                                                                                 .syncMultiReddits(
-                                                                                                        getContext());
+                                                                                                        context);
 
-                                                                                        getActivity()
+                                                                                        activity
                                                                                                 .runOnUiThread(
                                                                                                         new Runnable() {
                                                                                                             @Override
@@ -1583,14 +1772,19 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                             NetworkException
                                                                                             | ApiException
                                                                                                     e) {
-                                                                                        getActivity()
+                                                                                        activity
                                                                                                 .runOnUiThread(
                                                                                                         new Runnable() {
                                                                                                             @Override
                                                                                                             public
                                                                                                             void
                                                                                                                     run() {
-                                                                                                                getActivity()
+                                                                                                                // The error path can land after the page detaches; there is no window left.
+                                                                                                                final FragmentActivity activity = getActivity();
+                                                                                                                if (activity == null) {
+                                                                                                                    return;
+                                                                                                                }
+                                                                                                                activity
                                                                                                                         .runOnUiThread(
                                                                                                                                 new Runnable() {
                                                                                                                                     @Override
@@ -1636,22 +1830,27 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                         }
 
                         {
-                            final TextView subscribe = sidebar.findViewById(R.id.subscribe);
+                            final TextView subscribe = sidebar.requireViewById(R.id.subscribe);
 
                             currentlySubbed =
                                     Authentication.isLoggedIn
                                             ? baseSub.isUserSubscriber()
-                                            : UserSubscriptions.getSubscriptions(getActivity())
+                                            : UserSubscriptions.getSubscriptions(activity)
                                                     .contains(
-                                                            baseSub.getDisplayName()
+                                                            MiscUtil.orEmpty(baseSub.getDisplayName())
                                                                     .toLowerCase(Locale.ENGLISH));
                             MiscUtil.doSubscribeButtonText(currentlySubbed, subscribe);
 
                             subscribe.setOnClickListener(
                                     new View.OnClickListener() {
                                         private void doSubscribe() {
+                                            // A detached fragment has no host here; there is nothing to act on.
+                                            final FragmentActivity activity = getActivity();
+                                            if (activity == null) {
+                                                return;
+                                            }
                                             if (Authentication.isLoggedIn) {
-                                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
+                                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(activity)
                                                         .setTitle(
                                                                 getString(
                                                                         R.string.subscribe_to,
@@ -1668,10 +1867,15 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                     onPostExecute(
                                                                                             Boolean
                                                                                                     success) {
+                                                                                // A detached fragment has no host here; there is nothing to act on.
+                                                                                final FragmentActivity activity = getActivity();
+                                                                                if (activity == null) {
+                                                                                    return;
+                                                                                }
                                                                                 if (!success) { // If subreddit was removed from account or not
                                                                                     new AlertDialog
                                                                                                     .Builder(
-                                                                                                    getActivity())
+                                                                                                    activity)
                                                                                             .setTitle(
                                                                                                     R
                                                                                                             .string
@@ -1776,8 +1980,13 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         }
 
                                         private void doUnsubscribe() {
+                                            // A detached fragment has no host here; there is nothing to act on.
+                                            final Context context = getContext();
+                                            if (context == null) {
+                                                return;
+                                            }
                                             if (Authentication.didOnline) {
-                                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(getContext())
+                                                DialogUtil.showWithCardBackground(new AlertDialog.Builder(context)
                                                         .setTitle(
                                                                 getString(
                                                                         R.string.unsubscribe_from,
@@ -1794,10 +2003,15 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                                                                     onPostExecute(
                                                                                             Boolean
                                                                                                     success) {
+                                                                                // A detached fragment has no host here; there is nothing to act on.
+                                                                                final Context context = getContext();
+                                                                                if (context == null) {
+                                                                                    return;
+                                                                                }
                                                                                 if (!success) { // If subreddit was removed from account or not
                                                                                     new AlertDialog
                                                                                                     .Builder(
-                                                                                                    getContext())
+                                                                                                    context)
                                                                                             .setTitle(
                                                                                                     R
                                                                                                             .string
@@ -1891,84 +2105,94 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                                         }
                                     });
                         }
-                        if (!baseSub.getPublicDescription().isEmpty()) {
-                            sidebar.findViewById(R.id.sub_title).setVisibility(View.VISIBLE);
+                        if (!MiscUtil.orEmpty(baseSub.getPublicDescription()).isEmpty()) {
+                            sidebar.requireViewById(R.id.sub_title).setVisibility(View.VISIBLE);
                             setViews(
-                                    baseSub.getDataNode().get("public_description_html").asText(),
-                                    baseSub.getDisplayName().toLowerCase(Locale.ENGLISH),
-                                    sidebar.findViewById(R.id.sub_title),
-                                    sidebar.findViewById(R.id.sub_title_overflow));
+                                    baseSub.getDataNode().path("public_description_html").asText(),
+                                    MiscUtil.orEmpty(baseSub.getDisplayName()).toLowerCase(Locale.ENGLISH),
+                                    sidebar.requireViewById(R.id.sub_title),
+                                    sidebar.requireViewById(R.id.sub_title_overflow));
                         } else {
-                            sidebar.findViewById(R.id.sub_title).setVisibility(View.GONE);
+                            sidebar.requireViewById(R.id.sub_title).setVisibility(View.GONE);
                         }
                         if (getContext() != null
                                 && baseSub.getDataNode().has("icon_img")
-                                && !baseSub.getDataNode().get("icon_img").asText().isEmpty()) {
+                                && !baseSub.getDataNode().path("icon_img").asText().isEmpty()) {
                             ((Reddit) getContext().getApplicationContext())
                                     .getImageLoader()
                                     .displayImage(
-                                            baseSub.getDataNode().get("icon_img").asText(),
-                                            (ImageView) sidebar.findViewById(R.id.subimage));
+                                            baseSub.getDataNode().path("icon_img").asText(),
+                                            (ImageView) sidebar.requireViewById(R.id.subimage));
                         } else {
-                            sidebar.findViewById(R.id.subimage).setVisibility(View.GONE);
+                            sidebar.requireViewById(R.id.subimage).setVisibility(View.GONE);
                         }
                         String bannerImage = baseSub.getBannerImage();
                         if (bannerImage != null && !bannerImage.isEmpty()) {
-                            sidebar.findViewById(R.id.sub_banner).setVisibility(View.VISIBLE);
-                            ((Reddit) getContext().getApplicationContext())
+                            sidebar.requireViewById(R.id.sub_banner).setVisibility(View.VISIBLE);
+                            ((Reddit) context.getApplicationContext())
                                     .getImageLoader()
                                     .displayImage(
                                             bannerImage,
-                                            (ImageView) sidebar.findViewById(R.id.sub_banner));
+                                            (ImageView) sidebar.requireViewById(R.id.sub_banner));
                         } else {
-                            sidebar.findViewById(R.id.sub_banner).setVisibility(View.GONE);
+                            sidebar.requireViewById(R.id.sub_banner).setVisibility(View.GONE);
                         }
-                        ((TextView) sidebar.findViewById(R.id.subscribers))
+                        ((TextView) sidebar.requireViewById(R.id.subscribers))
                                 .setText(
                                         getString(
                                                 R.string.subreddit_subscribers_string,
                                                 baseSub.getLocalizedSubscriberCount()));
-                        sidebar.findViewById(R.id.subscribers).setVisibility(View.VISIBLE);
+                        sidebar.requireViewById(R.id.subscribers).setVisibility(View.VISIBLE);
 
-                        ((TextView) sidebar.findViewById(R.id.active_users))
+                        ((TextView) sidebar.requireViewById(R.id.active_users))
                                 .setText(
                                         getString(
                                                 R.string.subreddit_active_users_string_new,
                                                 baseSub.getLocalizedAccountsActive()));
-                        sidebar.findViewById(R.id.active_users).setVisibility(View.VISIBLE);
+                        sidebar.requireViewById(R.id.active_users).setVisibility(View.VISIBLE);
                     }
 
                     final AlertDialog sidebarDialog =
-                            new AlertDialog.Builder(getContext())
+                            new AlertDialog.Builder(sidebarActivity)
                                     .setPositiveButton(R.string.btn_close, null)
                                     .setView(sidebar)
                                     .create();
-                    DialogUtil.matchDialogToCardBackground(getContext(), sidebarDialog);
+                    DialogUtil.matchDialogToCardBackground(sidebarActivity, sidebarDialog);
                     sidebarDialog.show();
-                } catch (NullPointerException e) { // activity has been killed
                 }
             }
         }
 
         @Override
-        protected Subreddit doInBackground(final String... params) {
+        protected @Nullable Subreddit doInBackground(final String... params) {
             try {
+                if (Authentication.reddit == null) {
+                    return null;
+                }
                 return Authentication.reddit.getSubreddit(params[0]);
             } catch (Exception e) {
                 try {
                     d.dismiss();
                 } catch (Exception ignored) {
+                    // The progress dialog is already gone, which is the state
+                    // this wanted.
                 }
                 return null;
             }
         }
 
+        @SuppressWarnings("NullAway.Init") // assigned in onPreExecute
         Dialog d;
 
         @Override
         protected void onPreExecute() {
+            // A detached fragment has no host here; there is nothing to act on.
+            final FragmentActivity activity = getActivity();
+            if (activity == null) {
+                return;
+            }
             d =
-                    new MaterialProgressDialog.Builder(getActivity())
+                    new MaterialProgressDialog.Builder(activity)
                             .title(R.string.subreddit_sidebar_progress)
                             .progress(true, 100)
                             .content(R.string.misc_please_wait)
@@ -1978,6 +2202,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         }
     }
 
+    @SuppressWarnings("NullAway.Init") // set from the bundle in onCreate
     public CommentSort commentSorting;
 
     private void addClickFunctionSubName(Toolbar toolbar) {
@@ -2003,8 +2228,31 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         }
     }
 
+    /** Which slot of this submission's limit band the next comment fetch should read. */
+    public int getCommentLimitRotation() {
+        return commentLimitRotation;
+    }
+
+    /**
+     * Move to the next slot, so an explicit refresh is answered by a different cached tree than the
+     * one that just came back - which is the only thing that can rescue a comment lost to a stale
+     * slot.
+     */
+    public void advanceCommentLimitRotation() {
+        commentLimitRotation++;
+    }
+
+    /** The comment count the feed reported for this submission, or null if it was never loaded. */
+    public @Nullable Integer getKnownCommentCount() {
+        return knownCommentCount;
+    }
+
     public void doAdapter(boolean load) {
         commentSorting = SettingValues.getCommentSorting(subreddit);
+        if (restorePending && loadFromCache()) {
+            if (load) loaded = true;
+            return;
+        }
         if (load) doRefresh(true);
         if (load) loaded = true;
         if (!single
@@ -2019,19 +2267,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                 return;
             }
             Submission s = ((CommentsScreen) getActivity()).currentPosts.get(page);
-            if (s != null
-                    && s.getDataNode().has("suggested_sort")
-                    && !s.getDataNode().get("suggested_sort").asText().equalsIgnoreCase("null")
-                    && !SettingValues.hasCommentSort(s.getSubredditName())) {
-                // Only use suggested sort if user hasn't set a custom preference
-                String sorting = s.getDataNode().get("suggested_sort").asText().toUpperCase();
-                sorting = sorting.replace("İ", "I");
-                commentSorting = CommentSort.valueOf(sorting);
-                Log.d("CommentPage", "Using suggested sort: " + commentSorting.name() + " because no custom preference exists");
-            } else if (s != null) {
-                commentSorting = SettingValues.getCommentSorting(s.getSubredditName());
-                Log.d("CommentPage", "Using saved comment sort preference: " + commentSorting.name());
-            }
+            if (s != null) knownCommentCount = s.getCommentCount();
+            commentSorting = resolveCommentSorting(s);
             if (load) comments.setSorting(commentSorting);
             if (adapter == null) {
                 adapter = new CommentAdapter(this, comments, rv, s, getFragmentManager());
@@ -2041,22 +2278,8 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
             if (Authentication.didOnline) {
                 comments = new SubmissionComments(fullname, this, mSwipeRefreshLayout);
                 Submission s = ((MainActivity) getActivity()).openingComments;
-                if (s != null
-                        && s.getDataNode().has("suggested_sort")
-                        && !s.getDataNode()
-                                .get("suggested_sort")
-                                .asText()
-                                .equalsIgnoreCase("null")
-                        && !SettingValues.hasCommentSort(s.getSubredditName())) {
-                    // Only use suggested sort if user hasn't set a custom preference
-                    String sorting = s.getDataNode().get("suggested_sort").asText().toUpperCase();
-                    sorting = sorting.replace("İ", "I");
-                    commentSorting = CommentSort.valueOf(sorting);
-                    Log.d("CommentPage", "Using suggested sort: " + commentSorting.name() + " because no custom preference exists");
-                } else if (s != null) {
-                    commentSorting = SettingValues.getCommentSorting(s.getSubredditName());
-                    Log.d("CommentPage", "Using saved comment sort preference: " + commentSorting.name());
-                }
+                if (s != null) knownCommentCount = s.getCommentCount();
+                commentSorting = resolveCommentSorting(s);
                 if (load) comments.setSorting(commentSorting);
                 if (adapter == null) {
                     adapter = new CommentAdapter(this, comments, rv, s, getFragmentManager());
@@ -2065,7 +2288,11 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
             } else {
                 Submission s = ((MainActivity) getActivity()).openingComments;
                 doRefresh(false);
-                comments = new SubmissionComments(fullname, this, mSwipeRefreshLayout, s);
+                comments =
+                        s == null
+                                ? new SubmissionComments(fullname, this, mSwipeRefreshLayout)
+                                : new SubmissionComments(
+                                        fullname, this, mSwipeRefreshLayout, s, commentSorting);
                 if (adapter == null) {
                     adapter = new CommentAdapter(this, comments, rv, s, getFragmentManager());
                     rv.setAdapter(adapter);
@@ -2078,14 +2305,17 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                         OfflineSubreddit.getSubmissionFromStorage(
                                 fullname.contains("_") ? fullname : "t3_" + fullname,
                                 getContext(),
-                                !NetworkUtil.isConnected(getActivity()),
-                                new ObjectMapper().reader());
+                                !NetworkUtil.isConnected(requireActivity()),
+                                new ObjectMapper().reader(),
+                                commentSorting);
             } catch (IOException e) {
                 LogUtil.e(e, "CommentPage.doAdapter failed");
             }
             if (s != null && s.getComments() != null) {
                 doRefresh(false);
-                comments = new SubmissionComments(fullname, this, mSwipeRefreshLayout, s);
+                comments =
+                        new SubmissionComments(
+                                fullname, this, mSwipeRefreshLayout, s, commentSorting);
                 if (adapter == null) {
 
                     adapter = new CommentAdapter(this, comments, rv, s, getFragmentManager());
@@ -2129,14 +2359,15 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                 }
             }
 
-            adapter.reset(getContext(), comments, rv, comments.submission, b);
+            adapter.reset(requireContext(), comments, rv, comments.submission, b);
         } else if (!b) {
             try {
                 adapter.reset(
-                        getContext(),
+                        requireContext(),
                         comments,
                         rv,
-                        (getActivity() instanceof MainActivity)
+                        (getActivity() instanceof MainActivity
+                                        && ((MainActivity) getActivity()).openingComments != null)
                                 ? ((MainActivity) getActivity()).openingComments
                                 : comments.submission,
                         b);
@@ -2144,21 +2375,189 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                     adapter.collapseAll();
                 }
             } catch (Exception ignored) {
+                // Adapter setup on a fragment that detached while the
+                // comments loaded.
             }
 
         } else {
-            adapter.reset(getContext(), comments, rv, comments.submission, b);
+            adapter.reset(requireContext(), comments, rv, comments.submission, b);
             if (SettingValues.collapseCommentsDefault) {
                 adapter.collapseAll();
             }
             adapter.notifyItemChanged(1);
         }
+        applyRestore();
+    }
+
+    /**
+     * The sort this thread's comments should be read and requested with.
+     *
+     * <p>A subreddit can nominate a sort for its own threads, and reddit sends it on the
+     * submission as {@code suggested_sort}. It applies only where the user has expressed no
+     * preference for that subreddit: an explicit choice of theirs is never overridden by the
+     * moderators' one.
+     *
+     * <p>One copy of the rule, because there are now three callers -- the two online branches
+     * below and the cache restore -- and a thread restored under a different sort from the one it
+     * was read under sends that wrong sort to the {@code morechildren} endpoint, so an expanded
+     * branch comes back ordered differently from the replies around it.
+     *
+     * @param s the post this page is showing, as the host activity already holds it, or null when
+     *     the host has none. Null falls back to the preference for this page's subreddit, which is
+     *     the best answer available without a submission to read the suggestion off.
+     */
+    private CommentSort resolveCommentSorting(@Nullable Submission s) {
+        if (s == null) {
+            return SettingValues.getCommentSorting(subreddit);
+        }
+        final String suggested = s.getDataNode().path("suggested_sort").asText();
+        if (s.getDataNode().has("suggested_sort")
+                && !suggested.equalsIgnoreCase("null")
+                && !SettingValues.hasCommentSort(s.getSubredditName())) {
+            // A Turkish locale uppercases "i" to "İ", which is not what the enum is called.
+            final String name = suggested.toUpperCase(Locale.ENGLISH).replace("İ", "I");
+            try {
+                final CommentSort resolved = CommentSort.valueOf(name);
+                Log.d(
+                        "CommentPage",
+                        "Using suggested sort: " + resolved.name() + " because no custom preference exists");
+                return resolved;
+            } catch (IllegalArgumentException e) {
+                // reddit sends names this enum does not have -- "blank" for "no suggestion at
+                // all", and anything added to reddit since this client was built. That is not an
+                // error, it means there is no usable suggestion, so the user's own answer stands.
+                // Left unguarded it throws, and on the restore path that takes the whole resume
+                // down rather than mis-sorting one branch.
+                Log.d("CommentPage", "Ignoring unrecognised suggested sort: " + name);
+            }
+        }
+        final CommentSort preference = SettingValues.getCommentSorting(s.getSubredditName());
+        Log.d("CommentPage", "Using saved comment sort preference: " + preference.name());
+        return preference;
+    }
+
+    /**
+     * The post this page is showing, as the host activity already holds it. The restore path needs
+     * it to resolve the sort before it reads the thread off disk, and taking it from the host is
+     * what makes that free: parsing the blob to find its {@code suggested_sort} and then parsing
+     * it again to build the tree would double the cost of the thing a resume is trying to avoid.
+     */
+    @Nullable
+    private Submission hostSubmission() {
+        final FragmentActivity host = getActivity();
+        if (host instanceof CommentsScreen) {
+            final List<Submission> posts = ((CommentsScreen) host).currentPosts;
+            if (posts != null && page >= 0 && page < posts.size()) {
+                return posts.get(page);
+            }
+        } else if (host instanceof MainActivity) {
+            return ((MainActivity) host).openingComments;
+        }
+        return null;
+    }
+
+    /**
+     * Builds the thread from the copy written to disk when it was last read, with no request at
+     * all, and returns whether that worked.
+     *
+     * <p>Only on a resume. Reopening the app onto a thread the user never left should look like
+     * they never left it: fetching it again means a wait, a progress bar and a jump to the restored
+     * position once it lands, and the comments they had are sitting on disk the whole time. Any
+     * other open goes to the network as before, so the thread is as fresh as it has always been.
+     */
+    private boolean loadFromCache() {
+        final Context ctx = getContext();
+        if (ctx == null) {
+            return false;
+        }
+        // Before the read, not after: the sort is baked into the tree as it is built, and it is
+        // what a later request for more children is sent with.
+        commentSorting = resolveCommentSorting(hostSubmission());
+        final Submission stored;
+        try {
+            stored =
+                    OfflineSubreddit.getSubmissionFromStorage(
+                            fullname.contains("_") ? fullname : "t3_" + fullname,
+                            ctx,
+                            true,
+                            new ObjectMapper().reader(),
+                            commentSorting);
+        } catch (IOException e) {
+            LogUtil.e(e, "CommentPage.loadFromCache failed");
+            return false;
+        }
+        if (stored == null || stored.getComments() == null) {
+            return false;
+        }
+        doRefresh(false);
+        comments = new SubmissionComments(fullname, this, mSwipeRefreshLayout, stored, commentSorting);
+        knownCommentCount = stored.getCommentCount();
+        if (adapter == null) {
+            adapter = new CommentAdapter(this, comments, rv, stored, getFragmentManager());
+            rv.setAdapter(adapter);
+        }
+        doData(true);
+        return true;
+    }
+
+    /**
+     * Puts the page back where the user left it before the app closed: the same threads collapsed,
+     * and the same comment at the same height. Once only — a later refresh is the user asking for
+     * the top of the thread, not for the place they were three sessions ago.
+     */
+    private void applyRestore() {
+        if (!restorePending || adapter == null) {
+            revealList();
+            return;
+        }
+        restorePending = false;
+        if (restoreCollapsed != null && restoreCollapsedRoots != null) {
+            adapter.restoreCollapsed(restoreCollapsed, restoreCollapsedRoots);
+        }
+        int position = ScrollAnchor.NO_POSITION;
+        if (restoreAnchorId != null && !restoreAnchorId.isEmpty()) {
+            position = adapter.adapterPositionOf(restoreAnchorId);
+        }
+        if (position == ScrollAnchor.NO_POSITION) {
+            // The comment is gone -- deleted, or collapsed out of the tree by a different sort.
+            // The recorded row index is the best remaining guess.
+            position = restoreAnchorPosition;
+        }
+        if (position == ScrollAnchor.NO_POSITION || position >= adapter.getItemCount()) {
+            // Nothing to scroll to, so nothing will hand the list back. onCreateView hid it for
+            // the length of a fetch, and leaving it hidden here shows a blank thread for the
+            // whole of that timeout -- the anchor comment being deleted is exactly the case.
+            revealList();
+            return;
+        }
+        ScrollAnchor.applyHidden(
+                rv,
+                position,
+                restoreAnchorOffset,
+                () ->
+                        rv.post(
+                                () -> {
+                                    if (toolbarScroll != null) {
+                                        toolbarScroll.settleAfterJump(restoreToolbarHidden);
+                                    }
+                                }));
+    }
+
+    /**
+     * Undoes the hide {@code onCreateView} applies while a restore is pending, for the paths that
+     * end without a scroll to hand the list back. {@link ScrollAnchor#hideUntilSettled} arms a
+     * timer as a backstop, but it is measured in seconds — long enough to read as a broken screen.
+     */
+    private void revealList() {
+        if (rv != null) {
+            rv.setVisibility(View.VISIBLE);
+        }
     }
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Bundle bundle = this.getArguments();
+        Bundle bundle = requireArguments();
         subreddit = bundle.getString("subreddit", "");
         fullname = bundle.getString("id", "");
         page = bundle.getInt("page", 0);
@@ -2172,9 +2571,20 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
         loadMore = (!context.isEmpty() && !context.equals(Reddit.EMPTY_STRING));
         if (!single) loadMore = false;
-        int subredditStyle = new ColorPreferences(getActivity()).getThemeSubreddit(subreddit);
+        int subredditStyle = new ColorPreferences(requireActivity()).getThemeSubreddit(subreddit);
         contextThemeWrapper = new ContextThemeWrapper(getActivity(), subredditStyle);
-        mLayoutManager = new PreCachingLayoutManagerComments(getActivity());
+        mLayoutManager = new PreCachingLayoutManagerComments(requireActivity());
+        restoreAnchorId = getArguments() == null ? null : getArguments().getString(ARG_RESTORE_ANCHOR_ID);
+        if (getArguments() != null) {
+            restoreAnchorPosition =
+                    getArguments().getInt(ARG_RESTORE_ANCHOR_POSITION, ScrollAnchor.NO_POSITION);
+            restoreAnchorOffset = getArguments().getInt(ARG_RESTORE_ANCHOR_OFFSET, 0);
+            restoreCollapsed = getArguments().getStringArrayList(ARG_RESTORE_COLLAPSED);
+            restoreCollapsedRoots = getArguments().getStringArrayList(ARG_RESTORE_COLLAPSED_ROOTS);
+            restoreToolbarHidden = getArguments().getBoolean(ARG_RESTORE_TOOLBAR_HIDDEN, false);
+            restorePending =
+                    restoreAnchorId != null || restoreAnchorPosition != ScrollAnchor.NO_POSITION;
+        }
     }
 
     @Override
@@ -2193,7 +2603,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                     && !adapter.currentlyEditing.getText().toString().isEmpty()) {
                 Drafts.addDraft(adapter.currentlyEditing.getText().toString());
                 Toast.makeText(
-                                getActivity().getApplicationContext(),
+                                requireActivity().getApplicationContext(),
                                 R.string.msg_save_draft,
                                 Toast.LENGTH_LONG)
                         .show();
@@ -2226,10 +2636,10 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
             toolbarScroll =
                     new ToolbarScrollHideHandler(
                             toolbar,
-                            v.findViewById(R.id.header),
-                            v.findViewById(R.id.progress),
+                            v.requireViewById(R.id.header),
+                            v.requireViewById(R.id.progress),
                             SettingValues.commentAutoHide
-                                    ? v.findViewById(R.id.commentnav)
+                                    ? v.requireViewById(R.id.commentnav)
                                     : null) {
                         @Override
                         public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
@@ -2279,11 +2689,12 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
     private void reloadSubs() {
         mSwipeRefreshLayout.setRefreshing(true);
+        advanceCommentLimitRotation();
         comments.setSorting(commentSorting);
         rv.scrollToPosition(0);
     }
 
-    private void openPopup(View view) {
+    private void openPopup() {
         if (comments.comments != null && !comments.comments.isEmpty()) {
             final DialogInterface.OnClickListener l2 =
                     new DialogInterface.OnClickListener() {
@@ -2380,7 +2791,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                         if (matches) {
                             adapter.currentNode = o.comment;
                             adapter.currentSelectedItem =
-                                    o.comment.getComment().getFullName();
+                                    MiscUtil.orEmpty(o.comment.getComment().getFullName());
                         }
                     }
                     break;
@@ -2396,17 +2807,13 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                 case OP:
                     matches =
                             adapter.submission != null
-                                    && o.comment
-                                            .getComment()
-                                            .getAuthor()
+                                    && MiscUtil.orEmpty(o.comment.getComment().getAuthor())
                                             .equals(adapter.submission.getAuthor());
                     break;
                 case YOU:
                     matches =
                             adapter.submission != null
-                                    && o.comment
-                                            .getComment()
-                                            .getAuthor()
+                                    && MiscUtil.orEmpty(o.comment.getComment().getAuthor())
                                             .equals(Authentication.name);
                     break;
                 case LINK:
@@ -2414,7 +2821,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                             o.comment
                                     .getComment()
                                     .getDataNode()
-                                    .get("body_html")
+                                    .path("body_html")
                                     .asText()
                                     .contains("&lt;/a");
                     break;
@@ -2424,7 +2831,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
     public void doGoUp(int old) {
         int depth = -1;
-        if (adapter.currentlySelected != null) {
+        if (adapter.currentlySelected != null && adapter.currentNode != null) {
             depth = adapter.currentNode.getDepth();
         }
         int pos = (old < 2) ? 0 : old - 1;
@@ -2438,23 +2845,33 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                         if (i + 2 == old) {
                             doGoUp(old - 1);
                         } else {
-                            (((PreCachingLayoutManagerComments) rv.getLayoutManager()))
-                                    .scrollToPositionWithOffset(
-                                            i + 2,
-                                            ((View) toolbar.getParent()).getTranslationY() != 0
-                                                    ? 0
-                                                    : (v.findViewById(R.id.header)).getHeight());
+                            if (rv.getLayoutManager() != null) {
+                                (((PreCachingLayoutManagerComments) rv.getLayoutManager()))
+                                        .scrollToPositionWithOffset(
+                                                i + 2,
+                                                ((View) toolbar.getParent()).getTranslationY()
+                                                                != 0
+                                                        ? 0
+                                                        : (v.findViewById(R.id.header))
+                                                                .getHeight());
+                            }
                         }
                         break;
                     }
                 }
             } catch (Exception ignored) {
-
+                // Header measurement is cosmetic and the view tree may be
+                // gone.
             }
         }
     }
 
     private void goUp() {
+        // A detached fragment has no host here; there is nothing to act on.
+        final FragmentActivity activity = getActivity();
+        if (activity == null) {
+            return;
+        }
         int toGoto = mLayoutManager.findFirstVisibleItemPosition();
         if (adapter != null
                 && adapter.currentComments != null
@@ -2462,7 +2879,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
             if (adapter.currentlyEditing != null
                     && !adapter.currentlyEditing.getText().toString().isEmpty()) {
                 final int finalToGoto = toGoto;
-                DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
+                DialogUtil.showWithCardBackground(new AlertDialog.Builder(activity)
                         .setTitle(R.string.discard_comment_title)
                         .setMessage(R.string.comment_discard_msg)
                         .setPositiveButton(
@@ -2482,19 +2899,21 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
 
     public void doGoDown(int old) {
         int depth = -1;
-        if (adapter.currentlySelected != null) {
+        if (adapter.currentlySelected != null && adapter.currentNode != null) {
             depth = adapter.currentNode.getDepth();
         }
         int pos = old - 2;
         if (pos < 0) pos = 0;
         String original = adapter.currentComments.get(adapter.getRealPosition(pos)).getName();
         if (old < 2) {
-            (((PreCachingLayoutManagerComments) rv.getLayoutManager()))
-                    .scrollToPositionWithOffset(
-                            2,
-                            ((View) toolbar.getParent()).getTranslationY() != 0
-                                    ? 0
-                                    : (v.findViewById(R.id.header).getHeight()));
+            if (rv.getLayoutManager() != null) {
+                (((PreCachingLayoutManagerComments) rv.getLayoutManager()))
+                        .scrollToPositionWithOffset(
+                                2,
+                                ((View) toolbar.getParent()).getTranslationY() != 0
+                                        ? 0
+                                        : (v.requireViewById(R.id.header).getHeight()));
+            }
         } else {
             for (int i = pos + 1; i < adapter.currentComments.size(); i++) {
                 try {
@@ -2505,25 +2924,35 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
                             if (o.getName().equals(original)) {
                                 doGoDown(i + 2);
                             } else {
-                                (((PreCachingLayoutManagerComments) rv.getLayoutManager()))
-                                        .scrollToPositionWithOffset(
-                                                i + 2,
-                                                ((View) toolbar.getParent()).getTranslationY() != 0
-                                                        ? 0
-                                                        : (v.findViewById(R.id.header)
-                                                                .getHeight()));
+                                if (rv.getLayoutManager() != null) {
+                                    (((PreCachingLayoutManagerComments) rv.getLayoutManager()))
+                                            .scrollToPositionWithOffset(
+                                                    i + 2,
+                                                    ((View) toolbar.getParent())
+                                                                            .getTranslationY()
+                                                                    != 0
+                                                            ? 0
+                                                            : (v.findViewById(R.id.header)
+                                                                    .getHeight()));
+                                }
                             }
                             break;
                         }
                     }
                 } catch (Exception ignored) {
-
+                    // Header measurement is cosmetic and the view tree may be
+                    // gone.
                 }
             }
         }
     }
 
     private void goDown() {
+        // A detached fragment has no host here; there is nothing to act on.
+        final FragmentActivity activity = getActivity();
+        if (activity == null) {
+            return;
+        }
         ((View) toolbar.getParent()).setTranslationY(-((View) toolbar.getParent()).getHeight());
         int toGoto = mLayoutManager.findFirstVisibleItemPosition();
         if (adapter != null
@@ -2532,7 +2961,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
             if (adapter.currentlyEditing != null
                     && !adapter.currentlyEditing.getText().toString().isEmpty()) {
                 final int finalToGoto = toGoto;
-                DialogUtil.showWithCardBackground(new AlertDialog.Builder(getActivity())
+                DialogUtil.showWithCardBackground(new AlertDialog.Builder(activity)
                         .setTitle(R.string.discard_comment_title)
                         .setMessage(R.string.comment_discard_msg)
                         .setPositiveButton(
@@ -2551,8 +2980,13 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
     }
 
     private void changeSubscription(Subreddit subreddit, boolean isChecked) {
+        // A detached fragment has no host here; there is nothing to act on.
+        final Context context = getContext();
+        if (context == null) {
+            return;
+        }
         UserSubscriptions.addSubreddit(
-                subreddit.getDisplayName().toLowerCase(Locale.ENGLISH), getContext());
+                MiscUtil.orEmpty(subreddit.getDisplayName()).toLowerCase(Locale.ENGLISH), context);
 
         Snackbar s =
                 Snackbar.make(

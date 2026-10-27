@@ -10,17 +10,18 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
 import androidx.viewpager.widget.ViewPager;
 import com.google.android.material.tabs.TabLayout;
-import java.util.HashSet;
-import java.util.Set;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Autocache.AutoCacheScheduler;
 import me.edgan.redditslide.ContentGrabber;
 import me.edgan.redditslide.Fragments.InboxPage;
+import me.edgan.redditslide.HibernateState;
+import me.edgan.redditslide.InboxCount;
 import me.edgan.redditslide.Notifications.NotificationJobScheduler;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
@@ -34,9 +35,17 @@ import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
 import net.dean.jraw.managers.InboxManager;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 9/17/2015. */
-public class Inbox extends BaseActivityAnim {
+@NullMarked
+public class Inbox extends BaseActivityAnim implements HibernateState.Restorable {
+
+    /**
+     * The tab the inbox was on when the app was closed, or -1. Only the tab: messages are refetched
+     * and the unread ones move, so there is no stable row to scroll back to.
+     */
+    private int restoreTab = -1;
 
     public static final String EXTRA_UNREAD = "unread";
 
@@ -87,6 +96,10 @@ public class Inbox extends BaseActivityAnim {
                     try {
                         new InboxManager(Authentication.reddit).setAllRead();
                         changed = true;
+                        // Only once reddit has accepted it; a failed call leaves the stored
+                        // count alone. After changed, so the tab refresh does not hang on a
+                        // local write.
+                        InboxCount.set(Reddit.appRestart, 0);
                     } catch (Exception ignored) {
                         LogUtil.e(ignored, "Inbox.doInBackground failed");
                     }
@@ -107,7 +120,8 @@ public class Inbox extends BaseActivityAnim {
                             LayoutUtils.scrollToTabAfterLayout(tabs, CURRENT_TAB);
                             pager.setCurrentItem(CURRENT_TAB);
                         } catch (Exception e) {
-
+                            // Rebuilding the pager needs a live FragmentManager; a
+                            // finishing Inbox has nothing left to re-tab.
                         }
                     }
                 }
@@ -117,7 +131,7 @@ public class Inbox extends BaseActivityAnim {
     }
 
     @Override
-    public void onCreate(Bundle savedInstance) {
+    public void onCreate(@Nullable Bundle savedInstance) {
         overrideSwipeFromAnywhere();
         if (Authentication.reddit == null
                 || !Authentication.reddit.isAuthenticated()
@@ -126,7 +140,11 @@ public class Inbox extends BaseActivityAnim {
 
             new AsyncTask<Void, Void, Void>() {
                 @Override
-                protected Void doInBackground(Void... params) {
+                protected @Nullable Void doInBackground(Void... params) {
+                    if (Authentication.reddit == null) {
+                        return null;
+                    }
+
                     if (Authentication.reddit == null) {
                         new Authentication(getApplicationContext());
                     }
@@ -156,23 +174,14 @@ public class Inbox extends BaseActivityAnim {
                         UserSubscriptions.doCachedModSubs();
 
                         if (Authentication.reddit.isAuthenticated()) {
-                            final Set<String> accounts =
-                                    Authentication.authentication.getStringSet(
-                                            "accounts", new HashSet<String>());
-                            if (accounts.contains(name)) { // convert to new system
-                                accounts.remove(name);
-                                accounts.add(name + ":" + Authentication.refresh);
-                                Authentication.authentication
-                                        .edit()
-                                        .putStringSet("accounts", accounts)
-                                        .apply(); // force commit
-                            }
+                            Authentication.migrateAccountToTokenForm(name);
                             Authentication.isLoggedIn = true;
                             Reddit.notFirst = true;
                         }
 
                     } catch (Exception ignored) {
-
+                        // Background re-auth: a failure leaves isLoggedIn alone and the
+                        // next call re-tries.
                     }
                     return null;
                 }
@@ -185,22 +194,35 @@ public class Inbox extends BaseActivityAnim {
                         "lastInbox", System.currentTimeMillis() - (60 * 1000 * 60));
         SettingValues.prefs.edit().putLong("lastInbox", System.currentTimeMillis()).apply();
         applyColorTheme("");
+        final Bundle hibernated = HibernateState.claim(this);
+        if (hibernated != null) {
+            restoreHibernateState(hibernated);
+        }
+
         setContentView(R.layout.activity_inbox);
         MiscUtil.setupOldSwipeModeBackground(this, getWindow().getDecorView());
         setupAppBar(R.id.toolbar, R.string.title_inbox, true, true);
-        mToolbar.setPopupTheme(new ColorPreferences(this).getFontStyle().getBaseId());
+        requireToolbar().setPopupTheme(new ColorPreferences(this).getFontStyle().getBaseId());
 
-        tabs = (TabLayout) findViewById(R.id.sliding_tabs);
+        tabs = (TabLayout) requireViewById(R.id.sliding_tabs);
         tabs.setTabMode(TabLayout.MODE_SCROLLABLE);
         tabs.setSelectedTabIndicatorColor(new ColorPreferences(Inbox.this).getColor("no sub"));
 
-        pager = (ViewPager) findViewById(R.id.content_view);
-        findViewById(R.id.header).setBackgroundColor(Palette.getDefaultColor());
+        pager = (ViewPager) requireViewById(R.id.content_view);
+        requireViewById(R.id.header).setBackgroundColor(Palette.getDefaultColor());
         adapter = new InboxPagerAdapter(getSupportFragmentManager());
         pager.setAdapter(adapter);
 
         if (getIntent() != null && getIntent().hasExtra(EXTRA_UNREAD)) {
             pager.setCurrentItem(1);
+        }
+        if (restoreTab >= 0) {
+            // After the intent's own tab extra, not before it. A restored inbox replays the intent
+            // it was opened with, so an inbox first opened from an unread notification carries
+            // EXTRA_UNREAD for the rest of its life -- and applying the restore first meant every
+            // resume of that inbox landed back on the unread tab whatever tab the user had moved
+            // to. Profile orders these the same way and for the same reason.
+            pager.setCurrentItem(restoreTab);
         }
 
         tabs.setupWithViewPager(pager);
@@ -209,7 +231,7 @@ public class Inbox extends BaseActivityAnim {
                 new ViewPager.SimpleOnPageChangeListener() {
                     @Override
                     public void onPageSelected(int position) {
-                        findViewById(R.id.header)
+                        requireViewById(R.id.header)
                                 .animate()
                                 .translationY(0)
                                 .setInterpolator(new LinearInterpolator())
@@ -221,6 +243,22 @@ public class Inbox extends BaseActivityAnim {
                         }
                     }
                 });
+    }
+
+    @Override
+    public void saveHibernateState(Bundle out) {
+        // Through to BaseActivity for the list position: the page index alone brought the right
+        // tab back at the top of its messages.
+        super.saveHibernateState(out);
+        if (pager != null) {
+            out.putInt(HibernateState.STATE_PAGE, pager.getCurrentItem());
+        }
+    }
+
+    @Override
+    public void restoreHibernateState(Bundle in) {
+        super.restoreHibernateState(in);
+        restoreTab = in.getInt(HibernateState.STATE_PAGE, -1);
     }
 
     private class InboxPagerAdapter extends FragmentStatePagerAdapter {

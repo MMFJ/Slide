@@ -16,7 +16,9 @@
 
 package me.edgan.redditslide.Activities;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
@@ -34,11 +36,14 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import me.edgan.redditslide.Authentication;
+import me.edgan.redditslide.Megareddits;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.UserSubscriptions;
 import me.edgan.redditslide.Visuals.Palette;
@@ -55,24 +60,36 @@ import net.dean.jraw.managers.MultiRedditManager;
 import net.dean.jraw.models.MultiReddit;
 import net.dean.jraw.models.MultiSubreddit;
 import net.dean.jraw.models.Subreddit;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
 /** This class handles creation of Multireddits. */
+@NullMarked
 public class CreateMulti extends BaseActivityAnim {
 
     private ArrayList<String> subs;
     private CustomAdapter adapter;
     private EditText title;
     private RecyclerView recyclerView;
-    private String input;
-    private String old;
+    private String input = "";
+    // The name (the path Reddit edits by) of the multi being edited; null when creating one.
+    @Nullable private String old;
+    // Its display name, which is what the main subreddit list and MultiredditOverview key it by.
+    @Nullable private String oldDisplayName;
+    // What the name field and the list started as: a rename is a change to the first, and Back
+    // only offers to save when either has changed.
+    private String originalTitle = "";
+    private ArrayList<String> originalSubs = new ArrayList<>();
     public static final String EXTRA_MULTI = "multi";
 
     // Shows a dialog with all Subscribed subreddits and allows the user to select which ones to
     // include in the Multireddit
-    private String[] all;
+    // Holes: showSelectDialog's first loop skips special subreddits, so the entries it does not
+    // write stay null until the toArray call further down that method compacts them out.
+    private @Nullable String[] all = new String[0];
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
         overrideSwipeFromAnywhere();
 
         super.onCreate(savedInstanceState);
@@ -95,21 +112,34 @@ public class CreateMulti extends BaseActivityAnim {
         title = (EditText) findViewById(R.id.name);
 
         subs = new ArrayList<>();
-        if (getIntent().hasExtra(EXTRA_MULTI)) {
-            final String multi = getIntent().getExtras().getString(EXTRA_MULTI);
+        final String multi = getIntent().getStringExtra(EXTRA_MULTI);
+        if (multi != null) {
             old = multi;
-            title.setText(multi.replace("%20", " "));
+            title.setText(multi);
+            originalTitle = title.getText().toString();
             UserSubscriptions.getMultireddits(
                     new UserSubscriptions.MultiCallback() {
                         @Override
-                        public void onComplete(List<MultiReddit> multis) {
+                        public void onComplete(@Nullable List<MultiReddit> multis) {
+                            // Null when the fetch failed.
+                            if (multis == null) {
+                                return;
+                            }
                             for (MultiReddit multiReddit : multis) {
-                                if (multiReddit.getDisplayName().equals(multi)) {
+                                if (multi.equalsIgnoreCase(multiReddit.getFullName())) {
+                                    oldDisplayName = multiReddit.getDisplayName();
                                     for (MultiSubreddit sub : multiReddit.getSubreddits()) {
-                                        subs.add(sub.getDisplayName().toLowerCase(Locale.ENGLISH));
+                                        final String name = sub.getDisplayName();
+                                        if (name != null) {
+                                            subs.add(name.toLowerCase(Locale.ENGLISH));
+                                        }
                                     }
                                 }
                             }
+                            sortSubs();
+                            originalSubs = new ArrayList<>(subs);
+                            // The adapter was handed this list while it was still empty.
+                            adapter.notifyDataSetChanged();
                         }
                     });
         }
@@ -127,16 +157,18 @@ public class CreateMulti extends BaseActivityAnim {
             new OnBackPressedCallback(true) {
                 @Override
                 public void handleOnBackPressed() {
+                    if (title.getText().toString().equals(originalTitle)
+                            && subs.equals(originalSubs)) {
+                        finish();
+                        return;
+                    }
+                    // Yes leaves the overview alone: SaveMulti replaces it once the save has
+                    // gone through, and finishing it here lost it to a save that then failed.
                     AlertDialog dialog =
                             new AlertDialog.Builder(CreateMulti.this)
                                     .setTitle(R.string.general_confirm_exit)
                                     .setMessage(R.string.multi_save_option)
-                                    .setPositiveButton(
-                                            R.string.btn_yes,
-                                            (d, i) -> {
-                                                MultiredditOverview.multiActivity.finish();
-                                                new SaveMulti().execute();
-                                            })
+                                    .setPositiveButton(R.string.btn_yes, (d, i) -> save())
                                     .setNegativeButton(R.string.btn_no, (d, i) -> finish())
                                     .create();
                     DialogUtil.matchDialogToCardBackground(CreateMulti.this, dialog);
@@ -166,7 +198,8 @@ public class CreateMulti extends BaseActivityAnim {
                     && !s.equals("frontpage")
                     && !s.contains("+")
                     && !s.contains(".")
-                    && !s.contains("/m/")) {
+                    && !s.contains("/m/")
+                    && !Megareddits.isKey(s)) {
                 all[i] = s;
                 i++;
             }
@@ -203,9 +236,10 @@ public class CreateMulti extends BaseActivityAnim {
                         })
                 .setTitle(R.string.multireddit_selector)
                 .setPositiveButton(
-                        getString(R.string.btn_add).toUpperCase(),
+                        getString(R.string.btn_add).toUpperCase(Locale.getDefault()),
                         (dialog, which) -> {
                             subs = toCheck;
+                            sortSubs();
                             adapter = new CustomAdapter(subs);
                             recyclerView.setAdapter(adapter);
                         })
@@ -233,21 +267,22 @@ public class CreateMulti extends BaseActivityAnim {
 
     private class AsyncGetSubreddit extends AsyncTask<String, Void, Subreddit> {
         @Override
-        public void onPostExecute(Subreddit subreddit) {
+        public void onPostExecute(@Nullable Subreddit subreddit) {
             if (subreddit != null
                     || input.equalsIgnoreCase("friends")
                     || input.equalsIgnoreCase("mod")) {
                 subs.add(input);
+                sortSubs();
                 adapter.notifyDataSetChanged();
-                recyclerView.smoothScrollToPosition(subs.size());
+                recyclerView.smoothScrollToPosition(subs.indexOf(input));
             }
         }
 
         @Override
-        protected Subreddit doInBackground(final String... params) {
+        protected @Nullable Subreddit doInBackground(final String... params) {
             try {
                 if (subs.contains(params[0])) return null;
-                return Authentication.reddit.getSubreddit(params[0]);
+                return Objects.requireNonNull(Authentication.reddit).getSubreddit(params[0]);
             } catch (Exception e) {
                 runOnUiThread(
                         new Runnable() {
@@ -265,7 +300,7 @@ public class CreateMulti extends BaseActivityAnim {
                                             .setOnDismissListener(null)
                                             );
                                 } catch (Exception ignored) {
-
+                                    // Error dialog on a host the user has already left.
                                 }
                             }
                         });
@@ -287,7 +322,7 @@ public class CreateMulti extends BaseActivityAnim {
         public CustomAdapter.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
             View v =
                     LayoutInflater.from(parent.getContext())
-                            .inflate(R.layout.subforsublist, parent, false);
+                            .inflate(R.layout.subforsublistremove, parent, false);
             return new ViewHolder(v);
         }
 
@@ -303,6 +338,15 @@ public class CreateMulti extends BaseActivityAnim {
                     colorView.getBackground(), Palette.getColor(origPos));
 
             holder.itemView.setOnClickListener(
+                    new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            Intent inte = new Intent(CreateMulti.this, SubredditView.class);
+                            inte.putExtra(SubredditView.EXTRA_SUBREDDIT, origPos);
+                            startActivity(inte);
+                        }
+                    });
+            holder.remove.setOnClickListener(
                     new View.OnClickListener() {
                         @Override
                         public void onClick(View v) {
@@ -328,11 +372,13 @@ public class CreateMulti extends BaseActivityAnim {
 
         public class ViewHolder extends RecyclerView.ViewHolder {
             final TextView text;
+            final View remove;
 
             public ViewHolder(View itemView) {
                 super(itemView);
 
                 text = itemView.findViewById(R.id.name);
+                remove = itemView.findViewById(R.id.remove);
             }
         }
     }
@@ -341,6 +387,7 @@ public class CreateMulti extends BaseActivityAnim {
     public class SaveMulti extends AsyncTask<Void, Void, Void> {
         // Snapshot of the title field, read on the UI thread; doInBackground()
         // runs on a worker thread and must not touch Views directly.
+        @SuppressWarnings("NullAway.Init") // assigned in onPreExecute, before doInBackground runs
         private String titleText;
 
         @Override
@@ -352,30 +399,71 @@ public class CreateMulti extends BaseActivityAnim {
         protected Void doInBackground(Void... params) {
             try {
                 String multiName = titleText.replace(" ", "").replace("-", "_");
-                Pattern validName = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_]{2,20}$");
-                Matcher m = validName.matcher(multiName);
+                final String editing = old;
+                final boolean renamed = editing != null && !titleText.equals(originalTitle);
 
-                if (!m.matches()) {
-                    Log.v(LogUtil.getTag(), "Invalid multi name");
-                    throw new IllegalArgumentException(multiName);
+                // Only a new name has to pass: an edit that keeps the name saves under the one
+                // the multi already has, which can predate these rules.
+                if (editing == null || renamed) {
+                    Pattern validName = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_]{2,20}$");
+                    Matcher m = validName.matcher(multiName);
+
+                    if (!m.matches()) {
+                        Log.v(LogUtil.getTag(), "Invalid multi name");
+                        throw new IllegalArgumentException(multiName);
+                    }
                 }
-                if (old != null && !old.isEmpty() && !old.replace(" ", "").equals(multiName)) {
+                // Reddit's paths are case-insensitive, so a rename that only changes case keeps
+                // the path and changes the display name alone.
+                final boolean moved =
+                        editing != null && renamed && !editing.equalsIgnoreCase(multiName);
+                // An edit saves under the multi's own name; a rename moves it afterwards. In that
+                // order a failed save leaves the multi where the app still looks for it, where a
+                // rename that went through ahead of a rejected save left the main subreddit list
+                // and the overview pointing at a path that no longer existed.
+                final String saveAs = editing != null ? editing : multiName;
+                Log.v(LogUtil.getTag(), "Create or Update, Name: " + saveAs);
+                final MultiRedditManager manager = new MultiRedditManager(Authentication.reddit);
+                MultiRedditUpdateRequest.Builder request =
+                        new MultiRedditUpdateRequest.Builder(Authentication.name, saveAs)
+                                .subreddits(subs);
+                // Setting the display name to the name, as a multi created here gets, keeps the
+                // two in step: the main subreddit list builds a multi's path from its display
+                // name.
+                if (renamed && !moved) {
+                    request.displayName(multiName);
+                }
+                final MultiReddit saved = manager.createOrUpdate(request.build());
+                if (moved) {
+                    // Reddit has dropped /api/multi/rename (it now reads "rename" as the name of
+                    // a multi and answers 400), so a rename is the copy and delete that endpoint
+                    // used to do. The copy is refused with a 409 when the new name is taken,
+                    // before anything else changes. It appends "copied from" to the description
+                    // and can reset the visibility, so both are put back from the save above.
                     Log.v(LogUtil.getTag(), "Renaming");
-                    new MultiRedditManager(Authentication.reddit).rename(old, multiName);
+                    manager.copy(editing, multiName);
+                    manager.createOrUpdate(
+                            new MultiRedditUpdateRequest.Builder(Authentication.name, multiName)
+                                    .displayName(multiName)
+                                    .description(MiscUtil.orEmpty(saved.getDescription()))
+                                    .visibility(saved.getVisibility())
+                                    .build());
+                    manager.delete(editing);
                 }
-                Log.v(LogUtil.getTag(), "Create or Update, Name: " + multiName);
-                new MultiRedditManager(Authentication.reddit)
-                        .createOrUpdate(
-                                new MultiRedditUpdateRequest.Builder(Authentication.name, multiName)
-                                        .subreddits(subs)
-                                        .build());
+                // The display name MultiredditOverview reopens on.
+                final String reopen = editing != null && !renamed ? oldDisplayName : multiName;
                 runOnUiThread(
                         new Runnable() {
                             @Override
                             public void run() {
                                 Log.v(LogUtil.getTag(), "Update Subreddits");
-                                MultiredditOverview.multiActivity.finish();
-                                new UserSubscriptions.SyncMultireddits(CreateMulti.this).execute();
+                                if (renamed && oldDisplayName != null) {
+                                    UserSubscriptions.renameMultiInSubscriptions(
+                                            oldDisplayName, multiName);
+                                }
+                                finishOverview();
+                                new UserSubscriptions.SyncMultireddits(CreateMulti.this, reopen)
+                                        .execute();
                             }
                         });
                 runOnUiThread(
@@ -456,6 +544,43 @@ public class CreateMulti extends BaseActivityAnim {
         }
     }
 
+    /** Keeps the list in alphabetical order, whichever way its entries arrived. */
+    private void sortSubs() {
+        Collections.sort(subs, String.CASE_INSENSITIVE_ORDER);
+    }
+
+    /** Saves the multi, unless its name or subreddit list is empty. Save and Back both use it. */
+    private void save() {
+        if (title.getText().toString().isEmpty()) {
+            DialogUtil.showWithCardBackground(new AlertDialog.Builder(CreateMulti.this)
+                    .setTitle(R.string.multireddit_title_empty)
+                    .setMessage(R.string.multireddit_title_empty_msg)
+                    .setPositiveButton(
+                            R.string.btn_ok,
+                            (dialog, which) -> {
+                                dialog.dismiss();
+                                title.requestFocus();
+                            })
+                    );
+        } else if (subs.isEmpty()) {
+            DialogUtil.showWithCardBackground(new AlertDialog.Builder(CreateMulti.this)
+                    .setTitle(R.string.multireddit_no_subs)
+                    .setMessage(R.string.multireddit_no_subs_msg)
+                    .setPositiveButton(R.string.btn_ok, (dialog, which) -> dialog.dismiss())
+                    );
+        } else {
+            new SaveMulti().execute();
+        }
+    }
+
+    /** SyncMultireddits opens a fresh overview, so the one this screen was opened from goes. */
+    private static void finishOverview() {
+        final Activity overview = MultiredditOverview.multiActivity;
+        if (overview != null) {
+            overview.finish();
+        }
+    }
+
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         MenuInflater inflater = getMenuInflater();
@@ -477,7 +602,7 @@ public class CreateMulti extends BaseActivityAnim {
                         .setPositiveButton(
                                 R.string.btn_yes,
                                 (dialog, which) -> {
-                                    MultiredditOverview.multiActivity.finish();
+                                    finishOverview();
                                     new MaterialProgressDialog.Builder(CreateMulti.this)
                                             .title(R.string.deleting)
                                             .progress(true, 100)
@@ -530,26 +655,7 @@ public class CreateMulti extends BaseActivityAnim {
                         .setNegativeButton(R.string.btn_cancel, null));
             return true;
         } else if (itemId == R.id.save) {
-            if (title.getText().toString().isEmpty()) {
-                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(CreateMulti.this)
-                            .setTitle(R.string.multireddit_title_empty)
-                            .setMessage(R.string.multireddit_title_empty_msg)
-                            .setPositiveButton(
-                                    R.string.btn_ok,
-                                    (dialog, which) -> {
-                                        dialog.dismiss();
-                                        title.requestFocus();
-                                    })
-                            );
-                } else if (subs.isEmpty()) {
-                    DialogUtil.showWithCardBackground(new AlertDialog.Builder(CreateMulti.this)
-                            .setTitle(R.string.multireddit_no_subs)
-                            .setMessage(R.string.multireddit_no_subs_msg)
-                            .setPositiveButton(R.string.btn_ok, (dialog, which) -> dialog.dismiss())
-                            );
-            } else {
-                new SaveMulti().execute();
-            }
+            save();
             return true;
         } else if (itemId == android.R.id.home) {
             getOnBackPressedDispatcher().onBackPressed();

@@ -9,7 +9,9 @@ import androidx.appcompat.widget.SwitchCompat;
 
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class SettingsDataFragment {
 
     private final Activity context;
@@ -20,17 +22,17 @@ public class SettingsDataFragment {
 
     public void Bind() {
         final RelativeLayout datasavingDataSaveTypeLayout =
-                context.findViewById(R.id.settings_datasaving_datasavetype);
+                context.requireViewById(R.id.settings_datasaving_datasavetype);
         final TextView datasavingLowQualityView =
-                context.findViewById(R.id.settings_datasaving_lowquality);
+                context.requireViewById(R.id.settings_datasaving_lowquality);
 
         final RelativeLayout datasavingDataSaveQualityLayout =
-                context.findViewById(R.id.settings_datasaving_datasavequality);
+                context.requireViewById(R.id.settings_datasaving_datasavequality);
         final TextView datasavingCurrentModeView =
-                context.findViewById(R.id.settings_datasaving_currentmode);
+                context.requireViewById(R.id.settings_datasaving_currentmode);
 
         final SwitchCompat datasavingVideoQualitySwitch =
-                context.findViewById(R.id.settings_datasaving_videoquality);
+                context.requireViewById(R.id.settings_datasaving_videoquality);
 
         // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         // * Data saving mode */

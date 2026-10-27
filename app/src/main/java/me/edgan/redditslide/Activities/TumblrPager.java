@@ -28,9 +28,11 @@ import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.Toolbar;
 import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
 import androidx.viewpager.widget.ViewPager;
@@ -47,7 +49,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
-import me.edgan.redditslide.Adapters.ImageGridAdapterTumblr;
+import java.util.Locale;
+import me.edgan.redditslide.Adapters.ImageGridAdapter;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.Fragments.BlankFragment;
 import me.edgan.redditslide.Fragments.SubmissionsView;
@@ -57,6 +60,7 @@ import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SpoilerRobotoTextView;
 import me.edgan.redditslide.Tumblr.Photo;
+import me.edgan.redditslide.Tumblr.PhotoSize;
 import me.edgan.redditslide.Tumblr.TumblrUtils;
 import me.edgan.redditslide.Views.ExoVideoView;
 import me.edgan.redditslide.Views.ImageSource;
@@ -70,9 +74,11 @@ import me.edgan.redditslide.util.GifDrawable;
 import me.edgan.redditslide.util.GifUtils;
 import me.edgan.redditslide.util.ImageSaveUtils;
 import me.edgan.redditslide.util.LinkUtil;
+import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.SubmissionParser;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * Created by ccrama on 1/25/2016.
@@ -81,19 +87,20 @@ import me.edgan.redditslide.util.SubmissionParser;
  * RecyclerView (horizontal vs vertical). It also supports gifs and progress bars which Album.java
  * doesn't.
  */
+@NullMarked
 public class TumblrPager extends BaseSaveActivity {
 
     private static int adapterPosition;
     public static final String SUBREDDIT = "subreddit";
 
     // Add fields to store last save attempt
-    private String lastContentUrl;
+    @Nullable private String lastContentUrl;
     private int lastIndex = -1;
 
-    ViewPager p;
+    @Nullable ViewPager p;
 
-    public List<Photo> images;
-    public String subreddit;
+    @Nullable public List<Photo> images;
+    public String subreddit = "";
 
     private static final String TAG = "TumblrPager";
 
@@ -121,10 +128,10 @@ public class TumblrPager extends BaseSaveActivity {
             finish();
         }
         if (id == R.id.grid) {
-            mToolbar.findViewById(R.id.grid).callOnClick();
+            requireToolbar().requireViewById(R.id.grid).callOnClick();
         }
         if (id == R.id.external) {
-            LinkUtil.openExternally(getIntent().getExtras().getString("url", ""));
+            LinkUtil.openExternally(MiscUtil.orEmpty(getIntent().getStringExtra("url")));
         }
 
         if (id == R.id.comments) {
@@ -141,10 +148,17 @@ public class TumblrPager extends BaseSaveActivity {
             }
         }
 
-        if (id == R.id.download) {
+        if (id == R.id.download && images != null) {
             int index = 0;
             for (final Photo elem : images) {
-                doImageSave(false, elem.getOriginalSize().getUrl(), index);
+                // A photo whose JSON carried no original_size — or that Jackson left null for a null
+                // element in the photos array — has no url to save. index still advances so the
+                // saved files keep matching album positions: a gap in the numbering, rather than
+                // renumbering everything after the skip.
+                final String elemUrl = elem == null ? null : elem.getOriginalUrl();
+                if (elemUrl != null) {
+                    doImageSave(false, elemUrl, index);
+                }
                 index++;
             }
         }
@@ -152,7 +166,7 @@ public class TumblrPager extends BaseSaveActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    public void onCreate(Bundle savedInstanceState) {
+    @Override public void onCreate(@Nullable Bundle savedInstanceState) {
         overrideSwipeFromAnywhere();
         super.onCreate(savedInstanceState);
         getTheme()
@@ -166,17 +180,17 @@ public class TumblrPager extends BaseSaveActivity {
         // Keep the screen on
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        mToolbar = (Toolbar) findViewById(R.id.toolbar);
+        mToolbar = (Toolbar) requireViewById(R.id.toolbar);
         mToolbar.setTitle(R.string.type_tumblr);
         ToolbarColorizeHelper.colorizeToolbar(mToolbar, Color.WHITE, this);
         setSupportActionBar(mToolbar);
-        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        java.util.Objects.requireNonNull(getSupportActionBar()).setDisplayHomeAsUpEnabled(true);
         if (getIntent().hasExtra(SUBREDDIT)) {
-            this.subreddit = getIntent().getStringExtra(SUBREDDIT);
+            this.subreddit = MiscUtil.orEmpty(getIntent().getStringExtra(SUBREDDIT));
         }
 
         if (getIntent().hasExtra(EXTRA_SUBMISSION_TITLE)) {
-            this.submissionTitle = getIntent().getStringExtra(EXTRA_SUBMISSION_TITLE);
+            this.submissionTitle = MiscUtil.orEmpty(getIntent().getStringExtra(EXTRA_SUBMISSION_TITLE));
         }
 
         mToolbar.setPopupTheme(
@@ -184,7 +198,7 @@ public class TumblrPager extends BaseSaveActivity {
 
         adapterPosition = getIntent().getIntExtra(MediaView.ADAPTER_POSITION, -1);
 
-        String url = getIntent().getExtras().getString("url", "");
+        String url = MiscUtil.orEmpty(getIntent().getStringExtra("url"));
         new LoadIntoPager(url, this).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
@@ -206,21 +220,30 @@ public class TumblrPager extends BaseSaveActivity {
         }
 
         @Override
-        public void doWithData(final List<Photo> jsonElements) {
-            super.doWithData(jsonElements);
-            findViewById(R.id.progress).setVisibility(View.GONE);
+        public boolean doWithData(final @Nullable List<Photo> jsonElements) {
+            // A post with no photos has no pages to build; super has already sent this to onError(),
+            // which opens the link in the web view and finishes this activity, so there is nothing
+            // left to set up here either.
+            if (!super.doWithData(jsonElements)) {
+                return false;
+            }
+            requireViewById(R.id.progress).setVisibility(View.GONE);
             images = new ArrayList<>(jsonElements);
+            // Captured for the nested callbacks below: they run later, so NullAway cannot prove
+            // the fields are still set by then, and a local can.
+            final List<Photo> loadedImages = images;
 
-            p = (ViewPager) findViewById(R.id.images_horizontal);
+            p = (ViewPager) requireViewById(R.id.images_horizontal);
+            final ViewPager loadedPager = p;
 
             if (getSupportActionBar() != null) {
-                getSupportActionBar().setSubtitle(1 + "/" + images.size());
+                java.util.Objects.requireNonNull(getSupportActionBar()).setSubtitle(1 + "/" + loadedImages.size());
             }
 
             TumblrViewPagerAdapter adapter = new TumblrViewPagerAdapter(getSupportFragmentManager());
-            p.setAdapter(adapter);
+            loadedPager.setAdapter(adapter);
 
-            MiscUtil.setupOldSwipeModeBackground(TumblrPager.this, p);
+            MiscUtil.setupOldSwipeModeBackground(TumblrPager.this, loadedPager);
 
             int startPage = 0;
 
@@ -228,50 +251,50 @@ public class TumblrPager extends BaseSaveActivity {
                 startPage = 1;
             }
 
-            p.setCurrentItem(startPage);
+            loadedPager.setCurrentItem(startPage);
 
             p.post(
                     new Runnable() {
                         @Override
                         public void run() {
-                            if (images == null || images.isEmpty()) {
+                            if (loadedImages == null || loadedImages.isEmpty()) {
                                 // Don't attempt to load any positions if there are no images
                                 return;
                             }
 
                             // If there is more than one position, load both position 0 and 1.
                             if (adapter.getCount() > 1) {
-                                adapter.instantiateItem(p, 0);
-                                adapter.instantiateItem(p, 1);
+                                adapter.instantiateItem(loadedPager, 0);
+                                adapter.instantiateItem(loadedPager, 1);
                             } else {
                                 // Otherwise, only load position 0.
-                                adapter.instantiateItem(p, 0);
+                                adapter.instantiateItem(loadedPager, 0);
                             }
                         }
                     });
 
-            findViewById(R.id.grid)
+            requireViewById(R.id.grid)
                     .setOnClickListener(
                             new View.OnClickListener() {
                                 @Override
                                 public void onClick(View v) {
                                     LayoutInflater l = getLayoutInflater();
                                     View body = l.inflate(R.layout.album_grid_dialog, null, false);
-                                    GridView gridview = body.findViewById(R.id.images);
+                                    GridView gridview = body.requireViewById(R.id.images);
                                     gridview.setAdapter(
-                                            new ImageGridAdapterTumblr(TumblrPager.this, images));
+                                            new ImageGridAdapter(TumblrPager.this, loadedImages, true));
 
                                     final AlertDialog.Builder builder =
                                             new AlertDialog.Builder(TumblrPager.this).setView(body);
                                     final Dialog d = builder.create();
                                     gridview.setOnItemClickListener(
                                             new AdapterView.OnItemClickListener() {
-                                                public void onItemClick(
+                                                @Override public void onItemClick(
                                                         AdapterView<?> parent,
                                                         View v,
                                                         int position,
                                                         long id) {
-                                                    p.setCurrentItem(position + 1);
+                                                    loadedPager.setCurrentItem(position + 1);
                                                     d.dismiss();
                                                 }
                                             });
@@ -279,7 +302,7 @@ public class TumblrPager extends BaseSaveActivity {
                                     d.show();
                                 }
                             });
-            p.addOnPageChangeListener(
+            loadedPager.addOnPageChangeListener(
                     new ViewPager.SimpleOnPageChangeListener() {
                         @Override
                         public void onPageScrolled(
@@ -287,8 +310,8 @@ public class TumblrPager extends BaseSaveActivity {
                             if (SettingValues.oldSwipeMode) {
                                 if (position != 0) {
                                     if (getSupportActionBar() != null) {
-                                        getSupportActionBar()
-                                                .setSubtitle((position) + "/" + images.size());
+                                        java.util.Objects.requireNonNull(getSupportActionBar())
+                                                .setSubtitle((position) + "/" + loadedImages.size());
                                     }
                                 }
                                 if (position == 0 && positionOffset < 0.2) {
@@ -296,13 +319,14 @@ public class TumblrPager extends BaseSaveActivity {
                                 }
                             } else {
                                 if (getSupportActionBar() != null) {
-                                    getSupportActionBar()
-                                            .setSubtitle((position + 1) + "/" + images.size());
+                                    java.util.Objects.requireNonNull(getSupportActionBar())
+                                            .setSubtitle((position + 1) + "/" + loadedImages.size());
                                 }
                             }
                         }
                     });
             adapter.notifyDataSetChanged();
+            return true;
         }
     }
 
@@ -334,33 +358,34 @@ public class TumblrPager extends BaseSaveActivity {
                 i--;
             }
 
+            if (images == null) {
+                // The album never loaded. getCount already answers 0 on that path, so this is
+                // unreachable in practice; BlankFragment is what the oldSwipeMode branch above
+                // already uses for a page with nothing to show.
+                return new BlankFragment();
+            }
             Photo current = images.get(i);
 
-            try {
-                if (ContentType.isGif(new URI(current.getOriginalSize().getUrl()))) {
-                    // do gif stuff
-                    Fragment f = new Gif();
-                    Bundle args = new Bundle();
-                    args.putInt("page", i);
-                    f.setArguments(args);
-
-                    return f;
-                } else {
-                    Fragment f = new ImageFullNoSubmission();
-                    Bundle args = new Bundle();
-                    args.putInt("page", i);
-                    f.setArguments(args);
-
-                    return f;
+            // A photo with no original_size — or no photo at all, which Jackson leaves for a null
+            // element in the photos array — has no url to classify, and new URI(null) throws NPE
+            // rather than the URISyntaxException the catch below expects, so decide before parsing.
+            // The image page handles a missing url itself.
+            boolean isGif = false;
+            final String currentUrl = current == null ? null : current.getOriginalUrl();
+            if (currentUrl != null) {
+                try {
+                    isGif = ContentType.isGif(new URI(currentUrl));
+                } catch (URISyntaxException e) {
+                    LogUtil.e(e, "TumblrPager.URI failed");
                 }
-            } catch (URISyntaxException e) {
-                Fragment f = new ImageFullNoSubmission();
-                Bundle args = new Bundle();
-                args.putInt("page", i);
-                f.setArguments(args);
-
-                return f;
             }
+
+            Fragment f = isGif ? new Gif() : new ImageFullNoSubmission();
+            Bundle args = new Bundle();
+            args.putInt("page", i);
+            f.setArguments(args);
+
+            return f;
         }
 
         @Override
@@ -378,8 +403,7 @@ public class TumblrPager extends BaseSaveActivity {
 
     public static class Gif extends Fragment {
 
-        private int i = 0;
-        private View gif;
+        @Nullable private View gif;
         ViewGroup rootView;
         ProgressBar loader;
 
@@ -389,30 +413,39 @@ public class TumblrPager extends BaseSaveActivity {
             if (this.isVisible()) {
                 if (!isVisibleToUser) // If we are becoming invisible, then...
                 {
-                    ((ExoVideoView) gif).pause();
-                    gif.setVisibility(View.GONE);
+                    if (gif != null) {
+                        ((ExoVideoView) gif).pause();
+                        gif.setVisibility(View.GONE);
+                    }
                 }
 
                 if (isVisibleToUser) // If we are becoming visible, then...
                 {
-                    ((ExoVideoView) gif).play();
-                    gif.setVisibility(View.VISIBLE);
+                    if (gif != null) {
+                        ((ExoVideoView) gif).play();
+                        gif.setVisibility(View.VISIBLE);
+                    }
                 }
             }
         }
 
         @Override
-        public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-            Bundle bundle = this.getArguments();
+        public View onCreateView(
+            LayoutInflater inflater,
+            @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState) {
+            Bundle bundle = requireArguments();
             final int i = bundle.getInt("page", 0);
 
             rootView = (ViewGroup) inflater.inflate(R.layout.submission_gifcard_album, container, false);
-            loader = rootView.findViewById(R.id.gifprogress);
+            loader = rootView.requireViewById(R.id.gifprogress);
             final View videoView = rootView.findViewById(R.id.gif); // This is an ExoVideoView
 
-            final String url = ((TumblrPager) getActivity()).images.get(i).getOriginalSize().getUrl();
+            final List<Photo> albumImages = ((TumblrPager) requireActivity()).images;
+            final Photo photo = albumImages == null ? null : albumImages.get(i);
+            final String url = photo == null ? null : photo.getOriginalUrl();
 
-            if (url != null && url.toLowerCase().endsWith(".gif")) {
+            if (url != null && url.toLowerCase(Locale.ENGLISH).endsWith(".gif")) {
                 videoView.setVisibility(View.GONE); // Hide ExoVideoView
                 View playButton = rootView.findViewById(R.id.playbutton);
                 if (playButton != null) {
@@ -427,7 +460,7 @@ public class TumblrPager extends BaseSaveActivity {
                 layoutParams.addRule(RelativeLayout.CENTER_IN_PARENT, RelativeLayout.TRUE);
                 imageView.setLayoutParams(layoutParams);
 
-                RelativeLayout imageArea = rootView.findViewById(R.id.imagearea);
+                RelativeLayout imageArea = rootView.requireViewById(R.id.imagearea);
                 imageArea.addView(imageView); // Add ImageView to the layout
 
                 loader.setVisibility(View.VISIBLE);
@@ -492,7 +525,7 @@ public class TumblrPager extends BaseSaveActivity {
                             }
                         });
                     }
-                }, getContext(), null); // Pass null for submissionTitle if not available/needed here
+                }, requireContext(), null); // Pass null for submissionTitle if not available/needed here
 
                 ImageView rotateRight = rootView.findViewById(R.id.rotate_right);
                 ImageView rotateLeft = rootView.findViewById(R.id.rotate_left);
@@ -521,6 +554,14 @@ public class TumblrPager extends BaseSaveActivity {
                 final ExoVideoView v = (ExoVideoView) gif;
                 v.clearFocus();
 
+                // The layout ships the play button visible for the vertical list rows, which tap
+                // through to MediaView. This page plays inline and autostarts, so the button would
+                // just sit on top of the video, as it does in AlbumPager and RedditGallery.
+                View playButton = rootView.findViewById(R.id.playbutton);
+                if (playButton != null) {
+                    playButton.setVisibility(View.GONE);
+                }
+
                 ImageView muteButton = rootView.findViewById(R.id.mute);
                 if (muteButton != null) {
                     v.attachMuteButton(muteButton);
@@ -530,17 +571,7 @@ public class TumblrPager extends BaseSaveActivity {
                     v.attachHqButton(hqButton);
                 }
 
-                new GifUtils.AsyncLoadGif(
-                        getActivity(),
-                        rootView.findViewById(R.id.gif), // This is the ExoVideoView
-                        loader,
-                        null, // placeholder
-                        false, // closeIfNull
-                        true, // autostart
-                        rootView.findViewById(R.id.size),
-                        ((TumblrPager) getActivity()).subreddit,
-                        null) // Pass null for submissionTitle
-                        .execute(url);
+                loadVideo(rootView, requireActivity(), url, ((TumblrPager) requireActivity()).subreddit);
 
                 ImageView rotateRight = rootView.findViewById(R.id.rotate_right);
                 ImageView rotateLeft = rootView.findViewById(R.id.rotate_left);
@@ -552,55 +583,72 @@ public class TumblrPager extends BaseSaveActivity {
                 }
             }
 
-            rootView.findViewById(R.id.more)
-                    .setOnClickListener(
-                            new View.OnClickListener() {
-                                @Override
-                                public void onClick(View v) {
-                                    ((TumblrPager) getActivity())
-                                            .showBottomSheetImage(url, true, i);
-                                }
-                            });
-            rootView.findViewById(R.id.save)
-                    .setOnClickListener(
-                            new View.OnClickListener() {
-                                @Override
-                                public void onClick(View v) {
-                                    // Call the parent activity's save method
-                                    if (getActivity() instanceof TumblrPager) {
-                                        ((TumblrPager) getActivity()).doImageSave(true, url, i);
-                                    } else {
-                                        Log.e(TAG, "Parent activity is not TumblrPager, cannot save.");
-                                        // Optionally show a toast or dialog
+            // Both handlers are wired only when there is a url for them to act on: they capture it,
+            // and the bottom sheet and the saver both dereference what they are handed.
+            if (url != null) {
+                rootView.requireViewById(R.id.more)
+                        .setOnClickListener(
+                                new View.OnClickListener() {
+                                    @Override
+                                    public void onClick(View v) {
+                                        // A click can arrive after the page detaches.
+                                        final FragmentActivity activity = getActivity();
+                                        if (activity == null) {
+                                            return;
+                                        }
+                                        ((TumblrPager) activity)
+                                                .showBottomSheetImage(url, true, i);
                                     }
-                                }
-                            });
+                                });
+                rootView.requireViewById(R.id.save)
+                        .setOnClickListener(
+                                new View.OnClickListener() {
+                                    @Override
+                                    public void onClick(View v) {
+                                        // Call the parent activity's save method
+                                        if (getActivity() instanceof TumblrPager) {
+                                            ((TumblrPager) getActivity()).doImageSave(true, url, i);
+                                        } else {
+                                            Log.e(TAG, "Parent activity is not TumblrPager, cannot save.");
+                                            // Optionally show a toast or dialog
+                                        }
+                                    }
+                                });
+            } else {
+                rootView.requireViewById(R.id.more).setVisibility(View.GONE);
+                rootView.requireViewById(R.id.save).setVisibility(View.GONE);
+            }
 
             View comments = rootView.findViewById(R.id.comments);
             if (comments != null) {
-                if (getActivity().getIntent().hasExtra(MediaView.SUBMISSION_URL)) {
+                if (requireActivity().getIntent().hasExtra(MediaView.SUBMISSION_URL)) {
                     final int adapterPosition =
-                            getActivity()
+                            requireActivity()
                                     .getIntent()
                                     .getIntExtra(MediaView.ADAPTER_POSITION, -1);
                     final String submissionPermalink =
-                            getActivity()
+                            requireActivity()
                                     .getIntent()
                                     .getStringExtra(MediaView.SUBMISSION_URL);
                     final boolean openCommentsDirect =
-                            getActivity()
+                            requireActivity()
                                     .getIntent()
                                     .getBooleanExtra(
                                             MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
                     comments.setOnClickListener(v -> {
+                        // A detached fragment has no host here; there is nothing to act on.
+                        final FragmentActivity activity = getActivity();
+                        if (activity == null) {
+                            return;
+                        }
                         if (openCommentsDirect && submissionPermalink != null) {
                             OpenRedditLink.openUrl(
-                                    getActivity(),
+                                    activity,
                                     "https://reddit.com" + submissionPermalink,
                                     false);
-                            getActivity().finish();
+                            activity.finish();
                         } else {
-                            getActivity().finish();
+                            activity.finish();
                             SubmissionsView.datachanged(adapterPosition);
                         }
                     });
@@ -613,20 +661,18 @@ public class TumblrPager extends BaseSaveActivity {
         }
 
         @Override
-        public void onCreate(Bundle savedInstanceState) {
+        public void onCreate(@Nullable Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
-            Bundle bundle = this.getArguments();
-            i = bundle.getInt("page", 0);
         }
     }
 
     public void showBottomSheetImage(
-            final String contentUrl, final boolean isGif, final int index) {
+            final @Nullable String contentUrl, final boolean isGif, final int index) {
         LinkUtil.showImageLinkBottomSheet(
                 this, contentUrl, isGif, () -> doImageSave(isGif, contentUrl, index));
     }
 
-    public void doImageSave(boolean isGif, String contentUrl, int index) {
+    @Override public void doImageSave(boolean isGif, @Nullable String contentUrl, int index) {
         ImageSaveUtils.doImageSave(
                 this,
                 isGif,
@@ -657,20 +703,31 @@ public class TumblrPager extends BaseSaveActivity {
 
         @Override
         public View onCreateView(
-                LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+            LayoutInflater inflater,
+            @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState) {
             final ViewGroup rootView =
                     (ViewGroup) inflater.inflate(R.layout.album_image_pager, container, false);
 
-            final Photo current = ((TumblrPager) getActivity()).images.get(i);
-            final String url = current.getOriginalSize().getUrl();
+            final List<Photo> albumPhotos = ((TumblrPager) requireActivity()).images;
+            final Photo current = albumPhotos == null ? null : albumPhotos.get(i);
+            final String url = current == null ? null : current.getOriginalUrl();
+            final List<PhotoSize> altSizes = current == null ? null : current.getAltSizes();
             boolean lq = false;
+            String lqurl = null;
             if (SettingValues.loadImageLq
                     && (SettingValues.lowResAlways
-                            || (!NetworkUtil.isConnectedWifi(getActivity())
+                            || (!NetworkUtil.isConnectedWifi(requireActivity())
                                     && SettingValues.lowResMobile))
-                    && current.getAltSizes() != null
-                    && !current.getAltSizes().isEmpty()) {
-                String lqurl = current.getAltSizes().get(current.getAltSizes().size() / 2).getUrl();
+                    && altSizes != null
+                    && !altSizes.isEmpty()) {
+                lqurl = ImageGridAdapter.sizeUrl(altSizes, altSizes.size() / 2);
+            }
+            // A null here is a missing alt size, not a missing setting: the chosen entry can be
+            // absent from the array or carry no url. Load the original rather than nothing, and
+            // leave lq false so the full-quality reload below is not queued for an image that is
+            // already at full quality.
+            if (lqurl != null) {
                 loadImage(rootView, this, lqurl);
                 lq = true;
             } else {
@@ -678,28 +735,38 @@ public class TumblrPager extends BaseSaveActivity {
             }
 
             {
-                rootView.findViewById(R.id.more)
+                rootView.requireViewById(R.id.more)
                         .setOnClickListener(
                                 new View.OnClickListener() {
                                     @Override
                                     public void onClick(View v) {
-                                        ((TumblrPager) getActivity())
+                                        // A click can arrive after the page detaches.
+                                        final FragmentActivity activity = getActivity();
+                                        if (activity == null) {
+                                            return;
+                                        }
+                                        ((TumblrPager) activity)
                                                 .showBottomSheetImage(url, false, i);
                                     }
                                 });
                 {
-                    rootView.findViewById(R.id.save)
+                    rootView.requireViewById(R.id.save)
                             .setOnClickListener(
                                     new View.OnClickListener() {
 
                                         @Override
                                         public void onClick(View v2) {
-                                            ((TumblrPager) getActivity())
+                                            // A click can arrive after the page detaches.
+                                            final FragmentActivity activity = getActivity();
+                                            if (activity == null) {
+                                                return;
+                                            }
+                                            ((TumblrPager) activity)
                                                     .doImageSave(false, url, i);
                                         }
                                     });
                     if (!SettingValues.imageDownloadButton) {
-                        rootView.findViewById(R.id.save).setVisibility(View.INVISIBLE);
+                        rootView.requireViewById(R.id.save).setVisibility(View.INVISIBLE);
                     }
                 }
             }
@@ -707,43 +774,46 @@ public class TumblrPager extends BaseSaveActivity {
                 String title = "";
                 String description = "";
 
-                if (current.getCaption() != null) {
+                if (current != null && current.getCaption() != null) {
                     List<String> text = SubmissionParser.getBlocks(current.getCaption());
-                    description = text.get(0).trim();
+                    // A caption can parse to no blocks at all, and indexing one that did threw
+                    // inside onCreateView. An empty description leaves the panel hidden below,
+                    // which is what a caption with nothing in it should look like.
+                    description = text.isEmpty() ? "" : text.get(0).trim();
                 }
                 if (title.isEmpty() && description.isEmpty()) {
-                    rootView.findViewById(R.id.panel).setVisibility(View.GONE);
-                    (rootView.findViewById(R.id.margin)).setPadding(0, 0, 0, 0);
+                    rootView.requireViewById(R.id.panel).setVisibility(View.GONE);
+                    (rootView.requireViewById(R.id.margin)).setPadding(0, 0, 0, 0);
                 } else if (title.isEmpty()) {
-                    LinkUtil.setTextWithLinks(description, rootView.findViewById(R.id.title));
+                    LinkUtil.setTextWithLinks(description, rootView.requireViewById(R.id.title));
                 } else {
-                    LinkUtil.setTextWithLinks(title, rootView.findViewById(R.id.title));
-                    LinkUtil.setTextWithLinks(description, rootView.findViewById(R.id.body));
+                    LinkUtil.setTextWithLinks(title, rootView.requireViewById(R.id.title));
+                    LinkUtil.setTextWithLinks(description, rootView.requireViewById(R.id.body));
                 }
                 {
-                    int type = new FontPreferences(getContext()).getFontTypeComment().getTypeface();
+                    int type = new FontPreferences(requireContext()).getFontTypeComment().getTypeface();
                     Typeface typeface;
                     if (type >= 0) {
-                        typeface = RobotoTypefaces.obtainTypeface(getContext(), type);
+                        typeface = RobotoTypefaces.obtainTypeface(requireContext(), type);
                     } else {
                         typeface = Typeface.DEFAULT;
                     }
-                    ((SpoilerRobotoTextView) rootView.findViewById(R.id.body))
+                    ((SpoilerRobotoTextView) rootView.requireViewById(R.id.body))
                             .setTypeface(typeface);
                 }
                 {
-                    int type = new FontPreferences(getContext()).getFontTypeTitle().getTypeface();
+                    int type = new FontPreferences(requireContext()).getFontTypeTitle().getTypeface();
                     Typeface typeface;
                     if (type >= 0) {
-                        typeface = RobotoTypefaces.obtainTypeface(getContext(), type);
+                        typeface = RobotoTypefaces.obtainTypeface(requireContext(), type);
                     } else {
                         typeface = Typeface.DEFAULT;
                     }
-                    ((SpoilerRobotoTextView) rootView.findViewById(R.id.title))
+                    ((SpoilerRobotoTextView) rootView.requireViewById(R.id.title))
                             .setTypeface(typeface);
                 }
-                final SlidingUpPanelLayout l = rootView.findViewById(R.id.sliding_layout);
-                rootView.findViewById(R.id.title)
+                final SlidingUpPanelLayout l = rootView.requireViewById(R.id.sliding_layout);
+                rootView.requireViewById(R.id.title)
                         .setOnClickListener(
                                 new View.OnClickListener() {
                                     @Override
@@ -751,7 +821,7 @@ public class TumblrPager extends BaseSaveActivity {
                                         l.setPanelState(SlidingUpPanelLayout.PanelState.EXPANDED);
                                     }
                                 });
-                rootView.findViewById(R.id.body)
+                rootView.requireViewById(R.id.body)
                         .setOnClickListener(
                                 new View.OnClickListener() {
                                     @Override
@@ -797,11 +867,11 @@ public class TumblrPager extends BaseSaveActivity {
                 rootView.findViewById(R.id.hq).setVisibility(View.GONE);
             }
 
-            if (getActivity().getIntent().hasExtra(MediaView.SUBMISSION_URL)) {
+            if (requireActivity().getIntent().hasExtra(MediaView.SUBMISSION_URL)) {
                 final String submissionPermalink =
-                        getActivity().getIntent().getStringExtra(MediaView.SUBMISSION_URL);
+                        requireActivity().getIntent().getStringExtra(MediaView.SUBMISSION_URL);
                 final boolean openCommentsDirect =
-                        getActivity()
+                        requireActivity()
                                 .getIntent()
                                 .getBooleanExtra(MediaView.EXTRA_OPEN_COMMENTS_DIRECT, false);
                 rootView.findViewById(R.id.comments)
@@ -809,14 +879,19 @@ public class TumblrPager extends BaseSaveActivity {
                                 new View.OnClickListener() {
                                     @Override
                                     public void onClick(View v) {
+                                        // A detached fragment has no host here; there is nothing to act on.
+                                        final FragmentActivity activity = getActivity();
+                                        if (activity == null) {
+                                            return;
+                                        }
                                         if (openCommentsDirect && submissionPermalink != null) {
                                             OpenRedditLink.openUrl(
-                                                    getActivity(),
+                                                    activity,
                                                     "https://reddit.com" + submissionPermalink,
                                                     false);
-                                            getActivity().finish();
+                                            activity.finish();
                                         } else {
-                                            getActivity().finish();
+                                            activity.finish();
                                             SubmissionsView.datachanged(adapterPosition);
                                         }
                                     }
@@ -836,9 +911,9 @@ public class TumblrPager extends BaseSaveActivity {
         }
 
         @Override
-        public void onCreate(Bundle savedInstanceState) {
+        public void onCreate(@Nullable Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
-            Bundle bundle = this.getArguments();
+            Bundle bundle = requireArguments();
             i = bundle.getInt("page", 0);
             if (savedInstanceState != null) {
                 currentRotation = savedInstanceState.getInt("currentRotation", 0);
@@ -882,15 +957,22 @@ public class TumblrPager extends BaseSaveActivity {
 
                         // Reload the image
                         final Photo current = activity.images.get(i);
-                        final String url = current.getOriginalSize().getUrl();
+                        final String url = current == null ? null : current.getOriginalUrl();
+                        final List<PhotoSize> altSizes =
+                                current == null ? null : current.getAltSizes();
 
+                        String lqurl = null;
                         if (SettingValues.loadImageLq
                                 && (SettingValues.lowResAlways
                                         || (!NetworkUtil.isConnectedWifi(activity)
                                                 && SettingValues.lowResMobile))
-                                && current.getAltSizes() != null
-                                && !current.getAltSizes().isEmpty()) {
-                            String lqurl = current.getAltSizes().get(current.getAltSizes().size() / 2).getUrl();
+                                && altSizes != null
+                                && !altSizes.isEmpty()) {
+                            lqurl = ImageGridAdapter.sizeUrl(altSizes, altSizes.size() / 2);
+                        }
+                        // Null when the chosen alt size is absent or carries no url; load the
+                        // original rather than nothing.
+                        if (lqurl != null) {
                             loadImage(rootView, ImageFullNoSubmission.this, lqurl);
                         } else {
                             loadImage(rootView, ImageFullNoSubmission.this, url);
@@ -901,16 +983,80 @@ public class TumblrPager extends BaseSaveActivity {
         }
     }
 
-    private static void loadImage(final View rootView, Fragment f, String url) {
+    /**
+     * Loads one page's video, or stands the page down when the photo has no url to load.
+     *
+     * <p>Package-private so its no-url case can be tested; the Gif fragment is the only caller.
+     *
+     * <p>Nothing on this page keeps a null out: it reads its own url null-tolerantly, and the only
+     * thing routing a photo with no original_size to the image page instead is a decision made in
+     * another class ({@code TumblrViewPagerAdapter.getItem}). That guard is real but remote, and
+     * AsyncLoadGif dereferences the url before it does anything else — {@code formatUrl}'s first
+     * statement is {@code s.endsWith("v")} — on its worker thread, where the NPE is uncaught and
+     * takes the process down rather than reaching {@code onError()}.
+     */
+    static void loadVideo(
+            final View rootView,
+            final Activity host,
+            final @Nullable String url,
+            final @Nullable String subreddit) {
+        final ProgressBar loader = rootView.requireViewById(R.id.gifprogress);
+        final TextView size = rootView.requireViewById(R.id.size);
+        if (url == null) {
+            LogUtil.e("TumblrPager: no url for this video page");
+            // Both are visible in submission_gifcard_album.xml and only ever hidden by a load
+            // completing, so a page that never starts one has to hide them itself.
+            loader.setVisibility(View.GONE);
+            size.setVisibility(View.GONE);
+            return;
+        }
+        new GifUtils.AsyncLoadGif(
+                        host,
+                        rootView.findViewById(R.id.gif), // This is the ExoVideoView
+                        loader,
+                        false, // closeIfNull
+                        true, // autostart
+                        size,
+                        subreddit,
+                        null) // Pass null for submissionTitle
+                .execute(url);
+    }
+
+    /**
+     * Loads one page's image.
+     *
+     * <p>Package-private so its no-url case can be tested; every caller is in this class.
+     *
+     * <p>A page can have no url to load: a Tumblr photo may carry no original_size at all, and the
+     * chosen alt size may carry none of its own. Returning early is not cosmetic — the image loader
+     * treats a null or empty uri as a completed load and calls onLoadingComplete with a null bitmap,
+     * which ImageSource.bitmap rejects by throwing. That throw comes back out of the listener on the
+     * main thread, inside the fragment's onCreateView, so paging onto such a photo took the app down
+     * rather than showing an empty page.
+     */
+    static void loadImage(final View rootView, Fragment f, @Nullable String url) {
         final SubsamplingScaleImageView image = rootView.findViewById(R.id.image);
         image.setMinimumDpi(70);
         image.setMinimumTileDpi(240);
-        ImageView fakeImage = new ImageView(f.getActivity());
-        final TextView size = rootView.findViewById(R.id.size);
+        final TextView size = rootView.requireViewById(R.id.size);
+        // A detached page has no Application to reach the image loader through, so nothing will
+        // load — the same outcome as having no url, and it has to stop waiting the same way
+        // rather than leave the spinner running. The guard sits after the view lookups on
+        // purpose: the test for the no-url case drives this with a hostless Fragment.
+        final FragmentActivity activity = f.getActivity();
+        if (url == null || url.isEmpty() || activity == null) {
+            LogUtil.e("TumblrPager: no url for this page");
+            // Both of these are visible in album_image_pager.xml and only ever hidden by a load
+            // completing, so a page that never loads has to hide them itself.
+            size.setVisibility(View.GONE);
+            rootView.requireViewById(R.id.progress).setVisibility(View.GONE);
+            return;
+        }
+        ImageView fakeImage = new ImageView(activity);
         fakeImage.setLayoutParams(
                 new LinearLayout.LayoutParams(image.getWidth(), image.getHeight()));
         fakeImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        ((Reddit) f.getActivity().getApplication())
+        ((Reddit) activity.getApplication())
                 .getImageLoader()
                 .displayImage(
                         url,
@@ -924,26 +1070,34 @@ public class TumblrPager extends BaseSaveActivity {
                         new ImageLoadingListener() {
 
                             @Override
-                            public void onLoadingStarted(String imageUri, View view) {
+                            public void onLoadingStarted(@Nullable String imageUri, @Nullable View view) {
                                 size.setVisibility(View.VISIBLE);
                             }
 
                             @Override
                             public void onLoadingFailed(
-                                    String imageUri, View view, FailReason failReason) {
+                                    String imageUri, @Nullable View view, FailReason failReason) {
                                 Log.v("Slide", "TumblrPager: LOADING FAILED");
                             }
 
                             @Override
                             public void onLoadingComplete(
-                                    String imageUri, View view, Bitmap loadedImage) {
+                                    @Nullable String imageUri, @Nullable View view, @Nullable Bitmap loadedImage) {
                                 size.setVisibility(View.GONE);
+                                if (loadedImage == null) {
+                                    // A completed load with no bitmap: the loader reports an unusable
+                                    // uri that way. ImageSource.bitmap throws on a null, so there is
+                                    // nothing to show and nothing to hand it.
+                                    (rootView.requireViewById(R.id.progress))
+                                            .setVisibility(View.GONE);
+                                    return;
+                                }
                                 image.loader.setImage(ImageSource.bitmap(loadedImage));
-                                (rootView.findViewById(R.id.progress)).setVisibility(View.GONE);
+                                (rootView.requireViewById(R.id.progress)).setVisibility(View.GONE);
                             }
 
                             @Override
-                            public void onLoadingCancelled(String imageUri, View view) {
+                            public void onLoadingCancelled(String imageUri, @Nullable View view) {
                                 Log.v("Slide", "TumblrPager: LOADING CANCELLED");
                             }
                         },
@@ -953,7 +1107,7 @@ public class TumblrPager extends BaseSaveActivity {
                                     String imageUri, View view, int current, int total) {
                                 size.setText(FileUtil.readableFileSize(total));
 
-                                ((ProgressBar) rootView.findViewById(R.id.progress))
+                                ((ProgressBar) rootView.requireViewById(R.id.progress))
                                         .setProgress(Math.round(100.0f * current / total));
                             }
                         });

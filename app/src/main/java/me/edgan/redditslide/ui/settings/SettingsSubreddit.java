@@ -7,6 +7,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.view.ContextThemeWrapper;
 import android.view.View;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -30,16 +31,19 @@ import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.MaterialProgressDialog;
 import me.edgan.redditslide.util.MiscUtil;
 import net.dean.jraw.models.Subreddit;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 3/5/2015. */
+@NullMarked
 public class SettingsSubreddit extends BaseActivityAnim {
+    @SuppressWarnings("NullAway.Init") // built in onCreate
     public SettingsSubAdapter mSettingsSubAdapter;
     ArrayList<String> changedSubs = new ArrayList<>();
 
     private RecyclerView recycler;
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 2) {
             Intent i = new Intent(SettingsSubreddit.this, SettingsSubreddit.class);
@@ -55,7 +59,7 @@ public class SettingsSubreddit extends BaseActivityAnim {
     int done;
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         applyColorTheme();
         setContentView(R.layout.activity_settings_subreddit);
@@ -66,12 +70,12 @@ public class SettingsSubreddit extends BaseActivityAnim {
 
         setupAppBar(R.id.toolbar, R.string.title_subreddit_settings, true, true);
 
-        recycler = ((RecyclerView) findViewById(R.id.subslist));
+        recycler = ((RecyclerView) requireViewById(R.id.subslist));
         recycler.setLayoutManager(new LinearLayoutManager(this));
 
         reloadSubList();
 
-        findViewById(R.id.reset)
+        requireViewById(R.id.reset)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -86,7 +90,7 @@ public class SettingsSubreddit extends BaseActivityAnim {
                                                         Palette.removeColor(s);
                                                         SettingValues.prefs
                                                                 .edit()
-                                                                .remove(Reddit.PREF_LAYOUT + s)
+                                                                .remove(Reddit.getLayoutPrefKey(s))
                                                                 .apply();
                                                         new ColorPreferences(SettingsSubreddit.this)
                                                                 .removeFontStyle(s);
@@ -98,7 +102,7 @@ public class SettingsSubreddit extends BaseActivityAnim {
                                         );
                             }
                         });
-        findViewById(R.id.post_floating_action_button)
+        requireViewById(R.id.post_floating_action_button)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -142,7 +146,7 @@ public class SettingsSubreddit extends BaseActivityAnim {
                                         .show();
                             }
                         });
-        findViewById(R.id.color)
+        requireViewById(R.id.color)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -183,26 +187,27 @@ public class SettingsSubreddit extends BaseActivityAnim {
                                                                                     .has(
                                                                                             "key_color")
                                                                             && !s.getDataNode()
-                                                                                    .get(
+                                                                                    .path(
                                                                                             "key_color")
                                                                                     .asText()
                                                                                     .isEmpty()
                                                                             && Palette.getColor(
-                                                                                            s.getDisplayName()
+                                                                                            MiscUtil.orEmpty(s.getDisplayName())
                                                                                                     .toLowerCase(
                                                                                                             Locale
                                                                                                                     .ENGLISH))
                                                                                     == Palette
                                                                                             .getDefaultColor()) {
                                                                         Palette.setColor(
-                                                                                s.getDisplayName()
+                                                                                MiscUtil.orEmpty(
+                                                                                                s.getDisplayName())
                                                                                         .toLowerCase(
                                                                                                 Locale
                                                                                                         .ENGLISH),
                                                                                 GetClosestColor
                                                                                         .getClosestColor(
                                                                                                 s.getDataNode()
-                                                                                                        .get(
+                                                                                                        .path(
                                                                                                                 "key_color")
                                                                                                         .asText(),
                                                                                                 SettingsSubreddit
@@ -251,12 +256,14 @@ public class SettingsSubreddit extends BaseActivityAnim {
                                             .setNegativeButton(R.string.btn_cancel, null)
                                             );
                                 } else {
-                                    Snackbar s =
-                                            Snackbar.make(
-                                                    mToolbar,
-                                                    R.string.err_color_sync_login,
-                                                    Snackbar.LENGTH_SHORT);
-                                    LayoutUtils.showSnackbar(s);
+                                    if (mToolbar != null) {
+                                        Snackbar s =
+                                                Snackbar.make(
+                                                        mToolbar,
+                                                        R.string.err_color_sync_login,
+                                                        Snackbar.LENGTH_SHORT);
+                                        LayoutUtils.showSnackbar(s);
+                                    }
                                 }
                             }
                         });
@@ -272,7 +279,7 @@ public class SettingsSubreddit extends BaseActivityAnim {
 
         for (String s : allSubs) {
             if (Palette.getColor(s) != Palette.getDefaultColor()
-                    || SettingValues.prefs.contains(Reddit.PREF_LAYOUT + s)
+                    || SettingValues.prefs.contains(Reddit.getLayoutPrefKey(s))
                     || colorPrefs.getFontStyleSubreddit(s).getColor() != defaultFont
                     || SettingValues.prefs.contains(
                             "picsenabled" + s.toLowerCase(Locale.ENGLISH))) {
@@ -283,7 +290,7 @@ public class SettingsSubreddit extends BaseActivityAnim {
         mSettingsSubAdapter = new SettingsSubAdapter(this, changedSubs);
         recycler.setAdapter(mSettingsSubAdapter);
         final FloatingActionButton fab =
-                (FloatingActionButton) findViewById(R.id.post_floating_action_button);
+                (FloatingActionButton) requireViewById(R.id.post_floating_action_button);
         recycler.addOnScrollListener(
                 new RecyclerView.OnScrollListener() {
                     @Override

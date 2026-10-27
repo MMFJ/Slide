@@ -24,11 +24,13 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.view.ContextThemeWrapper;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.view.MarginLayoutParamsCompat;
 import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
 import androidx.interpolator.view.animation.LinearOutSlowInInterpolator;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
@@ -38,10 +40,14 @@ import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textfield.TextInputLayout;
 import com.mikepenz.itemanimators.AlphaInAnimator;
 import com.mikepenz.itemanimators.SlideUpAlphaAnimator;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import me.edgan.redditslide.Activities.BaseActivity;
 import me.edgan.redditslide.Activities.MainActivity;
+import me.edgan.redditslide.Activities.MegaredditOverview;
 import me.edgan.redditslide.Activities.MultiredditOverview;
 import me.edgan.redditslide.Activities.Search;
 import me.edgan.redditslide.Activities.Submit;
@@ -51,7 +57,9 @@ import me.edgan.redditslide.Adapters.SubmissionDisplay;
 import me.edgan.redditslide.Adapters.SubredditPosts;
 import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.HasSeen;
+import me.edgan.redditslide.HibernateState;
 import me.edgan.redditslide.Hidden;
+import me.edgan.redditslide.Megareddits;
 import me.edgan.redditslide.OfflineSubreddit;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
@@ -63,14 +71,39 @@ import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.handler.ToolbarScrollHideHandler;
 import me.edgan.redditslide.util.LayoutUtils;
+import me.edgan.redditslide.util.MiscUtil;
+import me.edgan.redditslide.util.PhotoLoader;
+import me.edgan.redditslide.util.ScrollAnchor;
 import net.dean.jraw.models.MultiReddit;
 import net.dean.jraw.models.Submission;
 
 public class SubmissionsView extends Fragment implements SubmissionDisplay {
+    /**
+     * Fragment arguments that turn this page into a restore: rebuild the listing from the cache
+     * instead of fetching it, and land on the row the user left off at. Set by
+     * {@code MainActivity.applyRestoreArgs} for exactly one page, so the offscreen neighbour a
+     * page limit of 1 also builds is loaded normally.
+     */
+    public static final String ARG_RESTORE_FROM_CACHE = "restoreFromCache";
+
+    public static final String ARG_RESTORE_ANCHOR_ID = "restoreAnchorId";
+    public static final String ARG_RESTORE_ANCHOR_POSITION = "restoreAnchorPosition";
+    public static final String ARG_RESTORE_ANCHOR_OFFSET = "restoreAnchorOffset";
+    public static final String ARG_RESTORE_EXPECTED_COUNT = "restoreExpectedCount";
+    public static final String ARG_RESTORE_AFTER_TOKEN = "restoreAfterToken";
+    public static final String ARG_RESTORE_TOOLBAR_HIDDEN = "restoreToolbarHidden";
+    public static final String ARG_RESTORE_FAB_HIDDEN = "restoreFabHidden";
+
     private static int adapterPosition;
     private static int currentPosition;
+    // posts, rv and adapter are all built in onCreateView, before any callback below can run.
+    @SuppressWarnings("NullAway.Init")
     public SubredditPosts posts;
+
+    @SuppressWarnings("NullAway.Init") // assigned in onConfigurationChanged
     public RecyclerView rv;
+
+    @SuppressWarnings("NullAway.Init") // assigned in doAdapter
     public SubmissionAdapter adapter;
     public String id;
     public boolean main;
@@ -81,9 +114,29 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
     private int visibleItemCount;
     private int pastVisiblesItems;
     private int totalItemCount;
+    // Scroll-aware prefetch: highest posts.posts index whose image we've already warmed ahead of the
+    // viewport. Monotonic while scrolling down; reset to -1 in updateSuccess when a refresh/reset
+    // replaces the list.
+    private int highestWarmedAhead = -1;
+    // Tap-target prefetch: full-names whose full-resolution image (the URL the media viewer opens on
+    // tap) we've already warmed, so a settle-sweep doesn't re-warm the same visible rows on every
+    // micro-stop. Cleared in updateSuccess when a refresh/reset replaces the list.
+    private final Set<String> warmedTapTargets = new HashSet<>();
     private SwipeRefreshLayout mSwipeRefreshLayout;
-    private static Submission currentSubmission;
+    @Nullable private static Submission currentSubmission;
     private int lastRotationAnchor = RecyclerView.NO_POSITION;
+
+    /** True until this page's one restore has been applied; see the ARG_RESTORE_* keys above. */
+    private boolean restoreFromCache;
+
+    @Nullable private String restoreAnchorId;
+    private int restoreAnchorPosition = ScrollAnchor.NO_POSITION;
+    private int restoreAnchorOffset;
+    private int restoreExpectedCount;
+
+    @Nullable private String restoreAfterToken;
+    private boolean restoreToolbarHidden;
+    private boolean restoreFabHidden;
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
@@ -91,9 +144,13 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
 
         final int currentOrientation = newConfig.orientation;
 
-        final CatchStaggeredGridLayoutManager mLayoutManager = (CatchStaggeredGridLayoutManager) rv.getLayoutManager();
+        final CatchStaggeredGridLayoutManager mLayoutManager =
+                (CatchStaggeredGridLayoutManager) rv.getLayoutManager();
+        if (mLayoutManager == null) {
+            return;
+        }
 
-        final int newSpan = LayoutUtils.getNumColumns(currentOrientation, getActivity());
+        final int newSpan = LayoutUtils.getNumColumns(currentOrientation, requireActivity());
         final int paddingTop = rv.getPaddingTop();
 
         // Pick the anchor: the topmost partially-visible child (smallest top among children
@@ -179,73 +236,88 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
         mLayoutManager.setSpanCount(newSpan);
     }
 
-    Runnable mLongPressRunnable;
-    GestureDetector detector = new GestureDetector(getActivity(), new GestureDetector.SimpleOnGestureListener());
+    @Nullable Runnable mLongPressRunnable;
+    GestureDetector detector =
+            new GestureDetector(getActivity(), new GestureDetector.SimpleOnGestureListener());
     float origY;
 
     @Override
     public View onCreateView(
-            LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+            LayoutInflater inflater,
+            @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState) {
 
-        final Context contextThemeWrapper = new ContextThemeWrapper(
-                getActivity(),
-                new ColorPreferences(inflater.getContext()).getThemeSubreddit(id));
-        final View v = LayoutInflater.from(contextThemeWrapper)
-                .inflate(R.layout.fragment_verticalcontent, container, false);
+        final Context contextThemeWrapper =
+                new ContextThemeWrapper(
+                        getActivity(),
+                        new ColorPreferences(inflater.getContext()).getThemeSubreddit(id));
+        final View v =
+                LayoutInflater.from(contextThemeWrapper)
+                        .inflate(R.layout.fragment_verticalcontent, container, false);
 
         if (getActivity() instanceof MainActivity) {
-            v.findViewById(R.id.back).setBackgroundResource(0);
+            v.requireViewById(R.id.back).setBackgroundResource(0);
         }
-        rv = v.findViewById(R.id.vertical_content);
+        rv = v.requireViewById(R.id.vertical_content);
+
+        // Initial-display sweep: warm visible cards' tap targets once the first page is laid out,
+        // before any scroll, so a card already on screen is prefetched without needing a scroll. The
+        // settle-sweep takes over once the user scrolls.
+        PhotoLoader.warmVisibleTapTargetsOnFirstLayout(
+                rv,
+                () -> posts != null && posts.posts != null && !posts.posts.isEmpty(),
+                this::warmVisibleTapTargets);
 
         rv.setHasFixedSize(true);
         // Keep a few extra off-screen views bound so a short scroll-back reuses them
         // (with their images already attached) instead of rebinding/reloading.
         rv.setItemViewCacheSize(Constants.FEED_VIEW_CACHE_SIZE);
 
-        final RecyclerView.LayoutManager mLayoutManager = createLayoutManager(
-                LayoutUtils.getNumColumns(
-                        getResources().getConfiguration().orientation, getActivity()));
+        final RecyclerView.LayoutManager mLayoutManager =
+                createLayoutManager(
+                        LayoutUtils.getNumColumns(
+                                getResources().getConfiguration().orientation, requireActivity()));
 
         if (!(getActivity() instanceof SubredditView)) {
-            v.findViewById(R.id.back).setBackground(null);
+            v.requireViewById(R.id.back).setBackground(null);
         }
         rv.setLayoutManager(mLayoutManager);
         rv.setItemAnimator(
                 new SlideUpAlphaAnimator().withInterpolator(new LinearOutSlowInInterpolator()));
-        rv.getLayoutManager().scrollToPosition(0);
+        if (!restoreFromCache) {
+            // A restore lands on the row the user left off at, and scrollToPosition here would set
+            // a pending scroll that the first layout resolves to the top before it can.
+            mLayoutManager.scrollToPosition(0);
+        }
 
         mSwipeRefreshLayout = v.findViewById(R.id.activity_main_swipe_refresh_layout);
-        mSwipeRefreshLayout.setColorSchemeColors(Palette.getColors(id, getContext()));
+        mSwipeRefreshLayout.setColorSchemeColors(Palette.getColors(id, requireContext()));
 
         /**
-         * If using List view mode, we need to remove the start margin from the
-         * SwipeRefreshLayout.
-         * The scrollbar style of "outsideInset" creates a 4dp padding around it. To
-         * counter this,
-         * change the scrollbar style to "insideOverlay" when list view is enabled. To
-         * recap: this
+         * If using List view mode, we need to remove the start margin from the SwipeRefreshLayout.
+         * The scrollbar style of "outsideInset" creates a 4dp padding around it. To counter this,
+         * change the scrollbar style to "insideOverlay" when list view is enabled. To recap: this
          * removes the margins from the start/end so list view is full-width.
          */
         if (SettingValues.defaultCardView == CreateCardView.CardEnum.LIST) {
-            RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT);
+            RelativeLayout.LayoutParams params =
+                    new RelativeLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT);
             MarginLayoutParamsCompat.setMarginStart(params, 0);
             rv.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
             mSwipeRefreshLayout.setLayoutParams(params);
         }
 
         /**
-         * If we use 'findViewById(R.id.header).getMeasuredHeight()', 0 is always
-         * returned. So, we
-         * estimate the height of the header in dp. If the view type is "single" (and
-         * therefore
+         * If we use 'findViewById(R.id.header).getMeasuredHeight()', 0 is always returned. So, we
+         * estimate the height of the header in dp. If the view type is "single" (and therefore
          * "commentPager"), we need a different offset
          */
-        final int HEADER_OFFSET = (SettingValues.single || getActivity() instanceof SubredditView)
-                ? Constants.SINGLE_HEADER_VIEW_OFFSET
-                : Constants.TAB_HEADER_VIEW_OFFSET;
+        final int HEADER_OFFSET =
+                (SettingValues.single || getActivity() instanceof SubredditView)
+                        ? Constants.SINGLE_HEADER_VIEW_OFFSET
+                        : Constants.TAB_HEADER_VIEW_OFFSET;
 
         mSwipeRefreshLayout.setProgressViewOffset(
                 false,
@@ -262,9 +334,14 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
+                                // A detached fragment has no host here; there is nothing to act on.
+                                final FragmentActivity activity = getActivity();
+                                if (activity == null) {
+                                    return;
+                                }
                                 Intent inte = new Intent(getActivity(), Submit.class);
                                 inte.putExtra(Submit.EXTRA_SUBREDDIT, id);
-                                getActivity().startActivity(inte);
+                                activity.startActivity(inte);
                             }
                         });
             } else if (SettingValues.fabType == Constants.FAB_SEARCH) {
@@ -272,42 +349,50 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                 fab.setContentDescription(getString(R.string.btn_fab_search));
                 fab.setOnClickListener(
                         new View.OnClickListener() {
-                            String term;
+                            String term = "";
 
                             @Override
                             public void onClick(View v) {
-                                FrameLayout frameLayout = new FrameLayout(getActivity());
+                                // A detached fragment has no host here; there is nothing to act on.
+                                final FragmentActivity activity = getActivity();
+                                if (activity == null) {
+                                    return;
+                                }
+                                FrameLayout frameLayout = new FrameLayout(activity);
                                 int padding = getResources().getDimensionPixelSize(R.dimen.activity_vertical_margin);
 
                                 // Calculate fixed dimensions for the dialog
                                 int screenWidth = getResources().getDisplayMetrics().widthPixels;
                                 // Increased max width by 50% (from 720 to 1080) and increased screen percentage
-                                int dialogWidth = Math.min((int) (screenWidth * 0.95), 1080);
+                                int dialogWidth = Math.min((int)(screenWidth * 0.95), 1080);
 
                                 // Use fixed width container with WRAP_CONTENT height
-                                FrameLayout fixedWidthContainer = new FrameLayout(getActivity());
+                                FrameLayout fixedWidthContainer = new FrameLayout(activity);
                                 fixedWidthContainer.setLayoutParams(new FrameLayout.LayoutParams(
-                                        dialogWidth - (padding * 2),
-                                        ViewGroup.LayoutParams.WRAP_CONTENT));
+                                    dialogWidth - (padding * 2),
+                                    ViewGroup.LayoutParams.WRAP_CONTENT
+                                ));
 
                                 // Create and configure TextInputLayout
-                                TextInputLayout inputLayout = new TextInputLayout(getActivity());
+                                TextInputLayout inputLayout = new TextInputLayout(activity);
                                 inputLayout.setLayoutParams(new FrameLayout.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.WRAP_CONTENT));
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.WRAP_CONTENT
+                                ));
 
                                 // Create and configure EditText
                                 EditText editText = new EditText(inputLayout.getContext());
                                 editText.setSingleLine(true);
                                 editText.setInputType(InputType.TYPE_CLASS_TEXT);
                                 editText.setLayoutParams(new LinearLayout.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.WRAP_CONTENT));
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.WRAP_CONTENT
+                                ));
                                 editText.setHint(R.string.search_msg);
 
                                 // Set theme colors
                                 TypedValue typedValue = new TypedValue();
-                                getActivity().getTheme().resolveAttribute(R.attr.fontColor, typedValue, true);
+                                activity.getTheme().resolveAttribute(R.attr.fontColor, typedValue, true);
                                 int textColor = typedValue.data;
                                 int hintColor = ColorUtils.setAlphaComponent(textColor, 138);
 
@@ -322,19 +407,18 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                                 inputLayout.addView(editText);
                                 fixedWidthContainer.addView(inputLayout);
                                 frameLayout.addView(fixedWidthContainer);
-                                frameLayout.setPadding(padding, padding / 2, padding, 0);
+                                frameLayout.setPadding(padding, padding/2, padding, 0);
 
-                                MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(getActivity(),
-                                        new ColorPreferences(getActivity()).getThemeSubreddit(id))
-                                        .setTitle(R.string.search_title)
-                                        .setView(frameLayout)
-                                        .setBackgroundInsetStart(padding)
-                                        .setBackgroundInsetEnd(padding);
+                                MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(activity,
+                                        new ColorPreferences(activity).getThemeSubreddit(id))
+                                    .setTitle(R.string.search_title)
+                                    .setView(frameLayout)
+                                    .setBackgroundInsetStart(padding)
+                                    .setBackgroundInsetEnd(padding);
 
                                 editText.addTextChangedListener(new TextWatcher() {
                                     @Override
-                                    public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-                                    }
+                                    public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
 
                                     @Override
                                     public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -342,8 +426,7 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                                     }
 
                                     @Override
-                                    public void afterTextChanged(Editable s) {
-                                    }
+                                    public void afterTextChanged(Editable s) {}
                                 });
 
                                 if (id.startsWith("api/user")) {
@@ -355,6 +438,7 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                                         && !id.equalsIgnoreCase("all")
                                         && !id.contains(".")
                                         && !id.contains("/m/")
+                                        && !Megareddits.isKey(id)
                                         && !id.equalsIgnoreCase("friends")
                                         && !id.equalsIgnoreCase("random")
                                         && !id.equalsIgnoreCase("popular")
@@ -378,7 +462,7 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                                     // Set the searchMulti for multireddit search
                                     if (UserSubscriptions.multireddits != null) {
                                         for (MultiReddit r : UserSubscriptions.multireddits) {
-                                            if (r.getDisplayName().equalsIgnoreCase(subreddit.substring(3))) {
+                                            if (MiscUtil.orEmpty(r.getDisplayName()).equalsIgnoreCase(subreddit.substring(3))) {
                                                 MultiredditOverview.searchMulti = r;
                                                 break;
                                             }
@@ -425,15 +509,16 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                                     // Prevent window insets from changing the dialog size
                                     WindowManager.LayoutParams params = window.getAttributes();
                                     params.width = dialogWidth;
-                                    params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE |
-                                            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
+                                    params.softInputMode =
+                                        WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE |
+                                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
 
                                     // Apply flags to prevent layout changes
                                     window.setFlags(
-                                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-                                                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
-                                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-                                                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+                                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                                        WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+                                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                                        WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
 
                                     window.setAttributes(params);
                                 }
@@ -443,15 +528,15 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                                 // After showing, clear flags that might interfere with focus
                                 if (window != null) {
                                     window.clearFlags(
-                                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-                                                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+                                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                                        WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
 
                                     // Re-apply fixed layout size
                                     window.setLayout(dialogWidth, ViewGroup.LayoutParams.WRAP_CONTENT);
                                 }
 
                                 // Set colors for buttons and text
-                                int accentColor = new ColorPreferences(getActivity()).getColor(id);
+                                int accentColor = new ColorPreferences(activity).getColor(id);
                                 dialog.getButton(DialogInterface.BUTTON_POSITIVE).setTextColor(accentColor);
                                 dialog.getButton(DialogInterface.BUTTON_NEUTRAL).setTextColor(accentColor);
                             }
@@ -463,9 +548,14 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                         new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
+                                // A detached fragment has no host here; there is nothing to act on.
+                                final FragmentActivity activity = getActivity();
+                                if (activity == null) {
+                                    return;
+                                }
                                 if (!Reddit.fabClear) {
-                                    new MaterialAlertDialogBuilder(getActivity(),
-                                            new ColorPreferences(getActivity()).getDarkThemeSubreddit(id))
+                                    new MaterialAlertDialogBuilder(activity,
+                                            new ColorPreferences(activity).getDarkThemeSubreddit(id))
                                             .setTitle(R.string.settings_fabclear)
                                             .setMessage(R.string.settings_fabclear_msg)
                                             .setPositiveButton(R.string.btn_ok, (dialog, which) -> {
@@ -488,65 +578,73 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                             @Override
                             public boolean onTouch(View v, MotionEvent event) {
                                 detector.onTouchEvent(event);
-                                if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                                if (event.getAction() == MotionEvent.ACTION_DOWN
+                                        && mLongPressRunnable != null) {
                                     origY = event.getY();
                                     handler.postDelayed(
                                             mLongPressRunnable,
                                             android.view.ViewConfiguration.getLongPressTimeout());
                                 }
                                 if (((event.getAction() == MotionEvent.ACTION_MOVE)
-                                        && Math.abs(event.getY() - origY) > fab.getHeight() / 2.0f)
+                                                && Math.abs(event.getY() - origY)
+                                                        > fab.getHeight() / 2.0f)
                                         || (event.getAction() == MotionEvent.ACTION_UP)) {
-                                    handler.removeCallbacks(mLongPressRunnable);
+                                    if (mLongPressRunnable != null) {
+                                        handler.removeCallbacks(mLongPressRunnable);
+                                    }
                                 }
                                 return false;
                             }
                         });
-                mLongPressRunnable = new Runnable() {
-                    public void run() {
-                        fab.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-                        if (!Reddit.fabClear) {
-                            new MaterialAlertDialogBuilder(getActivity(),
-                                    new ColorPreferences(getActivity()).getDarkThemeSubreddit(id))
-                                    .setTitle(R.string.settings_fabclear)
-                                    .setMessage(R.string.settings_fabclear_msg)
-                                    .setPositiveButton(R.string.btn_ok, (dialog, which) -> {
-                                        Reddit.colors.edit()
-                                                .putBoolean(SettingValues.PREF_FAB_CLEAR, true)
-                                                .apply();
-                                        Reddit.fabClear = true;
-                                        clearSeenPosts(true);
-                                    })
-                                    .show();
-                        } else {
-                            clearSeenPosts(true);
-                        }
-                        Snackbar s = Snackbar.make(
-                                rv,
-                                getResources()
-                                        .getString(R.string.posts_hidden_forever),
-                                Snackbar.LENGTH_LONG);
-                        /*
-                         * Todo a way to unhide
-                         * s.setAction(R.string.btn_undo, new View.OnClickListener() {
-                         *
-                         * @Override
-                         * public void onClick(View v) {
-                         *
-                         * }
-                         * });
-                         */
-                        LayoutUtils.showSnackbar(s);
-                    }
-                };
+                mLongPressRunnable =
+                        new Runnable() {
+                            @Override public void run() {
+                                // A detached fragment has no host here; there is nothing to act on.
+                                final FragmentActivity activity = getActivity();
+                                if (activity == null) {
+                                    return;
+                                }
+                                fab.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                                if (!Reddit.fabClear) {
+                                    new MaterialAlertDialogBuilder(activity,
+                                            new ColorPreferences(activity).getDarkThemeSubreddit(id))
+                                            .setTitle(R.string.settings_fabclear)
+                                            .setMessage(R.string.settings_fabclear_msg)
+                                            .setPositiveButton(R.string.btn_ok, (dialog, which) -> {
+                                                Reddit.colors.edit()
+                                                        .putBoolean(SettingValues.PREF_FAB_CLEAR, true)
+                                                        .apply();
+                                                Reddit.fabClear = true;
+                                                clearSeenPosts(true);
+                                            })
+                                            .show();
+                                } else {
+                                    clearSeenPosts(true);
+                                }
+                                Snackbar s =
+                                        Snackbar.make(
+                                                rv,
+                                                getResources()
+                                                        .getString(R.string.posts_hidden_forever),
+                                                Snackbar.LENGTH_LONG);
+                                /*Todo a way to unhide
+                                s.setAction(R.string.btn_undo, new View.OnClickListener() {
+
+                                    @Override
+                                    public void onClick(View v) {
+
+                                    }
+                                });*/
+                                LayoutUtils.showSnackbar(s);
+                            }
+                        };
             }
         } else {
             v.findViewById(R.id.post_floating_action_button).setVisibility(View.GONE);
         }
-        if (fab != null)
-            fab.show();
+        if (fab != null) fab.show();
 
-        header = getActivity().findViewById(R.id.header);
+        header = requireActivity().requireViewById(R.id.header);
 
         resetScroll();
 
@@ -560,8 +658,9 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
         return v;
     }
 
-    View header;
+    @Nullable View header;
 
+    @SuppressWarnings("NullAway.Init") // built in onCreateView
     ToolbarScrollHideHandler toolbarScroll;
 
     @NonNull
@@ -571,15 +670,18 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
     }
 
     public void doAdapter() {
-        if (!MainActivity.isRestart) {
+        if (!restoreFromCache) {
             mSwipeRefreshLayout.post(
                     () -> {
                         mSwipeRefreshLayout.setRefreshing(true);
                     });
         }
 
-        posts = new SubredditPosts(id, getContext());
-        adapter = new SubmissionAdapter(getActivity(), posts, rv, id, this);
+        posts = new SubredditPosts(id, requireContext());
+        posts.restoreFromCache = restoreFromCache;
+        posts.restoreExpectedCount = restoreExpectedCount;
+        posts.restoreAfterToken = restoreAfterToken;
+        adapter = new SubmissionAdapter(requireActivity(), posts, rv, id, this);
         adapter.setHasStableIds(true);
 
         // Force layout manager to recalculate spans before setting adapter
@@ -588,7 +690,7 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
         }
 
         rv.setAdapter(adapter);
-        posts.loadMore(getActivity(), this, true);
+        posts.loadMore(requireActivity(), this, true);
         mSwipeRefreshLayout.setOnRefreshListener(this::refresh);
     }
 
@@ -598,8 +700,8 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                     mSwipeRefreshLayout.setRefreshing(true);
                 });
 
-        posts = new SubredditPosts(id, getContext(), force18);
-        adapter = new SubmissionAdapter(getActivity(), posts, rv, id, this);
+        posts = new SubredditPosts(id, requireContext(), force18);
+        adapter = new SubmissionAdapter(requireActivity(), posts, rv, id, this);
         adapter.setHasStableIds(true);
 
         // Force layout manager to recalculate spans before setting adapter
@@ -608,16 +710,17 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
         }
 
         rv.setAdapter(adapter);
-        posts.loadMore(getActivity(), this, true);
+        posts.loadMore(requireActivity(), this, true);
         mSwipeRefreshLayout.setOnRefreshListener(this::refresh);
     }
 
-    public List<Submission> clearSeenPosts(boolean forever) {
+    public @Nullable List<Submission> clearSeenPosts(boolean forever) {
         if (adapter.dataSet.posts != null) {
 
             List<Submission> originalDataSetPosts = adapter.dataSet.posts;
-            OfflineSubreddit o = OfflineSubreddit.getSubreddit(
-                    id.toLowerCase(Locale.ENGLISH), false, getActivity());
+            OfflineSubreddit o =
+                    OfflineSubreddit.getSubreddit(
+                            id.toLowerCase(Locale.ENGLISH), false, getActivity());
 
             for (int i = adapter.dataSet.posts.size(); i > -1; i--) {
                 try {
@@ -648,13 +751,21 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
     }
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        Bundle bundle = this.getArguments();
+        Bundle bundle = requireArguments();
         id = bundle.getString("id", "");
         main = bundle.getBoolean("main", false);
         forceLoad = bundle.getBoolean("load", false);
+        restoreFromCache = bundle.getBoolean(ARG_RESTORE_FROM_CACHE, false);
+        restoreAnchorId = bundle.getString(ARG_RESTORE_ANCHOR_ID);
+        restoreAnchorPosition = bundle.getInt(ARG_RESTORE_ANCHOR_POSITION, ScrollAnchor.NO_POSITION);
+        restoreAnchorOffset = bundle.getInt(ARG_RESTORE_ANCHOR_OFFSET, 0);
+        restoreExpectedCount = bundle.getInt(ARG_RESTORE_EXPECTED_COUNT, 0);
+        restoreAfterToken = bundle.getString(ARG_RESTORE_AFTER_TOKEN);
+        restoreToolbarHidden = bundle.getBoolean(ARG_RESTORE_TOOLBAR_HIDDEN, false);
+        restoreFabHidden = bundle.getBoolean(ARG_RESTORE_FAB_HIDDEN, false);
     }
 
     @Override
@@ -662,8 +773,7 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
         super.onResume();
         if (adapter != null && adapterPosition > 0 && currentPosition == adapterPosition) {
             List<Submission> postsList = adapter.dataSet.getPosts();
-            if (postsList != null && !postsList.isEmpty() && (adapterPosition - 1) >= 0
-                    && (adapterPosition - 1) < postsList.size()) {
+            if (postsList != null && !postsList.isEmpty() && (adapterPosition - 1) >= 0 && (adapterPosition - 1) < postsList.size()) {
                 if (postsList.get(adapterPosition - 1) == currentSubmission) {
                     // Defer the click until after the resume process is complete to avoid
                     // FragmentManager transaction conflicts
@@ -674,6 +784,7 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                 }
             }
         }
+        // MMFJ: refresh rows so vote state changed in MediaView/gallery is reflected
         if (adapter != null) {
             adapter.notifyDataSetChanged();
         }
@@ -684,14 +795,31 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
     }
 
     private void refresh() {
+        // The Activity, not mSwipeRefreshLayout.getContext(): that is a ContextThemeWrapper, so
+        // SubredditPosts' `context instanceof MainActivity` and `instanceof SubredditView` tests
+        // were false on every pull and true on the first load. That is why a refresh silently
+        // skipped the offline fallback, and why handOffResolvedRandom never ran for one -- leaving
+        // the sidebar on whichever subreddit the last non-refresh load had resolved to. Matches
+        // what doAdapter passes.
+        final FragmentActivity activity = getActivity();
+        if (activity == null) {
+            // Detached mid-gesture; there is nothing left to load into.
+            return;
+        }
         posts.forced = true;
         forced = true;
-        posts.loadMore(mSwipeRefreshLayout.getContext(), this, true, id);
+        // A reset is a load like any other, and the scroll listener below only holds off while
+        // `loading` is set. Without this it queues an append the moment onPreExecute empties the
+        // list, so every pull-to-refresh fetched and image-warmed two pages instead of one.
+        posts.loading = true;
+        posts.loadMore(activity, this, true, id);
     }
 
     public void forceRefresh() {
         toolbarScroll.toolbarShow();
-        rv.getLayoutManager().scrollToPosition(0);
+        if (rv.getLayoutManager() != null) {
+            rv.getLayoutManager().scrollToPosition(0);
+        }
         mSwipeRefreshLayout.post(
                 new Runnable() {
                     @Override
@@ -719,9 +847,11 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                                 }
 
                                 // Ensure layout manager state is consistent
-                                CatchStaggeredGridLayoutManager layoutManager = (CatchStaggeredGridLayoutManager) rv
-                                        .getLayoutManager();
-                                layoutManager.invalidateSpanAssignments();
+                                CatchStaggeredGridLayoutManager layoutManager =
+                                        (CatchStaggeredGridLayoutManager) rv.getLayoutManager();
+                                if (layoutManager != null) {
+                                    layoutManager.invalidateSpanAssignments();
+                                }
 
                                 final int insertCount = posts.posts.size() - startIndex;
                                 if (startIndex != -1 && !forced && insertCount > 0) {
@@ -732,24 +862,160 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                                 } else if (forced || startIndex == -1) {
                                     // Pull-to-refresh / reset: full list replaced.
                                     forced = false;
-                                    rv.scrollToPosition(0);
+                                    // The old list is gone; drop the prefetch anchor so warmAhead
+                                    // re-warms the fresh feed from the top instead of treating the
+                                    // stale index as already-warmed and skipping the new rows.
+                                    highestWarmedAhead = -1;
+                                    warmedTapTargets.clear();
+                                    if (!restoreFromCache) {
+                                        // A restore arrives on this same branch (it reports
+                                        // startIndex -1, the whole list at once), and snapping to
+                                        // the top here is what would undo it.
+                                        rv.scrollToPosition(0);
+                                    }
+                                    // Read before applyRestoreAnchor consumes it: a restore
+                                    // records itself after its jump has landed (see there), and
+                                    // a capture posted now would run first and write the list at
+                                    // the top, which is exactly the position the jump is about
+                                    // to leave.
+                                    final boolean jumping =
+                                            restoreFromCache && posts.restoredFromCache;
                                     adapter.notifyDataSetChanged();
+                                    applyRestoreAnchor();
+                                    if (!jumping) {
+                                        // A listing that arrived fresh is somewhere the user
+                                        // might leave from, and nothing else records it: the
+                                        // tab was captured on arrival with no rows to anchor to,
+                                        // and no scroll has happened to settle. Posted so the
+                                        // rows have laid out and can be anchored.
+                                        rv.post(this::captureSettled);
+                                    }
+                                    // Re-arm the initial-display sweep: SubredditPosts clears its list
+                                    // in place (same reference) so the content-change watcher can't
+                                    // see a refresh; warm the fresh top rows once they've laid out.
+                                    rv.post(this::warmVisibleTapTargets);
                                 } else {
                                     // No new items (end of feed, or all duplicates):
                                     // refresh the footer only, do not scroll to top.
                                     adapter.notifyItemChanged(posts.posts.size() + 1);
                                 }
+                                reportMegaredditCount();
                             });
 
-            if (MainActivity.isRestart) {
-                MainActivity.isRestart = false;
-                posts.offline = false;
-                rv.getLayoutManager().scrollToPosition(MainActivity.restartPage + 1);
-            }
             // startIndex is -1 on a reset/refresh (and 0 for a degenerate first append); reset the
             // scroll/toolbar state on those, not on ordinary pagination. (Under the old start
             // semantics this was `< 10`, which keyed off total post count.)
             if (startIndex <= 0) resetScroll();
+        }
+    }
+
+    /**
+     * Lands the restored listing on the row the user left off at, once and only once.
+     *
+     * <p>The row is found by fullname rather than by the index it had last time: the cache is
+     * filtered through {@code PostMatch} on the way back in, and any blob the system reclaimed out
+     * of the cache directory is silently dropped, so the same post is rarely at the same index. The
+     * recorded index is only a fallback for a post that is genuinely gone.
+     *
+     * <p>Must run on the UI thread, after {@code notifyDataSetChanged}: {@link ScrollAnchor} defers
+     * itself through the layout pass that follows, which is the one that would otherwise re-anchor
+     * the list to the top.
+     */
+    private void applyRestoreAnchor() {
+        if (!restoreFromCache) {
+            return;
+        }
+        restoreFromCache = false;
+        if (!posts.restoredFromCache) {
+            // Too little of the cached listing survived, so the loader fetched it instead. These
+            // are fresh posts at fresh positions; the recorded offset describes a different list.
+            return;
+        }
+        posts.restoredFromCache = false;
+        // Pagination is live again from here on: the loader stopped short of the network for this
+        // one load only.
+        posts.offline = false;
+
+        int position = ScrollAnchor.NO_POSITION;
+        final List<Submission> current = posts.posts;
+        if (restoreAnchorId != null && !restoreAnchorId.isEmpty() && current != null) {
+            for (int i = 0; i < current.size(); i++) {
+                if (restoreAnchorId.equals(current.get(i).getFullName())) {
+                    position = i + 1; // adapter position 0 is the spacer header
+                    break;
+                }
+            }
+        }
+        if (position == ScrollAnchor.NO_POSITION) {
+            position = restoreAnchorPosition;
+        }
+        if (position == ScrollAnchor.NO_POSITION || current == null || position > current.size()) {
+            return;
+        }
+        ScrollAnchor.applyHidden(
+                rv,
+                position,
+                restoreAnchorOffset,
+                () ->
+                        // The jump pushes one large dy through ToolbarScrollHideHandler. Posted so
+                        // the repair lands after that dy rather than being overwritten by it.
+                        rv.post(
+                                () -> {
+                                    if (toolbarScroll != null) {
+                                        toolbarScroll.settleAfterJump(restoreToolbarHidden);
+                                    }
+                                    applyRestoredFab();
+                                    // The restored listing is back where it was, toolbar
+                                    // included, and a programmatic jump never reaches the idle
+                                    // callback that would record it. Without this the snapshot
+                                    // on disk stays whatever the arrival capture wrote -- the
+                                    // tab with no position -- until the user scrolls or leaves.
+                                    captureSettled();
+                                }));
+    }
+
+    /** Whether the post button is scrolled away, for {@link me.edgan.redditslide.FeedRestoreState}. */
+    public boolean isFabHidden() {
+        // Visibility rather than isShown(), and the null check rather than a VISIBLE test, so that
+        // each of the three states this has to tell apart is read off the thing that defines it.
+        // hide() leaves the view INVISIBLE or GONE depending on its behaviour, so either counts;
+        // a page that never had a button has no fab at all and is not "hidden".
+        //
+        // isShown() is also false for a button that is perfectly visible but whose window is not
+        // attached yet, which is what a capture taken as a screen arrives sees. Recording that as
+        // "hidden" is how a subreddit opened and never scrolled came back with its post button
+        // gone.
+        //
+        // isOrWillBeHidden() rather than the visibility alone: hide() animates, and the view stays
+        // VISIBLE until the animation ends. applyRestoreAnchor hides the button and captures in
+        // the same breath, so the bare visibility recorded it as showing, and the next restore
+        // put it back over the rows.
+        return fab != null && (fab.getVisibility() != View.VISIBLE || fab.isOrWillBeHidden());
+    }
+
+    /**
+     * Puts the post button back the way the scroll position left it.
+     *
+     * <p>A restored jump never runs the scroll listener that hides it, so a feed restored well
+     * down the list came back with the button showing over the rows it had been scrolled clear
+     * of. The two settings that pin it are honoured here the same way the listener honours them.
+     */
+    private void applyRestoredFab() {
+        if (fab == null || !SettingValues.fab) {
+            return;
+        }
+        if (restoreFabHidden && !SettingValues.alwaysShowFAB) {
+            fab.hide();
+        } else {
+            fab.show();
+        }
+    }
+
+    /** Records the screen, once this page is on an activity that can be recorded. */
+    private void captureSettled() {
+        final FragmentActivity settled = getActivity();
+        if (settled != null) {
+            HibernateState.onContentSettled(settled);
         }
     }
 
@@ -765,6 +1031,18 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
                 mSwipeRefreshLayout.setRefreshing(false);
             }
             adapter.notifyDataSetChanged();
+            reportMegaredditCount();
+        }
+    }
+
+    /**
+     * Tells a {@link MegaredditOverview} host how many posts this page is showing, for the count
+     * beside its tab name. A Megareddit is r/all filtered down, so that number is the feature
+     * working or not, and it climbs with every page this feed loads.
+     */
+    private void reportMegaredditCount() {
+        if (getActivity() instanceof MegaredditOverview && posts != null && posts.posts != null) {
+            ((MegaredditOverview) getActivity()).onFeedCountChanged(id, posts.posts.size());
         }
     }
 
@@ -812,122 +1090,227 @@ public class SubmissionsView extends Fragment implements SubmissionDisplay {
     public void resetScroll() {
         if (toolbarScroll == null) {
             toolbarScroll =
-                    new ToolbarScrollHideHandler(((BaseActivity) getActivity()).mToolbar, header) {
+                    new ToolbarScrollHideHandler(
+                            ((BaseActivity) requireActivity()).requireToolbar(),
+                            java.util.Objects.requireNonNull(header)) {
                         @Override
                         public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
                             super.onScrolled(recyclerView, dx, dy);
 
-                            // Stabilize layout during scrolling
-                            if (Math.abs(dy) > 0
-                                    && rv.getLayoutManager() instanceof CatchStaggeredGridLayoutManager) {
-                                ((CatchStaggeredGridLayoutManager) rv.getLayoutManager())
-                                        .invalidateSpanAssignments();
+                            final RecyclerView.LayoutManager lm = rv.getLayoutManager();
+                            if (lm == null) return;
+
+                            visibleItemCount = lm.getChildCount();
+                            totalItemCount = lm.getItemCount();
+
+                            int[] firstVisibleItems =
+                                    ((CatchStaggeredGridLayoutManager) lm)
+                                            .findFirstVisibleItemPositions(null);
+                            if (firstVisibleItems != null && firstVisibleItems.length > 0) {
+                                pastVisiblesItems = firstVisibleItems[firstVisibleItems.length - 1];
+                            }
+
+                            // Scroll-aware prefetch: warm the images just below the viewport so they
+                            // render in place on arrival, instead of the page-order warm falling
+                            // behind a moving scroll. Runs even during a loadMore fetch, so the new
+                            // page's rows past the blocked screenful are warmed across the boundary
+                            // rather than popping in. Only scrolling down, only into new territory;
+                            // bounds are clamped so a refresh shrinking the list can't overrun.
+                            // Snapshot the list reference once: SubredditPosts.posts is reassigned
+                            // and mutated in place on the page-load background thread, so reading the
+                            // field twice (size here, subList below) could size a subList against a
+                            // different, smaller list and overrun. The try/catch also covers a
+                            // concurrent in-place addAll racing the copy.
+                            final List<Submission> snapshot = posts.posts;
+                            if (dy > 0 && snapshot != null) {
+                                final int size = snapshot.size();
+                                if (highestWarmedAhead >= size) {
+                                    highestWarmedAhead = pastVisiblesItems; // re-anchor after refresh
+                                }
+                                // ~2 screens of list rows past the last visible one.
+                                final int to =
+                                        Math.min(pastVisiblesItems + visibleItemCount + 20, size);
+                                final int from = Math.max(highestWarmedAhead + 1, 0);
+                                final Context context = getContext();
+                                if (from < to && context != null) {
+                                    try {
+                                        // App context, not the Activity: the warm is queued on a
+                                        // static executor and must not retain a destroyed Activity.
+                                        PhotoLoader.warmAhead(
+                                                context.getApplicationContext(),
+                                                new ArrayList<>(snapshot.subList(from, to)),
+                                                posts == null || posts.subreddit == null
+                                                        ? null
+                                                        : posts.subreddit.toLowerCase(
+                                                                Locale.ENGLISH));
+                                        highestWarmedAhead = to - 1;
+                                    } catch (RuntimeException ignored) {
+                                        // A background reset/addAll raced this copy; skip this warm
+                                        // (best-effort prefetch) and retry on the next scroll event.
+                                    }
+                                }
+                            }
+
+                            // MMFJ: stabilize layout during scrolling
+                            if (Math.abs(dy) > 0 && lm instanceof CatchStaggeredGridLayoutManager) {
+                                ((CatchStaggeredGridLayoutManager) lm).invalidateSpanAssignments();
                             }
 
                             if (!posts.loading
                                     && !posts.nomore
                                     && !posts.offline
                                     && !adapter.isError) {
-                                visibleItemCount = rv.getLayoutManager().getChildCount();
-                                totalItemCount = rv.getLayoutManager().getItemCount();
-
-                                int[] firstVisibleItems =
-                                        ((CatchStaggeredGridLayoutManager) rv.getLayoutManager())
-                                                .findFirstVisibleItemPositions(null);
                                 if (firstVisibleItems != null && firstVisibleItems.length > 0) {
                                     for (int firstVisibleItem : firstVisibleItems) {
-                                        pastVisiblesItems = firstVisibleItem;
+                                        // Bound the index: on a short list the first visible row can
+                                        // be the trailing load-more spinner (an adapter position past
+                                        // the posts list). Read the same snapshot the prefetch pinned
+                                        // — posts.posts is reassigned on the load thread — so the
+                                        // size-check and get() can't straddle a swapped, smaller list.
                                         if (SettingValues.scrollSeen
-                                                && pastVisiblesItems > 0
-                                                && SettingValues.storeHistory) {
+                                                && firstVisibleItem > 0
+                                                && SettingValues.storeHistory
+                                                && snapshot != null
+                                                && firstVisibleItem - 1 < snapshot.size()) {
                                             HasSeen.addSeenScrolling(
-                                                    posts.posts
-                                                            .get(pastVisiblesItems - 1)
+                                                    snapshot
+                                                            .get(firstVisibleItem - 1)
                                                             .getFullName());
                                         }
                                     }
                                 }
 
-                                if ((visibleItemCount + pastVisiblesItems) + 5 >= totalItemCount) {
-                                    posts.loading = true;
-                                    posts.loadMore(
-                                            mSwipeRefreshLayout.getContext(),
-                                            SubmissionsView.this,
-                                            false,
-                                            posts.subreddit);
+                                // Fetch the next page ~20 rows from the end (was 5) so it downloads +
+                                // warms while the user is still approaching the boundary, instead of
+                                // right as they reach it — fewer page-boundary pop-ins.
+                                // totalItemCount > 0: onPreExecute empties the list on the main
+                                // thread and notifies, so a reset briefly reports zero rows -- and
+                                // an empty list satisfies the boundary test below trivially. There
+                                // is no next page to fetch for a listing that has no rows yet.
+                                if (totalItemCount > 0
+                                        && (visibleItemCount + pastVisiblesItems) + 20
+                                                >= totalItemCount) {
+                                    // The Activity here too, for the same reason as refresh().
+                                    final FragmentActivity activity = getActivity();
+                                    if (activity != null) {
+                                        posts.loading = true;
+                                        posts.loadMore(
+                                                activity,
+                                                SubmissionsView.this,
+                                                false,
+                                                posts.subreddit);
+                                    }
                                 }
                             }
 
-                    /*
-                     * if(dy <= 0 && !down){
-                     * (getActivity()).findViewById(R.id.header).animate().translationY(((
-                     * BaseActivity)getActivity()).mToolbar.getTop()).setInterpolator(new
-                     * AccelerateInterpolator()).start();
-                     * down = true;
-                     * } else if(down){
-                     * (getActivity()).findViewById(R.id.header).animate().translationY(((
-                     * BaseActivity)getActivity()).mToolbar.getTop()).setInterpolator(new
-                     * AccelerateInterpolator()).start();
-                     * down = false;
-                     * }
-                     */
-                    // todo For future implementation instead of scrollFlags
+                            /*
+                            if(dy <= 0 && !down){
+                                (getActivity()).findViewById(R.id.header).animate().translationY(((BaseActivity)getActivity()).mToolbar.getTop()).setInterpolator(new AccelerateInterpolator()).start();
+                                down = true;
+                            } else if(down){
+                                (getActivity()).findViewById(R.id.header).animate().translationY(((BaseActivity)getActivity()).mToolbar.getTop()).setInterpolator(new AccelerateInterpolator()).start();
+                                down = false;
+                            }*/
+                            // todo For future implementation instead of scrollFlags
 
-                    if (recyclerView.getScrollState() == RecyclerView.SCROLL_STATE_DRAGGING) {
-                        diff += dy;
-                    } else {
-                        diff = 0;
-                    }
-                    if (fab != null) {
-                        if (dy <= 0 && fab.getId() != 0 && SettingValues.fab) {
-                            if (recyclerView.getScrollState() != RecyclerView.SCROLL_STATE_DRAGGING
-                                    || diff < -fab.getHeight() * 2) {
-                                fab.show();
+                            if (recyclerView.getScrollState()
+                                    == RecyclerView.SCROLL_STATE_DRAGGING) {
+                                diff += dy;
+                            } else {
+                                diff = 0;
                             }
-                        } else {
-                            if (!SettingValues.alwaysShowFAB) {
-                                fab.hide();
+                            // A zero delta is not a scroll: it says nothing about direction and
+                            // must move the button neither way. Layout passes deliver one after a
+                            // programmatic jump, and the old `dy <= 0` read that as "scrolled up"
+                            // and showed the post button a frame after a restore had just put it
+                            // away -- the feed came back at the right row with the button sitting
+                            // over it.
+                            //
+                            // Except at the very top, where the button belongs whatever the
+                            // delta: a jump to the top (a refresh, re-tapping the tab) delivers
+                            // only the zero, and ignoring it there left the button hidden.
+                            if (fab != null
+                                    && (dy != 0 || !recyclerView.canScrollVertically(-1))) {
+                                if (dy <= 0 && fab.getId() != 0 && SettingValues.fab) {
+                                    if (recyclerView.getScrollState()
+                                                    != RecyclerView.SCROLL_STATE_DRAGGING
+                                            || diff < -fab.getHeight() * 2) {
+                                        fab.show();
+                                    }
+                                } else {
+                                    if (!SettingValues.alwaysShowFAB) {
+                                        fab.hide();
+                                    }
+                                }
                             }
                         }
-                    }
-                }
 
-                @Override
-                public void onScrollStateChanged(
-                        @NonNull RecyclerView recyclerView, int newState) {
-                    // switch (newState) {
-                    // case RecyclerView.SCROLL_STATE_IDLE:
-                    //
-                    // ((Reddit)getActivity().getApplicationContext()).getImageLoader().resume();
-                    // break;
-                    // case RecyclerView.SCROLL_STATE_DRAGGING:
-                    //
-                    // ((Reddit)getActivity().getApplicationContext()).getImageLoader().resume();
-                    // break;
-                    // case RecyclerView.SCROLL_STATE_SETTLING:
-                    //
-                    // ((Reddit)getActivity().getApplicationContext()).getImageLoader().pause();
-                    // break;
-                    // }
-                    super.onScrollStateChanged(recyclerView, newState);
-                    // If the toolbar search is open, and the user scrolls in the Main
-                    // view--close the search UI
-                    if (getActivity() instanceof MainActivity
-                            && (SettingValues.subredditSearchMethod == Constants.SUBREDDIT_SEARCH_METHOD_TOOLBAR
-                                    || SettingValues.subredditSearchMethod == Constants.SUBREDDIT_SEARCH_METHOD_BOTH)
-                            && ((MainActivity) getContext())
-                                    .findViewById(R.id.toolbar_search)
-                                    .getVisibility() == View.VISIBLE) {
-                        ((MainActivity) getContext())
-                                .findViewById(R.id.close_search_toolbar)
-                                .performClick();
-                    }
-                }
-            };
+                        @Override
+                        public void onScrollStateChanged(
+                                @NonNull RecyclerView recyclerView, int newState) {
+                            //                switch (newState) {
+                            //                    case RecyclerView.SCROLL_STATE_IDLE:
+                            //
+                            // ((Reddit)getActivity().getApplicationContext()).getImageLoader().resume();
+                            //                        break;
+                            //                    case RecyclerView.SCROLL_STATE_DRAGGING:
+                            //
+                            // ((Reddit)getActivity().getApplicationContext()).getImageLoader().resume();
+                            //                        break;
+                            //                    case RecyclerView.SCROLL_STATE_SETTLING:
+                            //
+                            // ((Reddit)getActivity().getApplicationContext()).getImageLoader().pause();
+                            //                        break;
+                            //                }
+                            super.onScrollStateChanged(recyclerView, newState);
+
+                            // Tap-target prefetch, on settle only: once the feed comes to rest, warm
+                            // the full-resolution image the media viewer opens for each visible
+                            // single-image / gallery post, so a tap shows it from the disk cache
+                            // instead of downloading it then (the feed itself only warms the smaller
+                            // preview). Deliberately skipped while dragging or flinging — an image the
+                            // user flicks past isn't worth downloading the full original for — and
+                            // deduped per post so repeated micro-stops don't re-warm the same rows.
+                            if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                                warmVisibleTapTargets();
+                            }
+
+                            // If the toolbar search is open, and the user scrolls in the Main
+                            // view--close the search UI
+                            // instanceof already answers false for a detached page; the
+                            // local is what lets the checker see that too.
+                            final FragmentActivity host = getActivity();
+                            if (host instanceof MainActivity
+                                    && (SettingValues.subredditSearchMethod
+                                                    == Constants.SUBREDDIT_SEARCH_METHOD_TOOLBAR
+                                            || SettingValues.subredditSearchMethod
+                                                    == Constants.SUBREDDIT_SEARCH_METHOD_BOTH)
+                                    && host.requireViewById(R.id.toolbar_search).getVisibility()
+                                            == View.VISIBLE) {
+                                host.requireViewById(R.id.close_search_toolbar).performClick();
+                            }
+                        }
+                    };
             rv.addOnScrollListener(toolbarScroll);
         } else {
             toolbarScroll.reset = true;
         }
+    }
+
+    // Warm the tap-target (full-resolution media-viewer) image for every currently-visible feed post
+    // on settle. A header sits at adapter position 0, so posts start at adapter position 1
+    // (headerOffset = 1). The shared helper handles the visible-range math, dedup, and off-main-thread
+    // warming so every feed surface behaves identically.
+    private void warmVisibleTapTargets() {
+        PhotoLoader.warmVisibleTapTargets(
+                getContext(),
+                rv,
+                posts != null ? posts.posts : null,
+                1,
+                warmedTapTargets,
+                posts == null || posts.subreddit == null
+                        ? null
+                        : posts.subreddit.toLowerCase(Locale.ENGLISH));
     }
 
     public static void currentPosition(int adapterPosition) {

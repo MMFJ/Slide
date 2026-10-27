@@ -1,23 +1,26 @@
 package me.edgan.redditslide.Activities;
 
 import android.util.Log;
+import androidx.annotation.Nullable;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.Serializable;
 import java.util.Arrays;
 import org.apache.commons.text.StringEscapeUtils;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 09/22/2020. */
+@NullMarked
 public class GalleryImage implements Serializable {
     private static final String TAG = "GalleryImage";
-    public String url;
+    @Nullable public String url;
     public int width;
     public int height;
 
-    public String mediaId;
-    public String caption;
+    @Nullable public String mediaId;
+    @Nullable public String caption;
     public MediaMetadata metadata;
 
-    public GalleryImage(JsonNode data) {
+    public GalleryImage(@Nullable JsonNode data) {
         // Add metadata population
         this.metadata = new MediaMetadata();
 
@@ -28,33 +31,33 @@ public class GalleryImage implements Serializable {
 
         Log.d(TAG, "GalleryImage constructor called with data: " + data.toString());
         if (data.has("media_id")) {
-            mediaId = data.get("media_id").asText();
+            mediaId = data.path("media_id").asText();
         }
 
         // Check if this is a mediaNode with 's' property or direct 's' node
-        JsonNode sNode = data.has("s") ? data.get("s") : data;
+        JsonNode sNode = data.has("s") ? data.path("s") : data;
 
         // Parse the s node that contains the actual image URLs
         if (sNode.has("u")) {
-            url = StringEscapeUtils.unescapeHtml4(sNode.get("u").asText());
+            url = StringEscapeUtils.unescapeHtml4(sNode.path("u").asText());
         } else if (sNode.has("gif")) {
-            url = StringEscapeUtils.unescapeHtml4(sNode.get("gif").asText());
+            url = StringEscapeUtils.unescapeHtml4(sNode.path("gif").asText());
         } else if (sNode.has("mp4")) {
-            url = StringEscapeUtils.unescapeHtml4(sNode.get("mp4").asText());
+            url = StringEscapeUtils.unescapeHtml4(sNode.path("mp4").asText());
         }
 
         // Get dimensions from the s node
         if (sNode.has("x") && sNode.has("y")) {
-            width = sNode.get("x").asInt();
-            height = sNode.get("y").asInt();
+            width = sNode.path("x").asInt();
+            height = sNode.path("y").asInt();
         }
 
 
         if (data.has("e")) {
-            metadata.e = data.get("e").asText();
+            metadata.e = data.path("e").asText();
         }
         if (data.has("m")) {
-            metadata.m = data.get("m").asText();
+            metadata.m = data.path("m").asText();
         }
 
         // Parse preview images array if available directly in data
@@ -64,16 +67,16 @@ public class GalleryImage implements Serializable {
         if (pNode != null && pNode.isArray() && pNode.size() > 0) {
             metadata.p = new MediaMetadata.Preview[pNode.size()];
             for (int i = 0; i < pNode.size(); i++) {
-                JsonNode preview = pNode.get(i);
+                JsonNode preview = pNode.path(i);
                 MediaMetadata.Preview p = new MediaMetadata.Preview();
                 if (preview.has("u")) {
-                    p.u = StringEscapeUtils.unescapeHtml4(preview.get("u").asText());
+                    p.u = StringEscapeUtils.unescapeHtml4(preview.path("u").asText());
                 }
                 if (preview.has("x")) {
-                    p.x = preview.get("x").asInt();
+                    p.x = preview.path("x").asInt();
                 }
                 if (preview.has("y")) {
-                    p.y = preview.get("y").asInt();
+                    p.y = preview.path("y").asInt();
                 }
                 metadata.p[i] = p;
             }
@@ -82,22 +85,22 @@ public class GalleryImage implements Serializable {
         }
 
         if (data.has("s")) {
-            JsonNode s = data.get("s");
+            JsonNode s = data.path("s");
             metadata.source = new MediaMetadata.Source();
             if (s.has("mp4")) {
-                metadata.source.mp4 = StringEscapeUtils.unescapeHtml4(s.get("mp4").asText());
+                metadata.source.mp4 = StringEscapeUtils.unescapeHtml4(s.path("mp4").asText());
             }
             if (s.has("gif")) {
-                metadata.source.gif = StringEscapeUtils.unescapeHtml4(s.get("gif").asText());
+                metadata.source.gif = StringEscapeUtils.unescapeHtml4(s.path("gif").asText());
             }
             if (s.has("u")) {
-                metadata.source.u = StringEscapeUtils.unescapeHtml4(s.get("u").asText());
+                metadata.source.u = StringEscapeUtils.unescapeHtml4(s.path("u").asText());
             }
             if (s.has("y")) {
-                metadata.source.y = s.get("y").asInt();
+                metadata.source.y = s.path("y").asInt();
             }
             if (s.has("x")) {
-                metadata.source.x = s.get("x").asInt();
+                metadata.source.x = s.path("x").asInt();
             }
         }
 
@@ -138,7 +141,12 @@ public class GalleryImage implements Serializable {
         return result;
     }
 
-    public String getImageUrl() {
+    /**
+     * The url to load for this entry, or null when it has none — a removed or failed gallery entry
+     * whose "s" node carried no {@code u}, {@code gif} or {@code mp4} leaves every branch here
+     * returning the (also null) {@link #url}.
+     */
+    @Nullable public String getImageUrl() {
         String resultUrl;
 
         // ANIMATED CONTENT HANDLING
@@ -175,18 +183,23 @@ public class GalleryImage implements Serializable {
         return url;
     }
 
+    /**
+     * Every field here is optional, because every writer sets it only behind a {@code has()} test on
+     * the media_metadata entry it came from — an entry with no {@code "e"} leaves {@link #e} unset,
+     * one with no {@code "s"} node leaves {@link #source} null, and {@code GalleryImageTest} pins
+     * that last one. Hence {@code @Nullable} rather than {@code NullAway.Init}: nothing populates
+     * these on every path, which is the test that suppression is supposed to pass.
+     */
     public static class MediaMetadata implements Serializable {
         private static final long serialVersionUID = 1L;
 
-        public String e; // type (e.g., "Image", "AnimatedImage")
-        public String m; // mimetype (e.g., "image/gif", "image/jpg")
-        public String s; // status
+        @Nullable public String e; // type (e.g., "Image", "AnimatedImage")
+        @Nullable public String m; // mimetype (e.g., "image/gif", "image/jpg")
         public long id; // media id
         public boolean animated; // whether media is animated
-        public String ext; // file extension with dot (e.g., ".gif")
 
-        public Preview[] p; // array of preview images
-        public Source source; // source object containing URLs
+        @Nullable public Preview[] p; // array of preview images
+        @Nullable public Source source; // source object containing URLs
 
         @Override
         public String toString() {
@@ -197,16 +210,10 @@ public class GalleryImage implements Serializable {
                     + ", m='"
                     + m
                     + '\''
-                    + ", s='"
-                    + s
-                    + '\''
                     + ", id="
                     + id
                     + ", animated="
                     + animated
-                    + ", ext='"
-                    + ext
-                    + '\''
                     + ", p="
                     + (p != null ? Arrays.toString(p) : "null")
                     + ", source="
@@ -218,16 +225,16 @@ public class GalleryImage implements Serializable {
             private static final long serialVersionUID = 1L;
             public int y; // height
             public int x; // width
-            public String u; // preview URL
+            @Nullable public String u; // preview URL
         }
 
         public static class Source implements Serializable {
             private static final long serialVersionUID = 1L;
             public int y; // height
             public int x; // width
-            public String u; // direct URL for non-animated
-            public String gif; // gif URL for animated
-            public String mp4; // mp4 URL for animated
+            @Nullable public String u; // direct URL for non-animated
+            @Nullable public String gif; // gif URL for animated
+            @Nullable public String mp4; // mp4 URL for animated
         }
     }
 }

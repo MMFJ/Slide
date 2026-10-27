@@ -14,10 +14,13 @@ import android.view.View;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
+import androidx.annotation.Nullable;
 import androidx.appcompat.view.ContextThemeWrapper;
 import androidx.core.content.ContextCompat;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import com.nostra13.universalimageloader.core.DisplayImageOptions;
+import com.nostra13.universalimageloader.core.ImageLoader;
 import com.nostra13.universalimageloader.core.assist.FailReason;
 import com.nostra13.universalimageloader.core.assist.ImageScaleType;
 import com.nostra13.universalimageloader.core.display.SimpleBitmapDisplayer;
@@ -25,6 +28,7 @@ import com.nostra13.universalimageloader.core.listener.ImageLoadingListener;
 import com.nostra13.universalimageloader.core.listener.SimpleImageLoadingListener;
 import java.util.Arrays;
 import java.util.List;
+import me.edgan.redditslide.Adapters.SubmissionViewHolder;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.ForceTouch.PeekView;
 import me.edgan.redditslide.ForceTouch.PeekViewActivity;
@@ -38,27 +42,39 @@ import me.edgan.redditslide.HasSeen;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
+import me.edgan.redditslide.Views.GalleryGridView;
 import me.edgan.redditslide.Views.MaxHeightImageView;
 import me.edgan.redditslide.Views.PeekMediaView;
+import me.edgan.redditslide.Views.RoundImageTriangleView;
 import me.edgan.redditslide.Views.TransparentTagTextView;
+import me.edgan.redditslide.util.CachedFirstImageBinder;
 import me.edgan.redditslide.util.CompatUtil;
-import me.edgan.redditslide.util.JsonUtil;
+import me.edgan.redditslide.util.GalleryTiles;
+import me.edgan.redditslide.util.ImageNotFoundException;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.PhotoLoader;
 import net.dean.jraw.models.Submission;
+import net.dean.jraw.models.Thumbnails;
 
 /** Created by carlo_000 on 2/7/2016. */
 public class HeaderImageLinkView extends RelativeLayout {
-    public String loadedUrl;
+    @Nullable public String loadedUrl;
     public boolean lq;
+
+    // Installed by PopulateSubmissionViewHolder (setThumbnail, line 385) before setSubmission,
+    // from the thumbimage2 view every submission layout defines.
+    @SuppressWarnings("NullAway.Init")
     public ImageView thumbImage2;
-    public TextView secondTitle;
-    public TextView secondSubTitle;
-    public View wrapArea;
+
+    // Only installed by setWrapArea, which the adapter calls for full (comment-screen) views.
+    @Nullable public TextView secondTitle;
+    @Nullable public TextView secondSubTitle;
+    @Nullable public View wrapArea;
     String lastDone = "";
-    ContentType.Type type;
+    ContentType.Type type = ContentType.Type.NONE;
     DisplayImageOptions bigOptions =
             new DisplayImageOptions.Builder()
                     .resetViewBeforeLoading(false)
@@ -75,49 +91,94 @@ public class HeaderImageLinkView extends RelativeLayout {
                     .displayer(new SimpleBitmapDisplayer())
                     .build();
     boolean clickHandled;
+
+    // handler and longClicked are both assigned by setBottomSheet, which registers the touch
+    // listener that reads them; event is set by that listener before the long-press runnable
+    // fires, and is null until the first touch.
+    @SuppressWarnings("NullAway.Init")
     Handler handler;
-    MotionEvent event;
+
+    @Nullable MotionEvent event;
+
+    @SuppressWarnings("NullAway.Init") // setBottomSheet, per the note above
     Runnable longClicked;
     float position;
     private TextView title;
-    private TextView info;
+    @Nullable private TextView info;
     public MaxHeightImageView backdrop;
-    private boolean forceThumb;
+
+    // Stands in for backdrop on gallery posts when SettingValues.galleryGrid is on. Assigned in
+    // init() from the layout, like backdrop.
+    @SuppressWarnings("NullAway.Init")
+    public GalleryGridView galleryGrid;
+
+    // Installed by PopulateSubmissionViewHolder alongside setThumbnail, and read at click time
+    // rather than at bind time, so a gallery tile tap carries the row's current adapter position —
+    // which is what lets the media viewer offer the post's comments, as a card tap does.
+    @Nullable private SubmissionViewHolder positionHolder;
 
     // Cache the resolved gallery preview, keyed by the data node identity, so re-binds of the same
     // card skip re-traversing the gallery JSON while a refreshed submission (new node) recomputes.
-    private JsonNode galleryPreviewKey;
-    private PhotoLoader.GalleryPreview galleryPreviewCache;
+    @Nullable private JsonNode galleryPreviewKey;
+    private int galleryPreviewMaxWidth;
+    @Nullable private PhotoLoader.GalleryPreview galleryPreviewCache;
+
+    // Same again for the image a selftext post inlines in its body: such a post has no "preview"
+    // node, so media_metadata is the only description of the picture, and walking it on every bind
+    // is exactly what these caches exist to avoid.
+    @Nullable private JsonNode selftextPreviewKey;
+    private int selftextPreviewMaxWidth;
+    @Nullable private PhotoLoader.GalleryPreview selftextPreviewCache;
+
+    // The inlined selftext image this bind drew as the lead image, or null when it drew something
+    // else. PopulateSubmissionViewHolder reads it so the card's selftext preview does not draw the
+    // same picture a second time, directly underneath.
+    @Nullable private String selftextInlineImageUrl;
 
     // Same idea for single-image posts. The chosen URL also depends on the low-quality decision
-    // (which varies with network state), so that's part of the key.
-    private JsonNode imagePreviewKey;
+    // (which varies with network state) and the display width (thumbnail vs card), so those are
+    // part of the key too.
+    @Nullable private JsonNode imagePreviewKey;
     private boolean imagePreviewLowQ;
-    private String imagePreviewUrlCache;
+    private int imagePreviewWidth;
+    @Nullable private String imagePreviewUrlCache;
 
     private static final List<String> PLACEHOLDER_URLS =
             Arrays.asList("self", "default", "image", "nsfw", "spoiler", "");
+
+    // Captured per bind so an image failure arriving asynchronously can try the post's other
+    // preview host and, once nothing is left to try, draw the placeholder into the slot this bind
+    // was using. Read only from callbacks that first check bindSeq still holds the value it had
+    // when they were registered.
+    @Nullable private Submission boundSubmission;
+    private boolean boundFull;
+    private boolean boundForceThumb;
+
+    // Bumped by every bind. A post identifier is not enough on its own: a fling can rebind one
+    // holder away from a post and back again inside a frame, and a callback left over from the
+    // first of those binds would then match by name and paint over what the second one loaded.
+    private int bindSeq;
 
     // Reused across all loads — instance-free so it's safe as a singleton.
     private static final ImageLoadingListener TRANSPARENCY_LISTENER =
             new SimpleImageLoadingListener() {
                 @Override
-                public void onLoadingComplete(String imageUri, View view, Bitmap loadedBitmap) {
+                public void onLoadingComplete(@Nullable String imageUri, @Nullable View view, @Nullable Bitmap loadedBitmap) {
                     applyTransparencyBackground(view, loadedBitmap);
                 }
 
                 @Override
-                public void onLoadingFailed(String imageUri, View view, FailReason failReason) {
+                public void onLoadingFailed(String imageUri, @Nullable View view, FailReason failReason) {
                     if (view != null) view.setBackground(null);
                 }
 
                 @Override
-                public void onLoadingCancelled(String imageUri, View view) {
+                public void onLoadingCancelled(String imageUri, @Nullable View view) {
                     if (view != null) view.setBackground(null);
                 }
             };
 
-    private static void applyTransparencyBackground(View view, Bitmap bitmap) {
+    private static void applyTransparencyBackground(@Nullable View view, @Nullable Bitmap bitmap) {
         if (view == null) return;
         if (hasMeaningfulTransparency(bitmap)) {
             view.setBackgroundColor(Color.WHITE);
@@ -127,7 +188,7 @@ public class HeaderImageLinkView extends RelativeLayout {
     }
 
     // Sample an 8x8 grid; transparent PNGs (logos, icons) trip this, photos don't.
-    private static boolean hasMeaningfulTransparency(Bitmap bitmap) {
+    private static boolean hasMeaningfulTransparency(@Nullable Bitmap bitmap) {
         if (bitmap == null || !bitmap.hasAlpha()) return false;
         int width = bitmap.getWidth();
         int height = bitmap.getHeight();
@@ -164,17 +225,30 @@ public class HeaderImageLinkView extends RelativeLayout {
 
     boolean thumbUsed;
 
-    public void doImageAndText(final Submission submission, boolean full, String baseSub, boolean news) {
+    public void doImageAndText(
+            final Submission submission,
+            boolean full,
+            @Nullable String baseSub,
+            boolean news) {
         backdrop.setAspectRatio(0);
         backdrop.setLayoutParams(new RelativeLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        // View recycling: the previous post may have been a gallery drawn as a grid. Undoing it here
+        // rather than on each of the paths below means no path can forget to.
+        hideGalleryGrid();
 
         boolean fullImage = ContentType.fullImage(type);
         thumbUsed = false;
+        selftextInlineImageUrl = null;
 
         setVisibility(View.VISIBLE);
         String url = "";
         boolean forceThumb = false;
+        boundSubmission = submission;
+        boundFull = full;
+        boundForceThumb = forceThumb;
+        bindSeq++;
         thumbImage2.setImageResource(android.R.color.transparent);
+        thumbImage2.setContentDescription(null);
         // View recycling: clear any transparency background from the previous bind.
         backdrop.setBackground(null);
         thumbImage2.setBackground(null);
@@ -186,19 +260,49 @@ public class HeaderImageLinkView extends RelativeLayout {
                         || SettingValues.lowResAlways));
 
         JsonNode dataNode = submission.getDataNode();
-        JsonNode spoiler = (dataNode != null) ? dataNode.get("spoiler") : null;
-        JsonNode thumbnail = (dataNode != null) ? dataNode.get("thumbnail") : null;
+        JsonNode thumbnail =
+                (dataNode != null) ? dataNode.path("thumbnail") : MissingNode.getInstance();
 
-        if (type == ContentType.Type.SELF && SettingValues.hideSelftextLeadImage
-                || SettingValues.noImages && submission.isSelfPost()) {
+        final JsonNode previewSource = getPreviewSource(dataNode);
+
+        // A selftext post whose body inlines a reddit image has no "preview" node at all, so every
+        // path below finds nothing to draw and the card falls back to reddit's 140x70 thumbnail.
+        // The inlined image is the post's picture. Only where there is no preview to prefer, and
+        // only where something below acts on it: the comments screen (which drops the thumbnail),
+        // or a feed card that draws big images. The thumbnail layouts keep their thumbnail, and
+        // skip the lookup — sizing it can cost binder calls into ConnectivityManager.
+        final PhotoLoader.GalleryPreview selftextImage =
+                (previewSource == null
+                                && submission.isSelfPost()
+                                && (full || SettingValues.isPicsEnabled(baseSub)))
+                        ? selftextImagePreview(dataNode)
+                        : null;
+
+        if ((type == ContentType.Type.SELF && SettingValues.hideSelftextLeadImage)
+                || (SettingValues.noImages && submission.isSelfPost())
+                // The comments screen renders the selftext itself, image and all, so all this
+                // header could add for such a post is the thumbnail reddit attached to it — a
+                // stock placeholder graphic for a post that links nothing, in a row no other self
+                // post gets. Nothing, as for the others.
+                || (full && selftextImage != null)) {
             setVisibility(View.GONE);
             if (wrapArea != null) wrapArea.setVisibility(View.GONE);
             thumbImage2.setVisibility(View.GONE);
         } else {
-            if (submission.getThumbnails() != null && submission.getThumbnails().getSource() != null) {
-                int height = submission.getThumbnails().getSource().getHeight();
-                int width = submission.getThumbnails().getSource().getWidth();
+            // Stand the inlined image in as the lead image, in the feed only.
+            final PhotoLoader.GalleryPreview selftextLeadImage = full ? null : selftextImage;
+
+            if (previewSource != null) {
+                int height = previewSource.path("height").asInt();
+                int width = previewSource.path("width").asInt();
                 setBackdropLayoutParams(height, width, full, fullImage, type);
+            } else if (selftextLeadImage != null
+                    && selftextLeadImage.width > 0
+                    && selftextLeadImage.height > 0) {
+                // Reserve the height from the known aspect ratio, as the gallery path does, so the
+                // asynchronously loaded image never resizes the row mid-scroll.
+                setBackdropLayoutParams(
+                        selftextLeadImage.height, selftextLeadImage.width, full, fullImage, type);
             } else if (type == ContentType.Type.REDDIT_GALLERY) {
                 if (full) {
                     setFixedHeightLayoutParams(200);
@@ -206,7 +310,7 @@ public class HeaderImageLinkView extends RelativeLayout {
             }
 
             Submission.ThumbnailType thumbnailType;
-            if (!submission.getDataNode().get("thumbnail").isNull()) {
+            if (submission.getDataNode().hasNonNull("thumbnail")) {
                 thumbnailType = submission.getThumbnailType();
             } else {
                 thumbnailType = Submission.ThumbnailType.NONE;
@@ -215,8 +319,8 @@ public class HeaderImageLinkView extends RelativeLayout {
             if (!SettingValues.ignoreSubSetting
                     && dataNode != null
                     && dataNode.has("sr_detail")
-                    && dataNode.get("sr_detail").has("show_media")
-                    && !dataNode.get("sr_detail").get("show_media").asBoolean()) {
+                    && dataNode.path("sr_detail").has("show_media")
+                    && !dataNode.path("sr_detail").path("show_media").asBoolean()) {
                 thumbnailType = Submission.ThumbnailType.NONE;
             }
 
@@ -227,12 +331,21 @@ public class HeaderImageLinkView extends RelativeLayout {
                 if (!full && !submission.isSelfPost()) {
                     thumbImage2.setVisibility(View.VISIBLE);
                 } else {
-                    if (full && !submission.isSelfPost()) wrapArea.setVisibility(View.VISIBLE);
+                    if (full && !submission.isSelfPost() && wrapArea != null) {
+                        wrapArea.setVisibility(View.VISIBLE);
+                    }
                 }
                 thumbImage2.setImageDrawable(
-                        ContextCompat.getDrawable(getContext(), R.drawable.web));
+                        ContextCompat.getDrawable(
+                                getContext(),
+                                isPlayablePlaceholderType(type)
+                                        ? R.drawable.media_play_placeholder
+                                        : R.drawable.web));
+                if (isPlayablePlaceholderType(type)) {
+                    thumbImage2.setContentDescription(getContext().getString(R.string.btn_play));
+                }
                 thumbUsed = true;
-            } else if (submission.isNsfw() && SettingValues.getIsNSFWEnabled()
+            } else if ((submission.isNsfw() && SettingValues.getIsNSFWEnabled())
                     || (baseSub != null
                             && submission.isNsfw()
                             && SettingValues.hideNSFWCollection
@@ -241,7 +354,7 @@ public class HeaderImageLinkView extends RelativeLayout {
                                     || baseSub.contains("+")
                                     || baseSub.equals("popular")))) {
                 handleSpecialSubmissionType(submission, full, forceThumb, R.drawable.nsfw);
-            } else if (submission.getDataNode().get("spoiler").asBoolean()) {
+            } else if (submission.getDataNode().path("spoiler").asBoolean()) {
                 handleSpecialSubmissionType(submission, full, forceThumb, R.drawable.spoiler);
             } else if (type == ContentType.Type.ALBUM
                     || type == ContentType.Type.GIF
@@ -255,28 +368,38 @@ public class HeaderImageLinkView extends RelativeLayout {
                 handleRedditGalleryType(submission, baseSub, full, forceThumb);
             } else if (type == ContentType.Type.VREDDIT_DIRECT || type == ContentType.Type.VREDDIT_REDIRECT) {
                 handleVRedditType(submission, baseSub, full, forceThumb);
-            } else if (type != ContentType.Type.IMAGE
+            } else if ((type != ContentType.Type.IMAGE
                             && type != ContentType.Type.SELF
-                            && (!thumbnail.isNull()
+                            && !thumbnail.isNull()
                                     && (thumbnailType != Submission.ThumbnailType.URL))
-                    || thumbnail.asText().isEmpty() && !submission.isSelfPost()) {
+                    || (thumbnail.asText().isEmpty() && !submission.isSelfPost())) {
                 setVisibility(View.GONE);
                 if (!full) {
                     thumbImage2.setVisibility(View.VISIBLE);
-                } else {
+                } else if (wrapArea != null) {
                     wrapArea.setVisibility(View.VISIBLE);
                 }
 
                 thumbImage2.setImageDrawable(
-                        ContextCompat.getDrawable(getContext(), R.drawable.web));
+                        ContextCompat.getDrawable(
+                                getContext(),
+                                isPlayablePlaceholderType(type)
+                                        ? R.drawable.media_play_placeholder
+                                        : R.drawable.web));
+                if (isPlayablePlaceholderType(type)) {
+                    thumbImage2.setContentDescription(getContext().getString(R.string.btn_play));
+                }
                 thumbUsed = true;
                 loadedUrl = submission.getUrl();
             } else if (type == ContentType.Type.IMAGE
                     && !thumbnail.isNull()
                     && !thumbnail.asText().isEmpty()) {
                 handleImageType(submission, baseSub, full, forceThumb, loadLq);
-            } else if (submission.getThumbnails() != null) {
-                handleThumbnailDisplay(submission, full, forceThumb, loadLq, baseSub, news);
+            } else if (PhotoLoader.usableThumbnails(submission) != null) {
+                handleThumbnailDisplay(submission, full, forceThumb, loadLq, baseSub);
+            } else if (selftextLeadImage != null) {
+                selftextInlineImageUrl = selftextLeadImage.url;
+                handleFullPreviewImage(selftextLeadImage.url, full);
             } else if (!thumbnail.isNull()
                     && submission.getThumbnail() != null
                     && (submission.getThumbnailType() == Submission.ThumbnailType.URL
@@ -287,9 +410,7 @@ public class HeaderImageLinkView extends RelativeLayout {
                 setThumbAndWrapVisibility(full, true);
                 loadedUrl = url;
 
-                ((Reddit) getContext().getApplicationContext())
-                        .getImageLoader()
-                        .displayImage(url, thumbImage2, bigOptions);
+                displayImageCachedFirst(url, thumbImage2, null);
                 setVisibility(View.GONE);
 
             } else {
@@ -300,13 +421,13 @@ public class HeaderImageLinkView extends RelativeLayout {
             setupTitleAndBottomSheet(submission, full, forceThumb, type);
 
             if (SettingValues.smallTag != 0 && !full && !news) {
-                title = findViewById(R.id.tag);
-                findViewById(R.id.tag).setVisibility(View.VISIBLE);
+                title = requireViewById(R.id.tag);
+                requireViewById(R.id.tag).setVisibility(View.VISIBLE);
                 info = null;
             } else {
-                findViewById(R.id.tag).setVisibility(View.GONE);
+                requireViewById(R.id.tag).setVisibility(View.GONE);
                 title.setVisibility(View.VISIBLE);
-                info.setVisibility(View.VISIBLE);
+                if (info != null) info.setVisibility(View.VISIBLE);
             }
 
             if (SettingValues.smallTag != 0 && !full && !news) {
@@ -331,7 +452,10 @@ public class HeaderImageLinkView extends RelativeLayout {
         return (width * ratio);
     }
 
-    public void onLinkLongClick(final String url, MotionEvent event, final Submission submission) {
+    public void onLinkLongClick(
+            final @Nullable String url,
+            @Nullable MotionEvent event,
+            final Submission submission) {
         popped = false;
 
         if (url == null || SettingValues.noPreviewImageLongClick) {
@@ -363,17 +487,17 @@ public class HeaderImageLinkView extends RelativeLayout {
         }
 
         if (activity != null && !activity.isFinishing()) {
-            if (SettingValues.peek) {
+            if (SettingValues.peek && event != null) {
                 Peek.into(
                         R.layout.peek_view_submission,
                         new SimpleOnPeek() {
                             @Override
                             public void onInflated(final PeekView peekView, final View rootView) {
-                                TextView text = rootView.findViewById(R.id.title);
+                                TextView text = rootView.requireViewById(R.id.title);
                                 text.setText(url);
                                 text.setTextColor(Color.WHITE);
 
-                                ((PeekMediaView) rootView.findViewById(R.id.peek))
+                                ((PeekMediaView) rootView.requireViewById(R.id.peek))
                                         .setUrlWithSubmission(url, submission);
 
                                         peekView.addButton(
@@ -392,7 +516,7 @@ public class HeaderImageLinkView extends RelativeLayout {
                                                     @Override
                                                     public void onButtonUp() {
                                                         ((View) getParent())
-                                                                .findViewById(R.id.upvote)
+                                                                .requireViewById(R.id.upvote)
                                                                 .callOnClick();
                                                     }
                                                 });
@@ -402,7 +526,7 @@ public class HeaderImageLinkView extends RelativeLayout {
                                                     @Override
                                                     public void onRemove() {
                                                         ((PeekMediaView)
-                                                                        rootView.findViewById(
+                                                                        rootView.requireViewById(
                                                                                 R.id.peek))
                                                                 .doClose();
                                                     }
@@ -442,11 +566,6 @@ public class HeaderImageLinkView extends RelativeLayout {
                 new OnTouchListener() {
                     @Override
                     public boolean onTouch(View v, MotionEvent event) {
-                        int x = (int) event.getX();
-                        int y = (int) event.getY();
-                        x += getScrollX();
-                        y += getScrollY();
-
                         HeaderImageLinkView.this.event = event;
 
                         if (event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -497,8 +616,15 @@ public class HeaderImageLinkView extends RelativeLayout {
                         if (SettingValues.storeHistory && !full) {
                             if (!submission.isNsfw() || SettingValues.storeNSFWHistory) {
                                 HasSeen.addSeen(submission.getFullName());
-                                ((View) getParent()).findViewById(R.id.title).setAlpha(0.54f);
-                                ((View) getParent()).findViewById(R.id.body).setAlpha(0.54f);
+                                final View card = (View) getParent();
+                                card.requireViewById(R.id.title).setAlpha(0.54f);
+                                card.requireViewById(R.id.body).setAlpha(0.54f);
+                                // The other seat the preview can be in; absent from the three
+                                // cards that draw their image above the title.
+                                final View bodyBelow = card.findViewById(R.id.body_below);
+                                if (bodyBelow != null) {
+                                    bodyBelow.setAlpha(0.54f);
+                                }
                             }
                         }
                         onLinkLongClick(submission.getUrl(), event, submission);
@@ -509,12 +635,12 @@ public class HeaderImageLinkView extends RelativeLayout {
     public void setSubmission(
             final Submission submission,
             final boolean full,
-            String baseSub,
+            @Nullable String baseSub,
             ContentType.Type type) {
         this.type = type;
         if (!lastDone.equals(submission.getFullName())) {
             lq = false;
-            lastDone = submission.getFullName();
+            lastDone = MiscUtil.orEmpty(submission.getFullName());
             backdrop.setImageResource(
                     android.R.color
                             .transparent); // reset the image view in case the placeholder is still
@@ -527,12 +653,12 @@ public class HeaderImageLinkView extends RelativeLayout {
     public void setSubmissionNews(
             final Submission submission,
             final boolean full,
-            String baseSub,
+            @Nullable String baseSub,
             ContentType.Type type) {
         this.type = type;
         if (!lastDone.equals(submission.getFullName())) {
             lq = false;
-            lastDone = submission.getFullName();
+            lastDone = MiscUtil.orEmpty(submission.getFullName());
             backdrop.setImageResource(
                     android.R.color
                             .transparent); // reset the image view in case the placeholder is still
@@ -546,19 +672,25 @@ public class HeaderImageLinkView extends RelativeLayout {
         thumbImage2 = v;
     }
 
+    /** See {@link #positionHolder}. */
+    public void setPositionHolder(@Nullable SubmissionViewHolder holder) {
+        positionHolder = holder;
+    }
+
     public void setUrl(String url) {}
 
     public void setWrapArea(View v) {
         wrapArea = v;
-        secondTitle = v.findViewById(R.id.contenttitle);
-        secondSubTitle = v.findViewById(R.id.contenturl);
+        secondTitle = v.requireViewById(R.id.contenttitle);
+        secondSubTitle = v.requireViewById(R.id.contenturl);
     }
 
     private void init() {
         inflate(getContext(), R.layout.header_image_title_view, this);
-        this.title = findViewById(R.id.textimage);
+        this.title = requireViewById(R.id.textimage);
         this.info = findViewById(R.id.subtextimage);
         this.backdrop = findViewById(R.id.leadimage);
+        this.galleryGrid = findViewById(R.id.gallerygrid);
         // Universal Image Loader reads the ImageView's maxHeight (the view's layout height is
         // WRAP_CONTENT) to size its decode target. Cap it to the screen-relative value so tall
         // images don't decode at near-full resolution. Previously this was a hardcoded 3200px in
@@ -566,12 +698,16 @@ public class HeaderImageLinkView extends RelativeLayout {
         this.backdrop.setMaxHeight(MaxHeightImageView.maxHeight);
     }
 
-    private void handleTypes(Submission submission, String baseSub, boolean full) {
+    private void handleTypes(Submission submission, @Nullable String baseSub, boolean full) {
         JsonNode dataNode = submission.getDataNode();
 
         // Prefer a genuine preview image. For crossposts the preview lives on the
-        // parent submission, so getPreviewUrl() checks the crosspost parent first.
-        String redditPreviewUrl = getPreviewUrl(dataNode);
+        // parent submission, so getPreviewUrl() checks the crosspost parent first. Size it to the
+        // display target so a list thumbnail fetches a small preview, not the full-width one.
+        String redditPreviewUrl =
+                getPreviewUrl(
+                        dataNode,
+                        feedImageWidth(!full && !SettingValues.isPicsEnabled(baseSub)));
 
         if (redditPreviewUrl != null && !redditPreviewUrl.isEmpty()) {
             // A real, full-resolution preview is available; show it as a lead image.
@@ -594,55 +730,79 @@ public class HeaderImageLinkView extends RelativeLayout {
         String thumbnailUrl = getValidThumbnailUrl(dataNode);
         if (thumbnailUrl == null
                 && dataNode.has("crosspost_parent_list")
-                && dataNode.get("crosspost_parent_list").size() > 0) {
-            thumbnailUrl = getValidThumbnailUrl(dataNode.get("crosspost_parent_list").get(0));
+                && dataNode.path("crosspost_parent_list").size() > 0) {
+            thumbnailUrl = getValidThumbnailUrl(dataNode.path("crosspost_parent_list").path(0));
         }
 
         if (thumbnailUrl != null) {
             loadedUrl = thumbnailUrl;
             setThumbAndWrapVisibility(full, true);
-            ((Reddit) getContext().getApplicationContext())
-                    .getImageLoader()
-                    .displayImage(thumbnailUrl, thumbImage2, bigOptions);
+            displayImageCachedFirst(thumbnailUrl, thumbImage2, null);
             setVisibility(View.GONE);
         } else {
-            // No image at all.
-            setVisibility(View.GONE);
-            if (thumbImage2 != null) thumbImage2.setVisibility(View.GONE);
-            if (backdrop != null) backdrop.setVisibility(View.GONE);
-            if (wrapArea != null) wrapArea.setVisibility(View.VISIBLE);
+            handleMissingPreview(submission, full);
         }
+    }
+
+    // Delegated to PhotoLoader so the feed card and the preloader use identical thumbnail selection.
+    private @Nullable String getValidThumbnailUrl(@Nullable JsonNode node) {
+        return PhotoLoader.getValidThumbnailUrl(node);
+    }
+
+    private @Nullable JsonNode getPreviewSource(@Nullable JsonNode dataNode) {
+        if (dataNode == null) return null;
+        JsonNode images = dataNode.path("preview").path("images");
+        if (!images.isArray() || images.isEmpty()) return null;
+        JsonNode source = images.path(0).path("source");
+        return source.isObject() ? source : null;
     }
 
     /**
-     * Returns the thumbnail URL from the given node if it is a usable image URL, or null if it is
-     * missing or one of Reddit's placeholder values ("self", "default", "nsfw").
+     * The image this post inlines in its selftext, cached by data-node identity so a re-bind of the
+     * same card skips re-traversing media_metadata and a refreshed submission recomputes.
+     *
+     * <p>The width cap is {@link PhotoLoader#galleryMaxWidth}, the cap both sides of the warm can
+     * compute identically — the preloader sizes off the global "big pictures" flag and the card
+     * off the per-subreddit override, so a cap built on either would have them choose different
+     * rungs of the same image and the card would download a picture the preloader never warmed.
      */
-    private String getValidThumbnailUrl(JsonNode node) {
-        if (node != null && node.has("thumbnail") && !node.get("thumbnail").isNull()) {
-            String thumbnail = node.get("thumbnail").asText();
-            if (!thumbnail.equals("self")
-                    && !thumbnail.equals("default")
-                    && !thumbnail.equals("nsfw")
-                    && !thumbnail.isEmpty()) {
-                return thumbnail;
-            }
+    @Nullable private PhotoLoader.GalleryPreview selftextImagePreview(@Nullable JsonNode dataNode) {
+        // Before the cap, because computing it can cost three binder calls into ConnectivityManager
+        // (PhotoLoader.isLowRes, for a user who limits resolution on mobile) and this runs on the
+        // main thread for every text post in the feed. Only a post that carries media_metadata can
+        // have inlined an image, and that is a map lookup.
+        if (dataNode == null || !dataNode.has("media_metadata")) {
+            return null;
         }
-        return null;
+        final int maxWidth = PhotoLoader.galleryMaxWidth(getContext());
+        if (dataNode == selftextPreviewKey && maxWidth == selftextPreviewMaxWidth) {
+            return selftextPreviewCache;
+        }
+        final PhotoLoader.GalleryPreview preview =
+                PhotoLoader.getSelftextImagePreview(dataNode, maxWidth);
+        selftextPreviewKey = dataNode;
+        selftextPreviewMaxWidth = maxWidth;
+        selftextPreviewCache = preview;
+        return preview;
     }
 
-    private void handleRedditGalleryType(Submission submission, String baseSub, boolean full, boolean forceThumb) {
+    /** The inlined selftext image drawn as this card's lead image, or null if none was. */
+    @Nullable public String getSelftextInlineImageUrl() {
+        return selftextInlineImageUrl;
+    }
+
+    private void handleRedditGalleryType(Submission submission, @Nullable String baseSub, boolean full, boolean forceThumb) {
         JsonNode dataNode = submission.getDataNode();
 
         // If this is a crosspost, we need to load the gallery data from the parent submission
-        if (dataNode.has("crosspost_parent_list") && dataNode.get("crosspost_parent_list").size() > 0) {
-            dataNode = dataNode.get("crosspost_parent_list").get(0);
+        if (dataNode.has("crosspost_parent_list") && dataNode.path("crosspost_parent_list").size() > 0) {
+            dataNode = dataNode.path("crosspost_parent_list").path(0);
         }
 
         // Check if gallery_data exists AND contains items before proceeding
         if (dataNode.has("gallery_data") &&
-            dataNode.get("gallery_data").has("items") &&
-            dataNode.get("gallery_data").get("items").size() > 0) {
+            dataNode.path("gallery_data").has("items") &&
+            dataNode.path("gallery_data").path("items").size() > 0) {
             handleGalleryData(dataNode, submission, baseSub, full, forceThumb);
         } else {
             // Hide all preview elements when there are no gallery items
@@ -652,59 +812,72 @@ public class HeaderImageLinkView extends RelativeLayout {
         }
     }
 
-    private void handleVRedditType(Submission submission, String baseSub, boolean full, boolean forceThumb) {
+    private void handleVRedditType(Submission submission, @Nullable String baseSub, boolean full, boolean forceThumb) {
         JsonNode dataNode = submission.getDataNode();
-        String previewUrl = getPreviewUrl(dataNode);
+        String previewUrl =
+                getPreviewUrl(
+                        dataNode,
+                        feedImageWidth(
+                                (!full && !SettingValues.isPicsEnabled(baseSub)) || forceThumb));
 
-        if (dataNode.has("preview") &&
-            dataNode.get("preview").has("images") &&
-            dataNode.get("preview").get("images").size() > 0) {
-                handlePreviewImage(previewUrl, submission, baseSub, full, forceThumb);
+        if (previewUrl != null && !previewUrl.isEmpty()) {
+            handlePreviewImage(previewUrl, submission, baseSub, full, forceThumb);
         } else {
-            // No valid preview available
-            setVisibility(View.GONE);
+            handleMissingPreview(submission, full);
+        }
+    }
+
+    private void handleMissingPreview(Submission submission, boolean full) {
+        setVisibility(View.GONE);
+        if (backdrop != null) backdrop.setVisibility(View.GONE);
+
+        if (isPlayablePlaceholderType(type)) {
+            thumbImage2.setVisibility(View.VISIBLE);
+            setThumbAndWrapVisibility(full, true);
+            thumbImage2.setImageDrawable(
+                    ContextCompat.getDrawable(getContext(), R.drawable.media_play_placeholder));
+            thumbImage2.setContentDescription(getContext().getString(R.string.btn_play));
+            thumbUsed = true;
+            loadedUrl = submission.getUrl();
+        } else {
             if (thumbImage2 != null) thumbImage2.setVisibility(View.GONE);
-            if (backdrop != null) backdrop.setVisibility(View.GONE);
             if (wrapArea != null) wrapArea.setVisibility(View.VISIBLE);
         }
     }
 
-    private String getPreviewUrl(JsonNode dataNode) {
-        String previewUrl = null;
-
-        // Check crosspost parent first
-        if (dataNode.has("crosspost_parent_list") && dataNode.get("crosspost_parent_list").size() > 0) {
-            JsonNode parentNode = dataNode.get("crosspost_parent_list").get(0);
-            previewUrl = extractPreviewUrl(parentNode);
+    static boolean isPlayablePlaceholderType(ContentType.Type type) {
+        switch (type) {
+            case GIF:
+            case STREAMABLE:
+            case VIDEO:
+            case VREDDIT_DIRECT:
+            case VREDDIT_REDIRECT:
+                return true;
+            default:
+                return false;
         }
-        // Fallback to current submission preview
-        if (previewUrl == null) {
-            previewUrl = extractPreviewUrl(dataNode);
-        }
-        return JsonUtil.normalizeRedditPreviewHost(previewUrl, JsonUtil.linksToReddit(dataNode));
     }
 
-    private String extractPreviewUrl(JsonNode node) {
-        if (node.has("preview") &&
-            node.get("preview").has("images") &&
-            node.get("preview").get("images").size() > 0) {
-
-            JsonNode sourceNode = node.get("preview").get("images").get(0).get("source");
-            if (sourceNode != null && sourceNode.has("url")) {
-                return sourceNode.get("url").asText();
-            }
-        }
-        return null;
+    // Delegated to PhotoLoader so the feed card and the preloader resolve the identical preview URL.
+    private @Nullable String getPreviewUrl(@Nullable JsonNode dataNode) {
+        return PhotoLoader.getPreviewUrl(dataNode);
     }
 
-    private void handlePreviewImage(String previewUrl, Submission submission, String baseSub, boolean full, boolean forceThumb) {
-        if (!full && !SettingValues.isPicsEnabled(baseSub) || forceThumb) {
+    private @Nullable String getPreviewUrl(@Nullable JsonNode dataNode, int maxWidth) {
+        return PhotoLoader.getPreviewUrl(dataNode, maxWidth);
+    }
+
+    // The reddit preview width to request: the thumbnail cell for a list thumbnail, the full screen
+    // width for a big card. Kept in lock-step with PhotoLoader's preload so the warm and the display
+    // resolve the same sized URL (and hit the same memory-cache entry).
+    private int feedImageWidth(boolean showThumb) {
+        return PhotoLoader.feedImageWidth(getContext(), !showThumb);
+    }
+
+    private void handlePreviewImage(String previewUrl, Submission submission, @Nullable String baseSub, boolean full, boolean forceThumb) {
+        if ((!full && !SettingValues.isPicsEnabled(baseSub)) || forceThumb) {
             if (!submission.isSelfPost() || full) {
-                if (!full) {
-                    thumbImage2.setVisibility(View.VISIBLE);
-                } else {
-                    wrapArea.setVisibility(View.VISIBLE);
-                }
+                setThumbAndWrapVisibility(full, true);
                 loadedUrl = previewUrl;
                 displayImage(previewUrl, thumbImage2);
             } else {
@@ -720,47 +893,197 @@ public class HeaderImageLinkView extends RelativeLayout {
         loadedUrl = previewUrl;
         displayImage(previewUrl, backdrop);
         setVisibility(View.VISIBLE);
-        if (!full) {
-            thumbImage2.setVisibility(View.GONE);
-        } else {
-            wrapArea.setVisibility(View.GONE);
+        setThumbAndWrapVisibility(full, false);
+    }
+
+    private void displayImage(@Nullable String url, ImageView target) {
+        backdrop.setVisibility(View.VISIBLE);
+        displayImageCachedFirst(url, target, TRANSPARENCY_LISTENER);
+    }
+
+    /**
+     * Bind {@code url} into {@code target}, drawing it synchronously in this frame when the bitmap
+     * is already in the memory cache (warmed by PhotoLoader as the page was fetched). This is what
+     * stops feed images from popping in after the row is already on screen: on a cache hit the row
+     * scrolls in with the image already drawn instead of blank-then-async-swap. On a miss it falls
+     * back to the normal async load, so a rare miss simply behaves as before.
+     */
+    private void displayImageCachedFirst(
+            @Nullable String url, @Nullable ImageView target, @Nullable ImageLoadingListener listener) {
+        if (url == null || url.isEmpty() || target == null) {
+            bindCandidate(url, target, listener);
+            return;
+        }
+
+        // Reddit serves a post's preview from exactly one of its two preview hosts and answers on
+        // the other with a 404, so a failure here is not necessarily the end of the road.
+        final List<String> candidates = PhotoLoader.previewFallbacks(url, boundSubmission, type);
+        if (candidates.isEmpty()) {
+            // Every candidate is already known to be gone; skip straight past the round-trip.
+            scheduleUnavailablePlaceholder();
+            return;
+        }
+        bindCandidateWithFallback(candidates, 0, target, listener);
+    }
+
+    private void bindCandidate(
+            @Nullable String url, @Nullable ImageView target, @Nullable ImageLoadingListener listener) {
+        final ImageLoader loader =
+                ((Reddit) getContext().getApplicationContext()).getImageLoader();
+        // The synchronous disk decode is worth it for the small thumbnail but not for the big lead
+        // image, where a full-width decode on this thread could jank the scroll. The gallery grid
+        // passes true for its tiles, which are thumbnail-sized.
+        final boolean isThumb = target instanceof RoundImageTriangleView;
+        CachedFirstImageBinder.display(
+                loader,
+                url,
+                target,
+                bigOptions,
+                listener,
+                PhotoLoader.feedDecodeSize(getContext()),
+                isThumb);
+    }
+
+    /**
+     * Bind {@code candidates.get(index)}, moving on to the next candidate if it fails and drawing
+     * the unavailable placeholder once they are all spent.
+     */
+    private void bindCandidateWithFallback(
+            final List<String> candidates,
+            final int index,
+            final ImageView target,
+            final @Nullable ImageLoadingListener listener) {
+        final String candidate = candidates.get(index);
+        loadedUrl = candidate;
+
+        // The bind this chain belongs to. A failure can arrive long after the holder has been
+        // recycled, and acting on it then would paint over whatever the row shows now.
+        final int seq = bindSeq;
+
+        bindCandidate(
+                candidate,
+                target,
+                new ImageLoadingListener() {
+                    @Override
+                    public void onLoadingStarted(@Nullable String imageUri, @Nullable View view) {
+                        if (listener != null) listener.onLoadingStarted(imageUri, view);
+                    }
+
+                    @Override
+                    public void onLoadingFailed(
+                            String imageUri, @Nullable View view, FailReason failReason) {
+                        if (seq != bindSeq) {
+                            return;
+                        }
+                        // Judge each candidate on its own failure. Reddit saying this one is gone is
+                        // worth remembering; a candidate that merely could not be reached is not, and
+                        // condemning the whole chain on the last one's verdict would blacklist a URL
+                        // that only lost its network.
+                        if (failReason.getCause() instanceof ImageNotFoundException) {
+                            PhotoLoader.markPreviewDead(candidate);
+                        }
+                        if (index + 1 < candidates.size()) {
+                            LogUtil.v(
+                                    "Preview failed for "
+                                            + imageUri
+                                            + "; trying "
+                                            + candidates.get(index + 1));
+                            bindCandidateWithFallback(candidates, index + 1, target, listener);
+                            return;
+                        }
+                        if (listener != null) listener.onLoadingFailed(imageUri, view, failReason);
+                        scheduleUnavailablePlaceholder();
+                    }
+
+                    @Override
+                    public void onLoadingComplete(
+                            @Nullable String imageUri, @Nullable View view, @Nullable Bitmap loadedBitmap) {
+                        if (listener != null) listener.onLoadingComplete(imageUri, view, loadedBitmap);
+                    }
+
+                    @Override
+                    public void onLoadingCancelled(String imageUri, @Nullable View view) {
+                        if (listener != null) listener.onLoadingCancelled(imageUri, view);
+                    }
+                });
+    }
+
+    /**
+     * Draw the placeholder once the bind that failed has finished.
+     *
+     * <p>Not inline: the callers of {@link #displayImageCachedFirst} set the row's visibility
+     * <em>after</em> handing the image over, so applying it during the bind would be silently undone
+     * a line later. Deferring also covers the loader failing a load on the calling thread.
+     */
+    private void scheduleUnavailablePlaceholder() {
+        final int seq = bindSeq;
+        post(
+                () -> {
+                    if (seq == bindSeq) {
+                        applyUnavailablePlaceholder();
+                    }
+                });
+    }
+
+    /**
+     * No image could be loaded for this post: collapse the lead image and mark the thumbnail slot
+     * with the generic tile, exactly as the NSFW and spoiler paths do, so the row lands on the same
+     * pixels those do rather than on a blank box or Reddit's own "probably deleted" graphic.
+     *
+     * <p>Package-private so a test can assert the resulting row without standing up an image loader
+     * and a network to fail against.
+     */
+    void applyUnavailablePlaceholder() {
+        final Submission submission = boundSubmission;
+        if (submission == null) {
+            return;
+        }
+        backdrop.setBackground(null);
+        thumbImage2.setBackground(null);
+        handleSpecialSubmissionType(submission, boundFull, boundForceThumb, R.drawable.web);
+        // handleSpecialSubmissionType hides the thumbnail instead of drawing into it for a self post
+        // on the comments screen, and an unread description on a hidden view is just noise.
+        if (thumbUsed) {
+            thumbImage2.setContentDescription(getContext().getString(R.string.image_unavailable));
         }
     }
 
-    private void displayImage(String url, ImageView target) {
-        backdrop.setVisibility(View.VISIBLE);
-        ((Reddit) getContext().getApplicationContext())
-                .getImageLoader()
-                .displayImage(url, target, bigOptions, TRANSPARENCY_LISTENER);
-    }
-
-    private void handleImageType(Submission submission, String baseSub, boolean full, boolean forceThumb, boolean loadLq) {
+    private void handleImageType(Submission submission, @Nullable String baseSub, boolean full, boolean forceThumb, boolean loadLq) {
+        final Thumbnails lqThumbnails = PhotoLoader.usableThumbnails(submission);
         final boolean lowQ =
-                loadLq
-                        && submission.getThumbnails() != null
-                        && submission.getThumbnails().getVariations().length > 0;
+                loadLq && lqThumbnails != null && lqThumbnails.getVariations().length > 0;
+
+        // Record that the feed loaded a low-quality image so a tap can hand MediaView the low-res
+        // copy plus an HQ button (SubmissionThumbnailHelper.openImage reads baseView.lq). Reset to
+        // false per bind in setSubmission/setSubmissionNews.
+        lq = lowQ;
+
+        // The card shows a small thumbnail unless this is the big-image (card / full) view; size the
+        // requested preview to match so a thumbnail never downloads the full-width image.
+        final boolean showThumb = (!full && !SettingValues.isPicsEnabled(baseSub)) || forceThumb;
+        final int maxW = feedImageWidth(showThumb);
 
         // Cache the resolved preview URL by data-node identity (+ the low-quality decision, which
-        // can change with network state) so a re-bind of the same card skips re-parsing the JSON —
-        // mirrors the gallery path. A refreshed submission (new node) recomputes.
+        // can change with network state, and the display width) so a re-bind of the same card skips
+        // re-parsing the JSON — mirrors the gallery path. A refreshed submission (new node) recomputes.
         final JsonNode dataNode = submission.getDataNode();
         final String url;
-        if (dataNode != null && dataNode == imagePreviewKey && lowQ == imagePreviewLowQ) {
+        if (dataNode != null
+                && dataNode == imagePreviewKey
+                && lowQ == imagePreviewLowQ
+                && maxW == imagePreviewWidth) {
             url = imagePreviewUrlCache;
         } else {
-            url = lowQ ? getLowQualityUrl(submission) : getHighQualityUrl(submission);
+            url = lowQ ? getLowQualityUrl(submission) : getHighQualityUrl(submission, maxW);
             imagePreviewKey = dataNode;
             imagePreviewLowQ = lowQ;
+            imagePreviewWidth = maxW;
             imagePreviewUrlCache = url;
         }
 
-        if (!full && !SettingValues.isPicsEnabled(baseSub) || forceThumb) {
+        if (showThumb) {
             if (!submission.isSelfPost() || full) {
-                if (!full) {
-                    thumbImage2.setVisibility(View.VISIBLE);
-                } else {
-                    wrapArea.setVisibility(View.VISIBLE);
-                }
+                setThumbAndWrapVisibility(full, true);
 
                 loadedUrl = url;
                 displayImage(url, thumbImage2);
@@ -772,28 +1095,32 @@ public class HeaderImageLinkView extends RelativeLayout {
             loadedUrl = url;
             displayImage(url, backdrop);
             setVisibility(View.VISIBLE);
-            if (!full) {
-                thumbImage2.setVisibility(View.GONE);
-            } else {
-                wrapArea.setVisibility(View.GONE);
-            }
+            setThumbAndWrapVisibility(full, false);
         }
     }
 
-    private String getThumbnailVariationUrl(Submission submission, int index) {
+    private @Nullable String getThumbnailVariationUrl(Submission submission, int index) {
+        final Thumbnails thumbnails = PhotoLoader.usableThumbnails(submission);
+        if (thumbnails == null) {
+            return null;
+        }
         return CompatUtil.fromHtml(
-                submission.getThumbnails().getVariations()[index].getUrl()
+                thumbnails.getVariations()[index].getUrl()
         ).toString(); // unescape url characters
     }
 
     // Delegated to PhotoLoader so the feed card and the preloader use identical URL selection
     // (preventing first-view pop-in from a preload/display cache-key mismatch).
-    private String getLowQualityUrl(Submission submission) {
+    private @Nullable String getLowQualityUrl(Submission submission) {
         return PhotoLoader.getLowQualityUrl(submission);
     }
 
-    private String getHighQualityUrl(Submission submission) {
+    private @Nullable String getHighQualityUrl(Submission submission) {
         return PhotoLoader.getHighQualityUrl(submission);
+    }
+
+    private @Nullable String getHighQualityUrl(Submission submission, int maxWidth) {
+        return PhotoLoader.getHighQualityUrl(submission, maxWidth);
     }
 
     private boolean setBackdropLayoutParams(int height, int width, boolean full, boolean fullImage, ContentType.Type type) {
@@ -855,10 +1182,10 @@ public class HeaderImageLinkView extends RelativeLayout {
     }
 
     private void handleThumbnailDisplay(Submission submission, boolean full, boolean forceThumb,
-            boolean loadLq, String baseSub, boolean news) {
-        String url = getSubmissionUrl(submission, loadLq);
-        boolean shouldShowThumb = !SettingValues.isPicsEnabled(baseSub) && !full
+            boolean loadLq, @Nullable String baseSub) {
+        boolean shouldShowThumb = (!SettingValues.isPicsEnabled(baseSub) && !full)
                 || forceThumb;
+        String url = getSubmissionUrl(submission, loadLq, feedImageWidth(shouldShowThumb));
 
         if (shouldShowThumb) {
             displayThumbnail(url, full);
@@ -867,15 +1194,21 @@ public class HeaderImageLinkView extends RelativeLayout {
         }
     }
 
-    private String getSubmissionUrl(Submission submission, boolean loadLq) {
-        if (loadLq && submission.getThumbnails().getVariations().length != 0) {
-            if (ContentType.isImgurImage(submission.getUrl())) {
-                return getImgurLowQualityUrl(submission.getUrl());
+    private @Nullable String getSubmissionUrl(
+            Submission submission, boolean loadLq, int maxWidth) {
+        final Thumbnails thumbnails = PhotoLoader.usableThumbnails(submission);
+        if (loadLq && thumbnails != null && thumbnails.getVariations().length != 0) {
+            // Loading a low-quality image: record it so a tap hands MediaView the low-res copy plus
+            // an HQ button (baseView.lq, read in SubmissionThumbnailHelper.openImage).
+            lq = true;
+            final String submissionUrl = submission.getUrl();
+            if (submissionUrl != null && ContentType.isImgurImage(submissionUrl)) {
+                return getImgurLowQualityUrl(submissionUrl);
             } else {
                 return getLowQualityVariationUrl(submission);
             }
         } else {
-            return getHighQualityUrl(submission);
+            return getHighQualityUrl(submission, maxWidth);
         }
     }
 
@@ -885,8 +1218,12 @@ public class HeaderImageLinkView extends RelativeLayout {
                 + url.substring(url.lastIndexOf("."));
     }
 
-    private String getLowQualityVariationUrl(Submission submission) {
-        int length = submission.getThumbnails().getVariations().length;
+    private @Nullable String getLowQualityVariationUrl(Submission submission) {
+        final Thumbnails thumbnails = PhotoLoader.usableThumbnails(submission);
+        if (thumbnails == null) {
+            return null;
+        }
+        int length = thumbnails.getVariations().length;
         if (SettingValues.lqLow && length >= 3) {
             return getThumbnailVariationUrl(submission, 2);
         } else if (SettingValues.lqMid && length >= 4) {
@@ -894,11 +1231,11 @@ public class HeaderImageLinkView extends RelativeLayout {
         } else if (length >= 5) {
             return getThumbnailVariationUrl(submission, length - 1);
         } else {
-            return CompatUtil.fromHtml(submission.getThumbnails().getSource().getUrl()).toString();
+            return CompatUtil.fromHtml(thumbnails.getSource().getUrl()).toString();
         }
     }
 
-    private void displayThumbnail(String url, boolean full) {
+    private void displayThumbnail(@Nullable String url, boolean full) {
         if (url == null || PLACEHOLDER_URLS.contains(url)) {
             LogUtil.v("Displaying thumbnail - invalid or placeholder URL: " + url + ", hiding view and thumbImage2.");
             setVisibility(View.GONE); // Hides HeaderImageLinkView
@@ -911,19 +1248,15 @@ public class HeaderImageLinkView extends RelativeLayout {
             return;
         }
 
-        if (!full) {
-            thumbImage2.setVisibility(View.VISIBLE);
-        } else {
-            wrapArea.setVisibility(View.VISIBLE);
-        }
+        setThumbAndWrapVisibility(full, true);
         loadedUrl = url;
 
         ImageLoadingListener detailedListener = new ImageLoadingListener() {
             @Override
-            public void onLoadingStarted(String imageUri, View view) {}
+            public void onLoadingStarted(@Nullable String imageUri, @Nullable View view) {}
 
             @Override
-            public void onLoadingFailed(String imageUri, View view, FailReason failReason) {
+            public void onLoadingFailed(String imageUri, @Nullable View view, FailReason failReason) {
                 LogUtil.e("UIL (Thumbnail): Loading FAILED for: " + imageUri + ", reason: " + failReason.getType() + ", cause: " + (failReason.getCause() != null ? failReason.getCause().getMessage() : "null"));
                 if (view != null) view.setBackground(null);
                 if (HeaderImageLinkView.this != null) {
@@ -932,7 +1265,8 @@ public class HeaderImageLinkView extends RelativeLayout {
             }
 
             @Override
-            public void onLoadingComplete(String imageUri, View view, android.graphics.Bitmap loadedBitmap) {
+            public void onLoadingComplete(
+                    @Nullable String imageUri, @Nullable View view, @Nullable android.graphics.Bitmap loadedBitmap) {
                 if (loadedBitmap != null) {
                     if (loadedBitmap.getWidth() == 0 || loadedBitmap.getHeight() == 0) {
                         LogUtil.w("UIL (Thumbnail): Loaded bitmap has zero width or height for " + imageUri);
@@ -951,7 +1285,7 @@ public class HeaderImageLinkView extends RelativeLayout {
             }
 
             @Override
-            public void onLoadingCancelled(String imageUri, View view) {
+            public void onLoadingCancelled(String imageUri, @Nullable View view) {
                 LogUtil.w("UIL (Thumbnail): Loading CANCELLED for " + imageUri);
                 if (view != null) view.setBackground(null);
                 if (HeaderImageLinkView.this != null) {
@@ -960,14 +1294,11 @@ public class HeaderImageLinkView extends RelativeLayout {
             }
         };
 
-        ((Reddit) getContext().getApplicationContext())
-                .getImageLoader()
-                .displayImage(
-                        url, thumbImage2, bigOptions, detailedListener); // Use detailedListener
+        displayImageCachedFirst(url, thumbImage2, detailedListener); // Use detailedListener
         setVisibility(View.GONE); // This line was already here for thumbnails
     }
 
-    private void displayFullImage(String url, boolean full) {
+    private void displayFullImage(@Nullable String url, boolean full) {
         if (url == null || PLACEHOLDER_URLS.contains(url)) {
             LogUtil.v("Displaying full image - invalid or placeholder URL for backdrop: " + url + ", hiding view.");
             setVisibility(View.GONE);
@@ -983,10 +1314,10 @@ public class HeaderImageLinkView extends RelativeLayout {
         loadedUrl = url;
         ImageLoadingListener detailedListener = new ImageLoadingListener() {
             @Override
-            public void onLoadingStarted(String imageUri, View view) {}
+            public void onLoadingStarted(@Nullable String imageUri, @Nullable View view) {}
 
             @Override
-            public void onLoadingFailed(String imageUri, View view, FailReason failReason) {
+            public void onLoadingFailed(String imageUri, @Nullable View view, FailReason failReason) {
                 LogUtil.e("UIL (FullImage): Loading FAILED for: " + imageUri + ", reason: " + failReason.getType() + ", cause: " + (failReason.getCause() != null ? failReason.getCause().getMessage() : "null"));
                 if (view != null) view.setBackground(null);
                 if (HeaderImageLinkView.this != null) {
@@ -995,7 +1326,8 @@ public class HeaderImageLinkView extends RelativeLayout {
             }
 
             @Override
-            public void onLoadingComplete(String imageUri, View view, android.graphics.Bitmap loadedBitmap) {
+            public void onLoadingComplete(
+                    @Nullable String imageUri, @Nullable View view, @Nullable android.graphics.Bitmap loadedBitmap) {
                 if (loadedBitmap != null) {
                     if (loadedBitmap.getWidth() == 0 || loadedBitmap.getHeight() == 0) {
                         LogUtil.w("UIL (FullImage): Loaded bitmap has zero width or height for " + imageUri);
@@ -1018,7 +1350,7 @@ public class HeaderImageLinkView extends RelativeLayout {
             }
 
             @Override
-            public void onLoadingCancelled(String imageUri, View view) {
+            public void onLoadingCancelled(String imageUri, @Nullable View view) {
                 LogUtil.w("UIL (FullImage): Loading CANCELLED for " + imageUri);
                 if (view != null) view.setBackground(null);
                 if (HeaderImageLinkView.this != null) {
@@ -1034,9 +1366,7 @@ public class HeaderImageLinkView extends RelativeLayout {
             backdrop.setVisibility(View.VISIBLE);
         }
 
-        ((Reddit) getContext().getApplicationContext())
-                .getImageLoader()
-                .displayImage(url, backdrop, bigOptions, detailedListener);
+        displayImageCachedFirst(url, backdrop, detailedListener);
 
         setVisibility(View.VISIBLE);
 
@@ -1049,14 +1379,10 @@ public class HeaderImageLinkView extends RelativeLayout {
 
     private void handleSpecialSubmissionType(Submission submission, boolean full, boolean forceThumb, int drawableResId) {
         setVisibility(View.GONE);
-        if (!full || forceThumb) {
-            thumbImage2.setVisibility(View.VISIBLE);
-        } else {
-            wrapArea.setVisibility(View.VISIBLE);
-        }
+        setThumbAndWrapVisibility(full && !forceThumb, true);
 
         if (submission.isSelfPost() && full) {
-            wrapArea.setVisibility(View.GONE);
+            setThumbAndWrapVisibility(true, false);
         } else {
             thumbImage2.setImageDrawable(
                     ContextCompat.getDrawable(getContext(), drawableResId));
@@ -1074,10 +1400,12 @@ public class HeaderImageLinkView extends RelativeLayout {
     }
 
     private void setupFullView(Submission submission, boolean full, boolean forceThumb, ContentType.Type type) {
-        if (wrapArea.getVisibility() == View.VISIBLE) {
-            title = secondTitle;
+        final View wrap = wrapArea;
+        final TextView wrapTitle = secondTitle;
+        if (wrap != null && wrapTitle != null && wrap.getVisibility() == View.VISIBLE) {
+            title = wrapTitle;
             info = secondSubTitle;
-            setBottomSheet(wrapArea, submission, full);
+            setBottomSheet(wrap, submission, full);
         } else {
             setupDefaultTitleAndInfo();
             View targetView = determineBottomSheetTarget(submission, forceThumb, type);
@@ -1092,40 +1420,198 @@ public class HeaderImageLinkView extends RelativeLayout {
     }
 
     private void setupDefaultTitleAndInfo() {
-        title = findViewById(R.id.textimage);
+        title = requireViewById(R.id.textimage);
         info = findViewById(R.id.subtextimage);
     }
 
     private View determineBottomSheetTarget(Submission submission, boolean forceThumb, ContentType.Type type) {
         boolean useThumb = forceThumb
-                || (submission.isNsfw()
-                        && submission.getThumbnailType() == Submission.ThumbnailType.NSFW
-                        || type != ContentType.Type.IMAGE
+                || ((submission.isNsfw()
+                        && submission.getThumbnailType() == Submission.ThumbnailType.NSFW)
+                        || (type != ContentType.Type.IMAGE
                         && type != ContentType.Type.SELF
-                        && !submission.getDataNode().get("thumbnail").isNull()
-                        && (submission.getThumbnailType() != Submission.ThumbnailType.URL));
+                        && submission.getDataNode().hasNonNull("thumbnail")
+                        && (submission.getThumbnailType() != Submission.ThumbnailType.URL)));
 
         return useThumb ? thumbImage2 : this;
     }
 
     private void setThumbAndWrapVisibility(boolean full, boolean visible) {
+        final int visibility = visible ? View.VISIBLE : View.GONE;
         if (!full) {
-            thumbImage2.setVisibility(visible ? View.VISIBLE : View.GONE);
-        } else {
-            wrapArea.setVisibility(visible ? View.VISIBLE : View.GONE);
+            thumbImage2.setVisibility(visibility);
+        } else if (wrapArea != null) {
+            wrapArea.setVisibility(visibility);
         }
     }
 
-    private void handleGalleryData(JsonNode dataNode, Submission submission, String baseSub, boolean full, boolean forceThumb) {
+    /**
+     * Draw the gallery as a grid of thumbnails instead of a single lead image, or return false to
+     * leave the card on its ordinary lead-image path.
+     *
+     * <p>Only in the feed, and only where the card shows the big lead image: {@code full} is the
+     * comments screen (submission_fullscreen), and the list and desktop rows show a small thumbnail
+     * a grid has no room inside. A gallery of one has nothing a grid would add.
+     */
+    private boolean showGalleryGrid(
+            Submission submission, @Nullable String baseSub, boolean full, boolean forceThumb) {
+        // isPicsEnabled is the whole test, as it is for handlePreviewImage just below: it already
+        // falls back to the global bigPicEnabled when the subreddit has no override. Naming
+        // bigPicEnabled as well made this stricter than the lead image it replaces — a subreddit
+        // whose override turns pictures on while the global setting is off draws the big image but
+        // was refused the grid, and both warm paths went on warming tiles for it.
+        if (!SettingValues.galleryGrid
+                || full
+                || forceThumb
+                || !SettingValues.isPicsEnabled(baseSub)) {
+            return false;
+        }
+        // The submission's own node, not the crosspost-resolved one handleRedditGalleryType passes
+        // down: GalleryTiles resolves the crosspost itself, and it has to do so from the same node
+        // SubmissionClickActions.openRedditGallery starts from, or the tiles and the viewer's image
+        // list come from different posts. Handing it a node that has already been hopped once made
+        // a crosspost of a crosspost resolve to the grandparent here and the parent there, so tile
+        // k opened image k of another gallery — the one thing this whole indexing scheme promises.
+        final GalleryTiles.Grid grid = GalleryTiles.gridFor(getContext(), submission.getDataNode());
+        if (grid == null) {
+            return false;
+        }
+
+        backdrop.setVisibility(View.GONE);
+        galleryGrid.setVisibility(View.VISIBLE);
+        // The tag ("GALLERY") and domain overlays are anchored to leadimage; it is GONE on this
+        // path, so move whatever rules name it onto the grid instead.
+        anchorOverlays(R.id.leadimage, R.id.gallerygrid);
+        setThumbAndWrapVisibility(full, false);
+
+        galleryGrid.bind(
+                grid.tiles,
+                grid.span,
+                grid.overflowCount,
+                index -> {
+                    final Activity activity = activityOf(getContext());
+                    if (activity == null || activity.isFinishing()) {
+                        return;
+                    }
+                    // Same step the card's own click performs: opening a gallery from a tile has to
+                    // mark the post read, or it never reaches the read history.
+                    SubmissionClickActions.markRead(activity, submission, positionHolder);
+                    SubmissionClickActions.openRedditGallery(
+                            activity,
+                            submission,
+                            index,
+                            positionHolder == null
+                                    ? -1
+                                    : positionHolder.getBindingAdapterPosition());
+                },
+                // The post's url, not the tile's: the sheet's share/copy actions should hand over
+                // the post, the way a long press on a lead image does. A null event skips the peek
+                // (which needs the touch position) and goes straight to the sheet.
+                index -> {
+                    // The lead image's long press marks the post read before it opens the sheet
+                    // (see the longClicked runnable in setOnLongClickListener); a tile has to do
+                    // the same, or long-pressing a gallery leaves it out of the read history while
+                    // long-pressing the picture beside it does not.
+                    // The lead image's long press marks the post read before it opens the sheet
+                    // (see the longClicked runnable in setBottomSheet); a tile has to do the same,
+                    // or long-pressing a gallery leaves it out of the read history while
+                    // long-pressing the picture on the card below it does not.
+                    final Activity activity = activityOf(getContext());
+                    if (activity != null && !activity.isFinishing()) {
+                        SubmissionClickActions.markRead(activity, submission, positionHolder);
+                    }
+                    onLinkLongClick(submission.getUrl(), null, submission);
+                    return true;
+                });
+        return true;
+    }
+
+    /**
+     * The Activity behind this view's context, or null if there is none.
+     *
+     * <p>A card's context is a themed wrapper, not the Activity, so it cannot simply be cast —
+     * {@link ContextThemeWrapper} extends {@link ContextWrapper}, so unwrapping in a loop covers
+     * however deeply it happens to be nested.
+     */
+    private static @Nullable Activity activityOf(Context context) {
+        while (context instanceof ContextWrapper) {
+            if (context instanceof Activity) {
+                return (Activity) context;
+            }
+            context = ((ContextWrapper) context).getBaseContext();
+        }
+        return null;
+    }
+
+    /** Undo {@link #showGalleryGrid}, for a holder being rebound to anything else. */
+    private void hideGalleryGrid() {
+        if (galleryGrid.getVisibility() == View.GONE) {
+            return;
+        }
+        galleryGrid.clear();
+        galleryGrid.setVisibility(View.GONE);
+        backdrop.setVisibility(View.VISIBLE);
+        anchorOverlays(R.id.gallerygrid, R.id.leadimage);
+    }
+
+    /**
+     * Move the tag and domain overlays from anchoring on {@code fromId} to anchoring on {@code toId}.
+     *
+     * <p>Every rule that names the old anchor moves, not just one of them. The content-tag position
+     * setting is expressed as layout rules on {@code R.id.tag}: {@code CreateCardView.doHideObjects}
+     * anchors it {@code ALIGN_TOP}+{@code ALIGN_RIGHT} to the lead image for "top", and
+     * {@code ALIGN_BOTTOM}+{@code ALIGN_RIGHT} for "bottom". Re-pointing only the vertical rule left
+     * the horizontal one attached to a lead image that is GONE behind the grid, which put the tag in
+     * the wrong place instead of honouring the setting.
+     *
+     * <p>Both views in one call on purpose: they are a pair, and an anchor moved on one but not the
+     * other puts the domain strip and the type tag on different lines.
+     */
+    // Package-private rather than private so RoborazziContentTagTest can drive the gallery ->
+    // non-gallery recycle that this method has to survive; the alternative is a full bind, which
+    // needs the real Reddit application for its image loader.
+    void anchorOverlays(int fromId, int toId) {
+        reanchor(findViewById(R.id.tag), fromId, toId);
+        reanchor(findViewById(R.id.base), fromId, toId);
+    }
+
+    private static void reanchor(@Nullable View view, int fromId, int toId) {
+        if (view == null) {
+            return;
+        }
+        final RelativeLayout.LayoutParams params =
+                (RelativeLayout.LayoutParams) view.getLayoutParams();
+        if (params == null) {
+            return;
+        }
+        final int[] rules = params.getRules();
+        for (int verb = 0; verb < rules.length; verb++) {
+            if (rules[verb] == fromId) {
+                params.addRule(verb, toId);
+            }
+        }
+        view.setLayoutParams(params);
+    }
+
+    private void handleGalleryData(JsonNode dataNode, Submission submission, @Nullable String baseSub, boolean full, boolean forceThumb) {
+        if (showGalleryGrid(submission, baseSub, full, forceThumb)) {
+            return;
+        }
+
         // Selection logic is shared with the preloader so the card and PhotoLoader reference the
-        // same (sized) gallery image — see PhotoLoader.getGalleryPreview. Cache by data node
-        // identity: a re-bind of the same card skips re-parsing, a refreshed submission recomputes.
+        // same (sized) gallery image — see PhotoLoader.getGalleryPreview. The width cap is how the
+        // low-resolution setting reaches a gallery, and it has to be computed the same way on both
+        // sides or the card downloads a second copy of the picture the preloader already fetched.
+        final int maxWidth = PhotoLoader.galleryMaxWidth(getContext());
+        // Cache by data node identity, plus the cap: a re-bind of the same card skips re-parsing, a
+        // refreshed submission recomputes, and so does a move on or off wifi (which changes the cap).
         final PhotoLoader.GalleryPreview gallery;
-        if (dataNode != null && dataNode == galleryPreviewKey) {
+        if (dataNode != null && dataNode == galleryPreviewKey && maxWidth == galleryPreviewMaxWidth) {
             gallery = galleryPreviewCache;
         } else {
-            gallery = PhotoLoader.getGalleryPreview(dataNode);
+            gallery = PhotoLoader.getGalleryPreview(dataNode, maxWidth);
             galleryPreviewKey = dataNode;
+            galleryPreviewMaxWidth = maxWidth;
             galleryPreviewCache = gallery;
         }
 

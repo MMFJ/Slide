@@ -10,6 +10,7 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.RadioGroup;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import java.util.ArrayList;
 import me.edgan.redditslide.Adapters.SubChooseAdapter;
@@ -22,14 +23,16 @@ import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.SortingUtil;
 import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by carlo_000 on 5/4/2016. */
+@NullMarked
 public class SetupWidget extends BaseActivity {
 
     private int appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
         disableSwipeBackLayout();
         getTheme().applyStyle(new FontPreferences(this).getCommentFontStyle().getResId(), true);
         getTheme().applyStyle(new FontPreferences(this).getPostFontStyle().getResId(), true);
@@ -54,6 +57,7 @@ public class SetupWidget extends BaseActivity {
                             AppWidgetManager.INVALID_APPWIDGET_ID);
     }
 
+    @SuppressWarnings("NullAway.Init") // assigned in doShortcut
     View header;
 
     public void doShortcut() {
@@ -65,7 +69,7 @@ public class SetupWidget extends BaseActivity {
         setupAppBar(R.id.toolbar, R.string.widget_creation_title, true, true);
         header = getLayoutInflater().inflate(R.layout.widget_header, null);
 
-        ListView list = (ListView) findViewById(R.id.subs);
+        ListView list = (ListView) requireViewById(R.id.subs);
         final ArrayList<String> sorted =
                 UserSubscriptions.getSubscriptionsForShortcut(SetupWidget.this);
         final SubChooseAdapter adapter =
@@ -74,8 +78,8 @@ public class SetupWidget extends BaseActivity {
         list.addHeaderView(header);
         list.setAdapter(adapter);
 
-        (header.findViewById(R.id.sort)).clearFocus();
-        ((EditText) header.findViewById(R.id.sort))
+        (header.requireViewById(R.id.sort)).clearFocus();
+        ((EditText) header.requireViewById(R.id.sort))
                 .addTextChangedListener(
                         new SimpleTextWatcher() {
                             @Override
@@ -86,7 +90,10 @@ public class SetupWidget extends BaseActivity {
                         });
     }
 
-    public String name;
+    // Nothing assigns this. startWidget() passes it to setSubFromid, where a null removes the
+    // "<id>_sub" key rather than storing one -- a pre-existing defect, recorded here rather
+    // than asserted away with a suppression that claims something populates it.
+    @Nullable public String name;
 
     /**
      * This method right now displays the widget and starts a Service to fetch remote data from
@@ -102,7 +109,7 @@ public class SetupWidget extends BaseActivity {
                         SubredditWidgetProvider.setSubFromid(appWidgetId, name, SetupWidget.this);
                         int theme = 0;
                         int themeId =
-                                ((RadioGroup) header.findViewById(R.id.theme))
+                                ((RadioGroup) header.requireViewById(R.id.theme))
                                         .getCheckedRadioButtonId();
                         if (themeId == R.id.dark) {
                             theme = 1;
@@ -111,7 +118,7 @@ public class SetupWidget extends BaseActivity {
                         }
                         int view = 0;
                         int typeId =
-                                ((RadioGroup) header.findViewById(R.id.type))
+                                ((RadioGroup) header.requireViewById(R.id.type))
                                         .getCheckedRadioButtonId();
                         if (typeId == R.id.big) {
                             view = 1;
@@ -185,6 +192,5 @@ public class SetupWidget extends BaseActivity {
         // this intent is essential to show the widget
         // if this intent is not included,you can't show
         // widget on homescreen
-
     }
 }

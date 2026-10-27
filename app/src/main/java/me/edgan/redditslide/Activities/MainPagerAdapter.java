@@ -15,6 +15,7 @@ import android.view.ViewGroup;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.LinearInterpolator;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
@@ -25,6 +26,8 @@ import me.edgan.redditslide.Adapters.SubredditPosts;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Constants;
 import me.edgan.redditslide.Fragments.SubmissionsView;
+import me.edgan.redditslide.HibernateState;
+import me.edgan.redditslide.Megareddits;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
@@ -33,10 +36,29 @@ import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.Palette;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.StringUtil;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class MainPagerAdapter extends FragmentStatePagerAdapter {
+    @SuppressWarnings("NullAway.Init") // assigned in doSetPrimary
     protected SubmissionsView mCurrentFragment;
     private MainActivity mainActivity;
+
+    // A snapshot of SettingValues.hideSubredditTabs, not a live read of it. The flag decides how
+    // many tabs getCount() reports, and the settings screen flips it the instant the switch is
+    // tapped -- while MainActivity is only PAUSED behind that screen's translucent swipeable
+    // theme, so its ViewPager is still attached and still measuring. Reading the flag live let
+    // the count change under a pager that had not been notified, and the next populate() (a
+    // measure pass is enough) threw IllegalStateException before MainActivity.onResume could
+    // call reloadSubs(). The new value is taken up in notifyDataSetChanged() below, which is
+    // where ViewPager re-reads the count too, so the two can no longer disagree.
+    protected boolean hideSubredditTabs = SettingValues.hideSubredditTabs;
+
+    @Override
+    public void notifyDataSetChanged() {
+        hideSubredditTabs = SettingValues.hideSubredditTabs;
+        super.notifyDataSetChanged();
+    }
 
     static int resolveHeaderColor(Drawable bg, String fallbackSub) {
         if (bg instanceof ColorDrawable) {
@@ -52,7 +74,9 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
     // Helper method to check if a subreddit is special (frontpage, all) or a multi-reddit
     protected boolean isSpecialOrMulti(String subreddit) {
         String lowercase = subreddit.toLowerCase(Locale.ENGLISH);
-        return UserSubscriptions.specialSubreddits.contains(lowercase) || lowercase.contains("/m/");
+        return UserSubscriptions.specialSubreddits.contains(lowercase)
+                || lowercase.contains("/m/")
+                || Megareddits.isKey(lowercase);
     }
 
     // Modified constructor to accept MainActivity
@@ -71,18 +95,26 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
                                     .translationY(0)
                                     .setInterpolator(new LinearInterpolator())
                                     .setDuration(180);
-                            if (position < mainActivity.usedArray.size()) {
-                                mainActivity.sidebarController.doSubSidebarNoLoad(mainActivity.usedArray.get(position));
+                            final String scrolledTo = subredditForPage(position);
+                            if (!scrolledTo.isEmpty()) {
+                                mainActivity.sidebarController.doSubSidebarNoLoad(scrolledTo);
                             }
                         }
                     }
 
                     @Override
                     public void onPageSelected(final int position) {
-                        if (position >= mainActivity.usedArray.size()) return;
+                        // By the adapter's numbering, not usedArray's: with hideSubredditTabs on
+                        // an ordinary subscription has no page, so from the first one onwards a
+                        // position names a different entry than the array does. Reading the array
+                        // raw here pointed the whole screen -- title, colors, and the subreddit
+                        // the page is told to load -- at a subreddit with no tab, which is why
+                        // the last tab came up blank.
+                        final String selected = subredditForPage(position);
+                        if (selected.isEmpty()) return;
 
                         Reddit.currentPosition = position;
-                        mainActivity.selectedSub = mainActivity.usedArray.get(position);
+                        mainActivity.selectedSub = selected;
                         SubmissionsView page = (SubmissionsView) getCurrentFragment();
 
                         if (mainActivity.hea != null) {
@@ -134,20 +166,22 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
                                                     == Constants.SUBREDDIT_SEARCH_METHOD_TOOLBAR
                                             || SettingValues.subredditSearchMethod
                                                     == Constants.SUBREDDIT_SEARCH_METHOD_BOTH)
-                                    && mainActivity.findViewById(R.id.toolbar_search).getVisibility()
+                                    && mainActivity.requireViewById(R.id.toolbar_search).getVisibility()
                                             == View.VISIBLE) {
                                 new Handler()
                                         .postDelayed(
                                                 new Runnable() {
                                                     @Override
                                                     public void run() {
-                                                        mainActivity.getSupportActionBar()
+                                                        java.util.Objects.requireNonNull(
+                                                                        mainActivity
+                                                                                .getSupportActionBar())
                                                                 .setTitle(mainActivity.selectedSub);
                                                     }
                                                 },
                                                 mainActivity.ANIMATE_DURATION + mainActivity.ANIMATE_DURATION_OFFSET);
                             } else {
-                                mainActivity.getSupportActionBar().setTitle(mainActivity.selectedSub);
+                                java.util.Objects.requireNonNull(mainActivity.getSupportActionBar()).setTitle(mainActivity.selectedSub);
                             }
                         } else {
                             mainActivity.mTabLayout.setSelectedTabIndicatorColor(
@@ -156,10 +190,22 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
                         }
                         if (page != null && page.adapter != null) {
                             SubredditPosts p = page.adapter.dataSet;
-                            if (p.offline && !mainActivity.isRestart) {
+                            if (p.offline && !p.restoredFromCache) {
                                 p.doMainActivityOffline(mainActivity, p.displayer);
                             }
                         }
+                        // Moving to another tab is neither a resume nor a scroll, so nothing
+                        // else records it: killed here with no pause, the app came back on
+                        // the tab the user had left. Posted so the page has laid out -- a
+                        // page that has not loaded yet has no position to give and keeps the
+                        // last snapshot, and records itself once its listing arrives.
+                        mainActivity.pager.post(
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        HibernateState.onContentSettled(mainActivity);
+                                    }
+                                });
                     }
                 });
 
@@ -175,7 +221,7 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
         if (mainActivity.usedArray == null) {
             return 1;
         } else {
-            if (SettingValues.hideSubredditTabs) {
+            if (hideSubredditTabs) {
                 // Count special subreddits like frontpage, all, etc. and multi-reddits
                 int count = 0;
                 for (String sub : mainActivity.usedArray) {
@@ -197,7 +243,7 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
         Bundle args = new Bundle();
         String name = ""; // Initialize with default empty string
 
-        if (SettingValues.hideSubredditTabs) {
+        if (hideSubredditTabs) {
             int specialIndex = 0;
             boolean found = false;
 
@@ -251,6 +297,7 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
         }
 
         args.putString("id", name);
+        mainActivity.applyRestoreArgs(name, args);
         f.setArguments(args);
 
         return f;
@@ -271,7 +318,7 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
                 // Ensure reloadItemNumber is valid
                 if (mainActivity.reloadItemNumber >= 0 && mainActivity.reloadItemNumber < mainActivity.usedArray.size()) {
                     if (mainActivity.multiNameToSubsMap.containsKey(mainActivity.usedArray.get(mainActivity.reloadItemNumber))) {
-                        mainActivity.shouldLoad = mainActivity.multiNameToSubsMap.get(mainActivity.usedArray.get(mainActivity.reloadItemNumber));
+                        mainActivity.shouldLoad = mainActivity.multiNameToSubsMap.getOrDefault(mainActivity.usedArray.get(mainActivity.reloadItemNumber), "");
                     } else {
                         mainActivity.shouldLoad = mainActivity.usedArray.get(mainActivity.reloadItemNumber);
                     }
@@ -287,7 +334,7 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
 
 
     @Override
-    public Parcelable saveState() {
+    public @Nullable Parcelable saveState() {
         return null;
     }
 
@@ -299,12 +346,12 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
         }
 
         if (object != null && getCurrentFragment() != object && position != mainActivity.toOpenComments && object instanceof SubmissionsView) {
-            mainActivity.shouldLoad = mainActivity.usedArray.get(position);
+            final String primary = subredditForPage(position);
 
-            if (mainActivity.multiNameToSubsMap.containsKey(mainActivity.usedArray.get(position))) {
-                mainActivity.shouldLoad = mainActivity.multiNameToSubsMap.get(mainActivity.usedArray.get(position));
+            if (mainActivity.multiNameToSubsMap.containsKey(primary)) {
+                mainActivity.shouldLoad = mainActivity.multiNameToSubsMap.getOrDefault(primary, "");
             } else {
-                mainActivity.shouldLoad = mainActivity.usedArray.get(position);
+                mainActivity.shouldLoad = primary;
             }
 
             mCurrentFragment = ((SubmissionsView) object);
@@ -320,10 +367,82 @@ public class MainPagerAdapter extends FragmentStatePagerAdapter {
         return mCurrentFragment;
     }
 
+    /**
+     * The subreddit a pager position is showing, or {@code ""} when there is none.
+     *
+     * <p>A pager position is not an index into {@code usedArray}. With {@code hideSubredditTabs}
+     * on, only the special subreddits and multireddits get a page, so an ordinary subscription
+     * sitting between two of them makes the two numbering schemes diverge from that point on --
+     * with {@code [/mega/cuteanimals, randnsfw, frontpage, all, test, random]} the RANDOM tab is
+     * position 4 while {@code usedArray.get(4)} is {@code test}. Reading the array by position
+     * therefore names a subreddit that has no tab at all, which is how a resume came back on the
+     * right tab with an empty listing.
+     *
+     * <p>Mirrors {@link #getItem} and {@link #getPageTitle}, which is what actually decides which
+     * subreddit a page loads; this is the same walk without building anything.
+     */
+    public String subredditForPage(int position) {
+        if (mainActivity.usedArray == null || position < 0) {
+            return "";
+        }
+        if (!hideSubredditTabs) {
+            return position < mainActivity.usedArray.size()
+                    ? mainActivity.usedArray.get(position)
+                    : "";
+        }
+        int specialIndex = 0;
+        for (String sub : mainActivity.usedArray) {
+            if (isSpecialOrMulti(sub)) {
+                if (specialIndex == position) {
+                    return sub;
+                }
+                specialIndex++;
+            }
+        }
+        // getItem falls back to the first subscription when there is no special or multireddit to
+        // show, and getCount still reports one page ("Always show at least one tab"), so position
+        // 0 is a real page displaying a real subreddit. Answering "" for it told the page to load
+        // nothing and left onPageSelected returning before it set the title, colors or sidebar.
+        return position == 0 && !mainActivity.usedArray.isEmpty()
+                ? mainActivity.usedArray.get(0)
+                : "";
+    }
+
+    /** The pager position showing a subreddit, or -1. The inverse of {@link #subredditForPage}. */
+    public int pageForSubreddit(String sub) {
+        if (mainActivity.usedArray == null) {
+            return -1;
+        }
+        if (!hideSubredditTabs) {
+            for (int i = 0; i < mainActivity.usedArray.size(); i++) {
+                if (sub.equalsIgnoreCase(mainActivity.usedArray.get(i))) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+        int specialIndex = 0;
+        for (String candidate : mainActivity.usedArray) {
+            if (isSpecialOrMulti(candidate)) {
+                if (sub.equalsIgnoreCase(candidate)) {
+                    return specialIndex;
+                }
+                specialIndex++;
+            }
+        }
+        // The same fallback page getItem builds when nothing qualifies for a tab.
+        if (specialIndex == 0
+                && !mainActivity.usedArray.isEmpty()
+                && sub.equalsIgnoreCase(mainActivity.usedArray.get(0))) {
+            return 0;
+        }
+        return -1;
+    }
+
     @Override
     public CharSequence getPageTitle(int position) {
         if (mainActivity.usedArray != null) {
-            if (SettingValues.hideSubredditTabs) {
+            if (hideSubredditTabs) {
                 // Find the position-th special subreddit or multi-reddit
                 int specialIndex = 0;
                 for (String sub : mainActivity.usedArray) {

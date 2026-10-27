@@ -3,17 +3,19 @@ package me.edgan.redditslide.ui.settings;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.ViewGroup;
-
+import androidx.annotation.Nullable;
 import me.edgan.redditslide.Activities.BaseActivityAnim;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.util.MiscUtil;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 3/5/2015. */
+@NullMarked
 public class SettingsTheme extends BaseActivityAnim implements RestartActivity {
 
     private SettingsThemeFragment fragment = new SettingsThemeFragment(this);
 
-    public void onCreate(Bundle savedInstanceState) {
+    @Override public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         applyColorTheme();
         setContentView(R.layout.activity_settings_theme);
@@ -22,7 +24,7 @@ public class SettingsTheme extends BaseActivityAnim implements RestartActivity {
 
         setupAppBar(R.id.toolbar, R.string.title_edit_theme, true, true);
 
-        ((ViewGroup) findViewById(R.id.settings_theme))
+        ((ViewGroup) requireViewById(R.id.settings_theme))
                 .addView(getLayoutInflater().inflate(R.layout.activity_settings_theme_child, null));
 
         fragment.Bind();

@@ -8,7 +8,9 @@ import androidx.appcompat.widget.SwitchCompat;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
+import org.jspecify.annotations.NullMarked;
 
+@NullMarked
 public class SettingsDebugFragment {
 
     private final Activity context;
@@ -19,9 +21,9 @@ public class SettingsDebugFragment {
 
     public void Bind() {
         final SwitchCompat breakReauthSwitch =
-                context.findViewById(R.id.settings_debug_breakreauth);
+                context.requireViewById(R.id.settings_debug_breakreauth);
         final RelativeLayout triggerReauthLayout =
-                context.findViewById(R.id.settings_debug_triggerreauth);
+                context.requireViewById(R.id.settings_debug_triggerreauth);
 
         // Toggle that stalls re-authentication so the reauth snackbar can be tested. It is
         // recoverable: turning it off lets the next reauth succeed again.

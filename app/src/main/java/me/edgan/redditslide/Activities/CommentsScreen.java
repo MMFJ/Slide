@@ -9,11 +9,14 @@ import android.view.KeyEvent;
 import android.view.ViewGroup;
 import android.view.Window;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentStatePagerAdapter;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager.widget.ViewPager;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -21,8 +24,10 @@ import me.edgan.redditslide.Adapters.MultiredditPosts;
 import me.edgan.redditslide.Adapters.SubmissionDisplay;
 import me.edgan.redditslide.Adapters.SubredditPosts;
 import me.edgan.redditslide.Authentication;
+import me.edgan.redditslide.CommentRestoreState;
 import me.edgan.redditslide.Fragments.BlankFragment;
 import me.edgan.redditslide.Fragments.CommentPage;
+import me.edgan.redditslide.HibernateState;
 import me.edgan.redditslide.LastComments;
 import me.edgan.redditslide.OfflineSubreddit;
 import me.edgan.redditslide.PostLoader;
@@ -31,8 +36,10 @@ import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.util.CustomViewPager;
 import me.edgan.redditslide.util.KeyboardUtil;
+import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
 import net.dean.jraw.models.Submission;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * This activity is responsible for the view when clicking on a post, showing the post and its
@@ -45,7 +52,13 @@ import net.dean.jraw.models.Submission;
  *
  * <p>Created by ccrama on 9/17/2015.
  */
-public class CommentsScreen extends BaseActivityAnim implements SubmissionDisplay {
+@NullMarked
+public class CommentsScreen extends BaseActivityAnim
+        implements SubmissionDisplay, HibernateState.Restorable {
+
+    /** Where in the comments the user was when the app was last closed; empty on an ordinary open. */
+    public final CommentRestoreState restore = new CommentRestoreState();
+
     public static final String EXTRA_PROFILE = "profile";
     public static final String EXTRA_PAGE = "page";
     public static final String EXTRA_SUBREDDIT = "subreddit";
@@ -56,9 +69,10 @@ public class CommentsScreen extends BaseActivityAnim implements SubmissionDispla
     public PostLoader subredditPosts;
     int firstPage;
 
+    @SuppressWarnings("NullAway.Init") // assigned in onCreate
     CommentsScreenPagerAdapter comments;
     private String subreddit;
-    private String baseSubreddit;
+    private String baseSubreddit = "";
 
     String multireddit;
     String profile;
@@ -87,7 +101,7 @@ public class CommentsScreen extends BaseActivityAnim implements SubmissionDispla
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 14) {
             comments.notifyDataSetChanged();
@@ -99,37 +113,69 @@ public class CommentsScreen extends BaseActivityAnim implements SubmissionDispla
 
     public boolean popup;
 
+    /**
+     * The submission a pager position is showing, or -1 for a position showing no submission.
+     *
+     * This is {@link CommentsScreenPagerAdapter#getItem} read backwards, and it has to stay that
+     * way: in {@code oldSwipeMode} everything up to and including {@code firstPage} is a
+     * {@link BlankFragment}, so those positions have no submission at all rather than one an
+     * offset away.
+     */
+    private int submissionIndexFor(int position) {
+        if (SettingValues.oldSwipeMode) {
+            if (position <= firstPage) {
+                return -1;
+            }
+            position = position - 1;
+        }
+        return (position < 0 || position >= currentPosts.size()) ? -1 : position;
+    }
+
+    /**
+     * Publishes the rows the feed should rebind on the way back. A vote cast on this screen only
+     * reaches the feed row through that rebind, so this has to be reported even when the user never
+     * changes pages. {@code lastPage} is left out unless the user actually moved, because the hosts
+     * turn it into a {@code scrollToPositionWithOffset} and backing straight out must not scroll.
+     */
+    private void publishSeenResult(int index, boolean includeLastPage) {
+        if (!seen.contains(index)) {
+            seen.add(index);
+        }
+
+        Bundle conData = new Bundle();
+        conData.putIntegerArrayList("seen", seen);
+        if (includeLastPage) {
+            conData.putInt("lastPage", index);
+        }
+        Intent intent = new Intent();
+        intent.putExtras(conData);
+        setResult(RESULT_OK, intent);
+    }
+
     private class CommonPageChangeListener extends ViewPager.SimpleOnPageChangeListener {
         @Override
         public void onPageSelected(int position) {
-            if (position != firstPage && position < currentPosts.size()) {
-                position = position - 1;
-                if (position < 0) position = 0;
-
-                updateSubredditAndSubmission(currentPosts.get(position));
-
-                if (currentPosts.size() - 2 <= position && subredditPosts.hasMore()) {
-                    subredditPosts.loadMore(
-                            CommentsScreen.this.getApplicationContext(),
-                            CommentsScreen.this,
-                            false);
-                }
-
-                currentPage = position;
-                seen.add(position);
-
-                Bundle conData = new Bundle();
-                conData.putIntegerArrayList("seen", seen);
-                conData.putInt("lastPage", position);
-                Intent intent = new Intent();
-                intent.putExtras(conData);
-                setResult(RESULT_OK, intent);
+            final int index = submissionIndexFor(position);
+            if (index < 0) {
+                return;
             }
+
+            updateSubredditAndSubmission(currentPosts.get(index));
+
+            if (currentPosts.size() - 2 <= index && subredditPosts.hasMore()) {
+                subredditPosts.loadMore(
+                        CommentsScreen.this.getApplicationContext(),
+                        CommentsScreen.this,
+                        false);
+            }
+
+            currentPage = index;
+            publishSeenResult(index, true);
         }
     }
 
     @Override
-    public void onCreate(Bundle savedInstance) {
+    public void onCreate(@Nullable Bundle savedInstance) {
         popup =
                 getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE
                         && !SettingValues.fullCommentOverride;
@@ -153,13 +199,13 @@ public class CommentsScreen extends BaseActivityAnim implements SubmissionDispla
 
         Reddit.setDefaultErrorHandler(this);
 
-        firstPage = getIntent().getExtras().getInt(EXTRA_PAGE, -1);
-        baseSubreddit = getIntent().getExtras().getString(EXTRA_SUBREDDIT);
+        firstPage = getIntent().getIntExtra(EXTRA_PAGE, -1);
+        baseSubreddit = MiscUtil.orEmpty(getIntent().getStringExtra(EXTRA_SUBREDDIT));
         subreddit = baseSubreddit;
-        multireddit = getIntent().getExtras().getString(EXTRA_MULTIREDDIT);
-        profile = getIntent().getExtras().getString(EXTRA_PROFILE, "");
+        multireddit = MiscUtil.orEmpty(getIntent().getStringExtra(EXTRA_MULTIREDDIT));
+        profile = MiscUtil.orEmpty(getIntent().getStringExtra(EXTRA_PROFILE));
         currentPosts = new ArrayList<>();
-        if (multireddit != null) {
+        if (!multireddit.isEmpty()) {
             subredditPosts = new MultiredditPosts(multireddit, profile);
         } else {
             baseSubreddit = subreddit.toLowerCase(Locale.ENGLISH);
@@ -172,7 +218,7 @@ public class CommentsScreen extends BaseActivityAnim implements SubmissionDispla
         } else {
             OfflineSubreddit o =
                     OfflineSubreddit.getSubreddit(
-                            multireddit == null ? baseSubreddit : "multi_" + multireddit,
+                            multireddit.isEmpty() ? baseSubreddit : "multi_" + multireddit,
                             OfflineSubreddit.currentid,
                             !Authentication.didOnline,
                             CommentsScreen.this);
@@ -181,30 +227,60 @@ public class CommentsScreen extends BaseActivityAnim implements SubmissionDispla
         }
 
         if (getIntent().hasExtra("fullname")) {
-            String fullname = getIntent().getStringExtra("fullname");
+            final String fullname = MiscUtil.orEmpty(getIntent().getStringExtra("fullname"));
+            int found = RecyclerView.NO_POSITION;
             for (int i = 0; i < currentPosts.size(); i++) {
-                if (currentPosts.get(i).getFullName().equals(fullname)) {
-                    if (i != firstPage) firstPage = i;
+                if (MiscUtil.orEmpty(currentPosts.get(i).getFullName()).equals(fullname)) {
+                    found = i;
                     break;
                 }
             }
+            if (found == RecyclerView.NO_POSITION) {
+                // The intent names a post the cached listing no longer holds. A resume replays
+                // the intent this screen was opened with, against a listing that has since been
+                // refreshed -- and for a random feed, refreshed into a different subreddit
+                // entirely. firstPage indexes the listing as it was, so leaving it alone opens
+                // whichever post now sits at that row: silently, a thread the user never asked
+                // for. The post itself is still in the cache directory from when it was read.
+                final Submission stored = storedPost(fullname);
+                if (stored != null) {
+                    subredditPosts.getPosts().add(stored);
+                    currentPosts.add(stored);
+                    found = currentPosts.size() - 1;
+                }
+            }
+            if (found != RecyclerView.NO_POSITION) {
+                firstPage = found;
+            }
+            // Not found and not on disk either: firstPage is left as it came in. For an ordinary
+            // tap that is the live index and still correct; only a resume can reach here with a
+            // stale one, and there is nothing better left to open.
         }
 
-        if (currentPosts.isEmpty()
-                || currentPosts.size() < firstPage
-                || currentPosts.get(firstPage) == null
-                || firstPage < 0) {
+        if (firstPage < 0
+                || currentPosts.isEmpty()
+                || currentPosts.size() <= firstPage
+                || currentPosts.get(firstPage) == null) {
+            // firstPage first: it is the index the two tests after it read with, and a negative
+            // one reaches the get() as an out-of-bounds throw rather than as the finish() this
+            // branch exists to reach.
             finish();
         } else {
             updateSubredditAndSubmission(currentPosts.get(firstPage));
 
-            final CustomViewPager pager = (CustomViewPager) findViewById(R.id.content_view);
+            final CustomViewPager pager = (CustomViewPager) requireViewById(R.id.content_view);
             // final ViewPager pager = (ViewPager) findViewById(R.id.content_view);
+
+            final Bundle hibernated = HibernateState.claim(this);
+            if (hibernated != null) {
+                restoreHibernateState(hibernated);
+            }
 
             comments = new CommentsScreenPagerAdapter(getSupportFragmentManager());
             pager.setAdapter(comments);
 
             currentPage = firstPage;
+            publishSeenResult(firstPage, false);
 
             if (SettingValues.oldSwipeMode) {
                 pager.setCurrentItem(firstPage + 1);
@@ -224,8 +300,9 @@ public class CommentsScreen extends BaseActivityAnim implements SubmissionDispla
                             finish();
                         }
                         if (position == firstPage && !popup) {
-                            CommentsScreenPagerAdapter adapter = (CommentsScreenPagerAdapter) pager.getAdapter();
-                            if (adapter.blankPage != null) {
+                            CommentsScreenPagerAdapter adapter =
+                                    (CommentsScreenPagerAdapter) pager.getAdapter();
+                            if (adapter != null && adapter.blankPage != null) {
                                 adapter.blankPage.doOffset(positionOffset);
                             }
                         }
@@ -237,11 +314,35 @@ public class CommentsScreen extends BaseActivityAnim implements SubmissionDispla
         }
     }
 
-    private void updateSubredditAndSubmission(Submission post) {
-        subreddit = post.getSubredditName();
-        if (post.getSubredditName() == null) {
-            subreddit = "Promoted";
+    /**
+     * The copy of {@code fullname} written to the cache directory when it was last read, or null
+     * when there is none.
+     */
+    @Nullable
+    private Submission storedPost(String fullname) {
+        try {
+            return OfflineSubreddit.getSubmissionFromStorage(
+                    fullname,
+                    this,
+                    true,
+                    new ObjectMapper().reader(),
+                    // baseSubreddit is the listing's name -- "frontpage", or a multireddit --
+                    // not the post's own subreddit, so its comment-sort preference would be the
+                    // wrong answer if anything read it. Nothing does: this copy supplies the
+                    // pager's post, and the thread on screen is the one CommentPage builds with
+                    // the sort it resolved from the post's real subreddit.
+                    SettingValues.defaultCommentSorting);
+        } catch (IOException e) {
+            LogUtil.e(e, "CommentsScreen could not read " + fullname);
+            return null;
         }
+    }
+
+    private void updateSubredditAndSubmission(Submission post) {
+        // A submission with no subreddit is a promoted post; that fallback was already here, just
+        // written after the assignment it was meant to cover rather than as part of it.
+        final String postSubreddit = post.getSubredditName();
+        subreddit = postSubreddit == null ? "Promoted" : postSubreddit;
         themeSystemBars(subreddit);
         setRecentBar(subreddit);
     }
@@ -285,8 +386,27 @@ public class CommentsScreen extends BaseActivityAnim implements SubmissionDispla
         comments.notifyDataSetChanged();
     }
 
+    @Override
+    public void saveHibernateState(Bundle out) {
+        if (currentPosts == null || currentPage < 0 || currentPage >= currentPosts.size()) {
+            return;
+        }
+        final Fragment current = comments == null ? null : comments.getCurrentFragment();
+        CommentRestoreState.capture(
+                out,
+                currentPosts.get(currentPage).getFullName(),
+                current instanceof CommentPage ? (CommentPage) current : null);
+    }
+
+    @Override
+    public void restoreHibernateState(Bundle in) {
+        restore.read(in);
+    }
+
     private class CommentsScreenPagerAdapter extends FragmentStatePagerAdapter {
+        @SuppressWarnings("NullAway.Init") // assigned in setPrimaryItem as the pager swaps pages
         private CommentPage mCurrentFragment;
+        @SuppressWarnings("NullAway.Init") // assigned in getItem
         public BlankFragment blankPage;
 
         CommentsScreenPagerAdapter(FragmentManager fm) {
@@ -312,18 +432,18 @@ public class CommentsScreen extends BaseActivityAnim implements SubmissionDispla
         private Fragment createCommentPageFragment(int i) {
             Fragment f = new CommentPage();
             Bundle args = new Bundle();
-            String name = currentPosts.get(i).getFullName();
-            args.putString("id", name.substring(3));
+            args.putString("id", MiscUtil.idFromFullname(currentPosts.get(i).getFullName()));
             args.putBoolean("archived", currentPosts.get(i).isArchived());
             args.putBoolean(
                     "contest",
-                    currentPosts.get(i).getDataNode().get("contest_mode").asBoolean());
+                    currentPosts.get(i).getDataNode().path("contest_mode").asBoolean());
             args.putBoolean("locked", currentPosts.get(i).isLocked());
             args.putInt("page", i);
             args.putString("subreddit", currentPosts.get(i).getSubredditName());
             args.putString(
                     "baseSubreddit",
-                    multireddit == null ? baseSubreddit : "multi_" + multireddit);
+                    multireddit.isEmpty() ? baseSubreddit : "multi_" + multireddit);
+            restore.applyTo(currentPosts.get(i).getFullName(), args);
             f.setArguments(args);
             return f;
         }

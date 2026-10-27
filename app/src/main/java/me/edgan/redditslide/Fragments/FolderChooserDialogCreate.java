@@ -40,13 +40,21 @@ public class FolderChooserDialogCreate extends DialogFragment {
 
     private static final String DEFAULT_TAG = "[MD_FOLDER_SELECTOR]";
 
+    // All three are assigned by onCreateDialog before the dialog is shown, and every use below
+    // runs from that dialog's callbacks.
+    @SuppressWarnings("NullAway.Init")
     private File parentFolder;
+
+    @SuppressWarnings("NullAway.Init") // assigned in onCreateDialog/reload
     private File[] parentContents;
+
     private boolean canGoUp = false;
-    private FolderCallback callback;
+    @Nullable private FolderCallback callback;
+
+    @SuppressWarnings("NullAway.Init") // assigned in onCreateDialog
     private ArrayAdapter<String> listAdapter;
 
-    String[] getContentsArray() {
+    @Nullable String[] getContentsArray() {
         if (parentContents == null) {
             if (canGoUp) {
                 return new String[] {getBuilder().goUpLabel};
@@ -75,20 +83,26 @@ public class FolderChooserDialogCreate extends DialogFragment {
             Collections.sort(results, new FolderSorter());
             return results.toArray(new File[0]);
         }
-        return null;
+
+        // An unreadable directory lists as empty rather than null: getContentsArray and the
+        // click handler both index straight into this array.
+        return new File[0];
     }
 
     private Context themedContext() {
+        // Both callers are building this dialog's own view, which cannot be done without a
+        // host at all; requireActivity states that rather than inventing a fallback theme.
+        final FragmentActivity activity = requireActivity();
         return new ContextThemeWrapper(
-                getActivity(), new ColorPreferences(getActivity()).getFontStyle().getBaseId());
+                activity, new ColorPreferences(activity).getFontStyle().getBaseId());
     }
 
     @SuppressWarnings("ConstantConditions")
     @NonNull
     @Override
-    public Dialog onCreateDialog(Bundle savedInstanceState) {
+    public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         if (ActivityCompat.checkSelfPermission(
-                        getActivity(), Manifest.permission.READ_EXTERNAL_STORAGE)
+                        requireActivity(), Manifest.permission.READ_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED) {
             return new MaterialAlertDialogBuilder(themedContext())
                     .setTitle(R.string.md_error_label)
@@ -103,7 +117,7 @@ public class FolderChooserDialogCreate extends DialogFragment {
         if (!getArguments().containsKey("current_path")) {
             getArguments().putString("current_path", getBuilder().initialPath);
         }
-        parentFolder = new File(getArguments().getString("current_path"));
+        parentFolder = new File(getArguments().getString("current_path", getBuilder().initialPath));
         checkIfCanGoUp();
         parentContents = listFiles();
 
@@ -123,11 +137,15 @@ public class FolderChooserDialogCreate extends DialogFragment {
                         .setView(listView)
                         .setPositiveButton(
                                 getBuilder().chooseButton,
-                                (dialog, which) ->
-                                        callback.onFolderSelection(
+                                (dialog, which) -> {
+                                    if (callback == null) {
+                                        return;
+                                    }
+                                    callback.onFolderSelection(
                                                 FolderChooserDialogCreate.this,
-                                                parentFolder,
-                                                getBuilder().isSaveToLocation))
+                                            parentFolder,
+                                            getBuilder().isSaveToLocation);
+                                })
                         .setNegativeButton(getBuilder().cancelButton, null);
 
         if (getBuilder().allowNewFolder) {
@@ -157,7 +175,12 @@ public class FolderChooserDialogCreate extends DialogFragment {
     }
 
     private void createNewFolder() {
-        new MaterialInputDialog.Builder(getActivity())
+        // A detached fragment has no host here; there is nothing to act on.
+        final FragmentActivity activity = getActivity();
+        if (activity == null) {
+            return;
+        }
+        new MaterialInputDialog.Builder(activity)
                 .title(getBuilder().newFolderButton)
                 .input(null, null, null)
                 .positiveText(android.R.string.ok)
@@ -216,7 +239,7 @@ public class FolderChooserDialogCreate extends DialogFragment {
         if (dialog != null) {
             dialog.setTitle(parentFolder.getAbsolutePath());
         }
-        getArguments().putString("current_path", parentFolder.getAbsolutePath());
+        requireArguments().putString("current_path", parentFolder.getAbsolutePath());
         if (listAdapter != null) {
             listAdapter.clear();
             listAdapter.addAll(getContentsArray());
@@ -252,10 +275,12 @@ public class FolderChooserDialogCreate extends DialogFragment {
         show(fragmentManager, tag);
     }
 
-    @SuppressWarnings("ConstantConditions")
     @NonNull
     private Builder getBuilder() {
-        return (Builder) getArguments().getSerializable("builder");
+        // onCreateDialog throws if the "builder" argument is missing, so every path that
+        // reaches this has one.
+        return (Builder) java.util.Objects.requireNonNull(
+                requireArguments().getSerializable("builder"));
     }
 
     public interface FolderCallback {
@@ -274,7 +299,7 @@ public class FolderChooserDialogCreate extends DialogFragment {
         @StringRes int chooseButton;
         @StringRes int cancelButton;
         String initialPath;
-        String tag;
+        @Nullable String tag;
         boolean allowNewFolder;
         @StringRes int newFolderButton;
         String goUpLabel;

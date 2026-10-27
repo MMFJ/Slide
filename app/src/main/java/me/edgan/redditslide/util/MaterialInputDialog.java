@@ -7,15 +7,18 @@ import android.util.TypedValue;
 import android.view.ContextThemeWrapper;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.SwitchCompat;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputLayout;
 
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * Lightweight replacement for the deprecated afollestad {@code MaterialDialog} text-input dialogs.
@@ -25,6 +28,7 @@ import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
  * and {@link #getActionButton(int)} so call sites migrate with minimal changes. Backed by a {@link
  * com.google.android.material.dialog.MaterialAlertDialogBuilder} wrapping a {@link TextInputLayout}.
  */
+@NullMarked
 public class MaterialInputDialog {
 
     /** Invoked (after show, then on every text change) with the current input. */
@@ -39,14 +43,22 @@ public class MaterialInputDialog {
 
     private final AlertDialog dialog;
     private final EditText editText;
+    private final @Nullable SwitchCompat toggle;
 
-    private MaterialInputDialog(AlertDialog dialog, EditText editText) {
+    private MaterialInputDialog(
+            AlertDialog dialog, EditText editText, @Nullable SwitchCompat toggle) {
         this.dialog = dialog;
         this.editText = editText;
+        this.toggle = toggle;
     }
 
     public EditText getInputEditText() {
         return editText;
+    }
+
+    /** @return whether the optional toggle (added via {@link Builder#toggle}) is on. */
+    public boolean isToggleOn() {
+        return toggle != null && toggle.isChecked();
     }
 
     /** @param which one of {@link DialogInterface#BUTTON_POSITIVE} etc. */
@@ -64,22 +76,24 @@ public class MaterialInputDialog {
 
     public static class Builder {
         private final Context context;
-        private CharSequence title;
-        private CharSequence content;
-        private CharSequence hint;
-        private CharSequence prefill;
+        private @Nullable CharSequence title;
+        private @Nullable CharSequence content;
+        private @Nullable CharSequence hint;
+        private @Nullable CharSequence prefill;
         private int inputType = InputType.TYPE_CLASS_TEXT;
         private int minLength = 0;
         private int maxLength = -1;
-        private InputCallback inputCallback;
-        private CharSequence positiveText;
-        private CharSequence negativeText;
-        private CharSequence neutralText;
-        private ButtonCallback onPositive;
-        private ButtonCallback onNegative;
-        private ButtonCallback onNeutral;
+        private @Nullable InputCallback inputCallback;
+        private @Nullable CharSequence positiveText;
+        private @Nullable CharSequence negativeText;
+        private @Nullable CharSequence neutralText;
+        private @Nullable ButtonCallback onPositive;
+        private @Nullable ButtonCallback onNegative;
+        private @Nullable ButtonCallback onNeutral;
         private boolean cancelable = true;
         private boolean autoDismiss = true;
+        private @Nullable CharSequence toggleLabel;
+        private boolean toggleDefaultOn;
 
         public Builder(Context base) {
             this.context =
@@ -118,7 +132,10 @@ public class MaterialInputDialog {
             return this;
         }
 
-        public Builder input(CharSequence hint, CharSequence prefill, InputCallback callback) {
+        public Builder input(
+                @Nullable CharSequence hint,
+                @Nullable CharSequence prefill,
+                @Nullable InputCallback callback) {
             this.hint = hint;
             this.prefill = prefill;
             this.inputCallback = callback;
@@ -135,7 +152,7 @@ public class MaterialInputDialog {
             return this;
         }
 
-        public Builder onPositive(ButtonCallback cb) {
+        public Builder onPositive(@Nullable ButtonCallback cb) {
             this.onPositive = cb;
             return this;
         }
@@ -150,7 +167,7 @@ public class MaterialInputDialog {
             return this;
         }
 
-        public Builder onNegative(ButtonCallback cb) {
+        public Builder onNegative(@Nullable ButtonCallback cb) {
             this.onNegative = cb;
             return this;
         }
@@ -165,13 +182,20 @@ public class MaterialInputDialog {
             return this;
         }
 
-        public Builder onNeutral(ButtonCallback cb) {
+        public Builder onNeutral(@Nullable ButtonCallback cb) {
             this.onNeutral = cb;
             return this;
         }
 
         public Builder cancelable(boolean cancelable) {
             this.cancelable = cancelable;
+            return this;
+        }
+
+        /** Add an optional toggle (a {@link SwitchCompat}) below the input. */
+        public Builder toggle(CharSequence label, boolean onByDefault) {
+            this.toggleLabel = label;
+            this.toggleDefaultOn = onByDefault;
             return this;
         }
 
@@ -182,8 +206,11 @@ public class MaterialInputDialog {
 
         public MaterialInputDialog build() {
             final EditText editText = new EditText(context);
-            editText.setInputType(inputType);
+            // setSingleLine() installs its own transformation method, so it has to come first:
+            // after setInputType() it would overwrite the masking a password input type applies
+            // and leave the password legible on screen.
             editText.setSingleLine(true);
+            editText.setInputType(inputType);
             if (hint != null) {
                 editText.setHint(hint);
             }
@@ -195,8 +222,15 @@ public class MaterialInputDialog {
             final TextInputLayout inputLayout = new TextInputLayout(context);
             inputLayout.setErrorIconDrawable(null);
             inputLayout.addView(editText);
+            if (isPasswordInput()) {
+                // The standard Material reveal control, so a password can be read back before it is
+                // committed to something that cannot be recovered. Set once the field is attached:
+                // the toggle takes its initial state from that field's masking.
+                inputLayout.setEndIconMode(TextInputLayout.END_ICON_PASSWORD_TOGGLE);
+            }
 
-            final FrameLayout container = new FrameLayout(context);
+            final LinearLayout container = new LinearLayout(context);
+            container.setOrientation(LinearLayout.VERTICAL);
             final int padding =
                     (int)
                             TypedValue.applyDimension(
@@ -206,9 +240,29 @@ public class MaterialInputDialog {
             container.setPadding(padding, 0, padding, 0);
             container.addView(
                     inputLayout,
-                    new FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.WRAP_CONTENT));
+                    new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            final SwitchCompat toggle;
+            if (toggleLabel != null) {
+                toggle = new SwitchCompat(context);
+                toggle.setText(toggleLabel);
+                toggle.setChecked(toggleDefaultOn);
+                final LinearLayout.LayoutParams toggleParams =
+                        new LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT);
+                toggleParams.topMargin =
+                        (int)
+                                TypedValue.applyDimension(
+                                        TypedValue.COMPLEX_UNIT_DIP,
+                                        8,
+                                        context.getResources().getDisplayMetrics());
+                container.addView(toggle, toggleParams);
+            } else {
+                toggle = null;
+            }
 
             final MaterialAlertDialogBuilder builder =
                     new MaterialAlertDialogBuilder(context)
@@ -231,7 +285,8 @@ public class MaterialInputDialog {
             }
 
             final AlertDialog alertDialog = builder.create();
-            final MaterialInputDialog inputDialog = new MaterialInputDialog(alertDialog, editText);
+            final MaterialInputDialog inputDialog =
+                    new MaterialInputDialog(alertDialog, editText, toggle);
 
             alertDialog.setOnShowListener(
                     d -> {
@@ -310,6 +365,18 @@ public class MaterialInputDialog {
             final MaterialInputDialog inputDialog = build();
             inputDialog.dialog.show();
             return inputDialog;
+        }
+
+        private boolean isPasswordInput() {
+            final int inputClass = inputType & InputType.TYPE_MASK_CLASS;
+            final int variation = inputType & InputType.TYPE_MASK_VARIATION;
+            if (inputClass == InputType.TYPE_CLASS_TEXT) {
+                return variation == InputType.TYPE_TEXT_VARIATION_PASSWORD
+                        || variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                        || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
+            }
+            return inputClass == InputType.TYPE_CLASS_NUMBER
+                    && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
         }
     }
 }

@@ -3,6 +3,7 @@ package me.edgan.redditslide.Activities;
 import android.os.Bundle;
 import android.os.Parcelable;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.viewpager.widget.ViewPager;
@@ -11,14 +12,18 @@ import me.edgan.redditslide.Adapters.SubredditPosts;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.Fragments.CommentPage;
 import me.edgan.redditslide.Fragments.SubmissionsView;
-import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Visuals.Palette;
+import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.StringUtil;
+import org.jspecify.annotations.NullMarked;
 
 
+@NullMarked
 public class MainPagerAdapterComment extends MainPagerAdapter {
     public int size;
+    @SuppressWarnings("NullAway.Init") // assigned by SubmissionAdapter
     public Fragment storedFragment;
+    @SuppressWarnings("NullAway.Init") // assigned in doSetPrimary
     CommentPage mCurrentComments;
     MainActivity mainActivity;
 
@@ -35,8 +40,11 @@ public class MainPagerAdapterComment extends MainPagerAdapter {
                         if (positionOffset == 0) {
                             if (position != mainActivity.toOpenComments) {
                                 mainActivity.pager.setSwipeLeftOnly(true);
-                                mainActivity.header.setBackgroundColor(
-                                        Palette.getColor(mainActivity.usedArray.get(position)));
+                                final String scrolledTo = subredditForPage(position);
+                                if (!scrolledTo.isEmpty()) {
+                                    mainActivity.header.setBackgroundColor(
+                                            Palette.getColor(scrolledTo));
+                                }
                                 mainActivity.doPageSelectedComments(position);
                                 if (position == mainActivity.toOpenComments - 1 && mainActivity.adapter != null && mainActivity.adapter.getCurrentFragment() != null) {
                                     SubmissionsView page = (SubmissionsView) mainActivity.adapter.getCurrentFragment();
@@ -58,8 +66,16 @@ public class MainPagerAdapterComment extends MainPagerAdapter {
                                 }
 
                                 mainActivity.pager.setSwipeLeftOnly(true);
-                                mainActivity.themeSystemBars(mainActivity.openingComments.getSubredditName().toLowerCase(Locale.ENGLISH));
-                                mainActivity.setRecentBar(mainActivity.openingComments.getSubredditName().toLowerCase(Locale.ENGLISH));
+                                if (mainActivity.openingComments != null) {
+                                    final String sub =
+                                            MiscUtil.orEmpty(
+                                                            mainActivity
+                                                                    .openingComments
+                                                                    .getSubredditName())
+                                                    .toLowerCase(Locale.ENGLISH);
+                                    mainActivity.themeSystemBars(sub);
+                                    mainActivity.setRecentBar(sub);
+                                }
                             }
                         }
                     }
@@ -74,7 +90,7 @@ public class MainPagerAdapterComment extends MainPagerAdapter {
                             if (page != null && page.adapter != null) {
                                 page.adapter.refreshView();
                                 SubredditPosts p = page.adapter.dataSet;
-                                if (p.offline && !mainActivity.isRestart) {
+                                if (p.offline && !p.restoredFromCache) {
                                     p.doMainActivityOffline(mainActivity, p.displayer);
                                 }
                             }
@@ -83,7 +99,7 @@ public class MainPagerAdapterComment extends MainPagerAdapter {
                                     (SubmissionsView) mainActivity.adapter.getCurrentFragment();
                             if (page != null && page.adapter != null) {
                                 SubredditPosts p = page.adapter.dataSet;
-                                if (p.offline && !mainActivity.isRestart) {
+                                if (p.offline && !p.restoredFromCache) {
                                     p.doMainActivityOffline(mainActivity, p.displayer);
                                 }
                             }
@@ -98,7 +114,7 @@ public class MainPagerAdapterComment extends MainPagerAdapter {
         if (mainActivity.usedArray == null) {
             return 1;
         } else {
-            if (SettingValues.hideSubredditTabs) {
+            if (hideSubredditTabs) {
                 // Count special subreddits and multi-reddits
                 int count = 0;
                 for (String sub : mainActivity.usedArray) {
@@ -123,7 +139,7 @@ public class MainPagerAdapterComment extends MainPagerAdapter {
             Bundle args = new Bundle();
             String name = ""; // Initialize name
 
-            if (SettingValues.hideSubredditTabs) {
+            if (hideSubredditTabs) {
                 // Find the i-th special subreddit or multi-reddit
                 int specialIndex = 0;
                 boolean found = false;
@@ -178,38 +194,95 @@ public class MainPagerAdapterComment extends MainPagerAdapter {
 
             if (!name.isEmpty()) { // Ensure name is not empty before putting in args
                 args.putString("id", name);
+                mainActivity.applyRestoreArgs(name, args);
             }
             f.setArguments(args);
             return f;
         } else {
             Fragment f = new CommentPage();
             Bundle args = new Bundle();
-            String submissionFullName = mainActivity.openingComments.getFullName();
-            args.putString("id", submissionFullName.substring(3));
+            args.putString(
+                    "id",
+                    MiscUtil.idFromFullname(mainActivity.openingComments.getFullName()));
             args.putBoolean("archived", mainActivity.openingComments.isArchived());
             args.putBoolean(
-                    "contest", mainActivity.openingComments.getDataNode().get("contest_mode").asBoolean());
+                    "contest", mainActivity.openingComments.getDataNode().path("contest_mode").asBoolean());
             args.putBoolean("locked", mainActivity.openingComments.isLocked());
             args.putInt("page", mainActivity.currentComment);
             args.putString("subreddit", mainActivity.openingComments.getSubredditName());
             args.putString("baseSubreddit", mainActivity.subToDo);
+            mainActivity.commentRestore.applyTo(
+                    mainActivity.openingComments.getFullName(), args);
             f.setArguments(args);
             return f;
         }
     }
 
+    /**
+     * Whether the comment page is occupying a page of its own right now.
+     *
+     * <p>{@code toOpenComments} keeps the position it was last opened at after the page is gone,
+     * so the index alone does not say whether that slot is a thread or a feed; {@code
+     * openingComments} is what {@link #getItem} actually branches on.
+     */
+    private boolean commentPageShowing() {
+        return mainActivity.openingComments != null && mainActivity.toOpenComments >= 0;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The comment page takes a slot rather than shifting the ones above it: {@link #getItem}
+     * branches on {@code i != toOpenComments} and otherwise walks the specials by the raw
+     * position, exactly as the plain adapter does. So the inherited mapping is right for every
+     * page but the thread's own, and the subreddit that would have sat in that slot has no page
+     * at all while the thread is open.
+     */
     @Override
-    public Parcelable saveState() {
+    public String subredditForPage(int position) {
+        if (commentPageShowing() && position == mainActivity.toOpenComments) {
+            return ""; // a thread, not a listing
+        }
+        final String named = super.subredditForPage(position);
+        if (!named.isEmpty() || position < 0 || position >= getCount()) {
+            return named;
+        }
+        // getItem falls back to the first subscription for any page its walk cannot name. On the
+        // plain adapter that is only ever page 0, because getCount() stops at the number of
+        // specials; here there is one page more than that, so the page past the last special is
+        // reachable and really is showing usedArray.get(0).
+        return mainActivity.usedArray == null || mainActivity.usedArray.isEmpty()
+                ? ""
+                : mainActivity.usedArray.get(0);
+    }
+
+    /** The inverse, refusing the slot the thread has taken. */
+    @Override
+    public int pageForSubreddit(String sub) {
+        final int position = super.pageForSubreddit(sub);
+        if (commentPageShowing() && position == mainActivity.toOpenComments) {
+            return -1; // that listing is the one the thread displaced
+        }
+        return position;
+    }
+
+    @Override
+    public @Nullable Parcelable saveState() {
         return null;
     }
 
     @Override
     public void doSetPrimary(Object object, int position) {
         if (position != mainActivity.toOpenComments) {
-            if (mainActivity.multiNameToSubsMap.containsKey(mainActivity.usedArray.get(position))) {
-                mainActivity.shouldLoad = mainActivity.multiNameToSubsMap.get(mainActivity.usedArray.get(position));
+            // By the adapter's numbering, not usedArray's. With hideSubredditTabs on an ordinary
+            // subscription gets no page, so from the first one onwards the two disagree and
+            // reading the array raw told the page to load a subreddit that has no tab -- the
+            // same mismatch that made a tab come up blank on the plain adapter.
+            final String primary = subredditForPage(position);
+            if (mainActivity.multiNameToSubsMap.containsKey(primary)) {
+                mainActivity.shouldLoad = mainActivity.multiNameToSubsMap.getOrDefault(primary, "");
             } else {
-                mainActivity.shouldLoad = mainActivity.usedArray.get(position);
+                mainActivity.shouldLoad = primary;
             }
             if (getCurrentFragment() != object) {
                 mCurrentFragment = ((SubmissionsView) object);
@@ -222,8 +295,14 @@ public class MainPagerAdapterComment extends MainPagerAdapter {
         }
     }
 
-    public Fragment getCurrentFragment() {
+    @Override public Fragment getCurrentFragment() {
         return mCurrentFragment;
+    }
+
+    /** The comment page, when one has been opened over the feed; null before that. */
+    @Nullable
+    public CommentPage currentComments() {
+        return mCurrentComments;
     }
 
     @Override
@@ -235,7 +314,7 @@ public class MainPagerAdapterComment extends MainPagerAdapter {
     @Override
     public CharSequence getPageTitle(int position) {
         if (mainActivity.usedArray != null && position != mainActivity.toOpenComments) {
-            if (SettingValues.hideSubredditTabs) {
+            if (hideSubredditTabs) {
                 // Find the position-th special subreddit or multi-reddit
                 int specialIndex = 0;
                 for (String sub : mainActivity.usedArray) {

@@ -176,9 +176,12 @@ public class BatchDownloadAdapter extends RecyclerView.Adapter<BatchDownloadAdap
                     if (dataNode.has("gallery_data")) {
                         me.edgan.redditslide.util.JsonUtil.getGalleryData(dataNode, urls);
                     } else if (dataNode.has("crosspost_parent_list")) {
-                        com.fasterxml.jackson.databind.JsonNode crosspost_parent = dataNode.get("crosspost_parent_list").get(0);
-                        if (crosspost_parent.has("gallery_data")) {
-                            me.edgan.redditslide.util.JsonUtil.getGalleryData(crosspost_parent, urls);
+                        com.fasterxml.jackson.databind.JsonNode parentList = dataNode.get("crosspost_parent_list");
+                        if (parentList != null && parentList.size() > 0) {
+                            com.fasterxml.jackson.databind.JsonNode crosspost_parent = parentList.get(0);
+                            if (crosspost_parent != null && crosspost_parent.has("gallery_data")) {
+                                me.edgan.redditslide.util.JsonUtil.getGalleryData(crosspost_parent, urls);
+                            }
                         }
                     }
                     Bundle urlsBundle = new Bundle();
@@ -190,7 +193,6 @@ public class BatchDownloadAdapter extends RecyclerView.Adapter<BatchDownloadAdap
                     break;
                 case VIDEO:
                 case STREAMABLE:
-                case EMBEDDED:
                 default:
                     me.edgan.redditslide.util.LinkUtil.openUrl(sub.getUrl(), me.edgan.redditslide.Visuals.Palette.getStatusBarColor(), activity);
                     break;
@@ -280,7 +282,7 @@ public class BatchDownloadAdapter extends RecyclerView.Adapter<BatchDownloadAdap
     /** Mark an item as failed by submission ID (called from Phase 4 broadcast receiver). */
     public void markFailed(String submissionId) {
         for (int i = 0; i < visibleItems.size(); i++) {
-            if (visibleItems.get(i).submission.getId().equals(submissionId)) {
+            if (submissionId.equals(visibleItems.get(i).submission.getId())) {
                 visibleItems.get(i).state = BatchDownloadItem.State.FAILED;
                 notifyItemChanged(i);
                 return;
@@ -291,7 +293,7 @@ public class BatchDownloadAdapter extends RecyclerView.Adapter<BatchDownloadAdap
     /** Mark an item as done by submission ID. */
     public void markDone(String submissionId) {
         for (int i = 0; i < visibleItems.size(); i++) {
-            if (visibleItems.get(i).submission.getId().equals(submissionId)) {
+            if (submissionId.equals(visibleItems.get(i).submission.getId())) {
                 visibleItems.get(i).state = BatchDownloadItem.State.DONE;
                 notifyItemChanged(i);
                 return;

@@ -19,12 +19,14 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.SwitchCompat;
 import com.google.common.base.Strings;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import me.edgan.redditslide.Activities.BaseActivity;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.R;
@@ -37,14 +39,18 @@ import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.OnSingleClickListener;
 import me.edgan.redditslide.util.stubs.SimpleTextWatcher;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 3/5/2015. */
+@NullMarked
 public class SettingsActivity extends BaseActivity implements RestartActivity {
 
     private static final int RESTART_SETTINGS_RESULT = 2;
     private int scrollY;
+    @SuppressWarnings("NullAway.Init") // built in BuildLayout, called from onCreate
     private SharedPreferences.OnSharedPreferenceChangeListener prefsListener;
-    private String prev_text;
+
+    @Nullable private String prev_text;
     public static boolean changed; // whether or not a Setting was changed
 
     private SettingsGeneralFragment mSettingsGeneralFragment = new SettingsGeneralFragment(this);
@@ -72,14 +78,14 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             R.layout.activity_settings_reddit_child));
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == RESTART_SETTINGS_RESULT) {
             restartActivity();
         }
     }
 
-    public void restartActivity() {
+    @Override public void restartActivity() {
         Intent i = new Intent(SettingsActivity.this, SettingsActivity.class);
         i.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
         i.putExtra("position", scrollY);
@@ -99,26 +105,41 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
+        // R.id.settings_search is a view in activity_settings, so requireViewById is right for it.
+        // R.id.search is a *menu* item id: this finds the action button the toolbar built for it,
+        // which exists only while the item is shown as an action. It is showAsAction="always"
+        // today, so it is there — but that is a menu attribute, not a layout guarantee, and an
+        // item pushed to overflow would make this null. Guarded rather than asserted.
+        // See NULLAWAY.md phase 14.
         int itemId = item.getItemId();
         if (itemId == android.R.id.home) {
-            if (findViewById(R.id.settings_search).getVisibility() == View.VISIBLE) {
-                findViewById(R.id.settings_search).setVisibility(View.GONE);
-                findViewById(R.id.search).setVisibility(View.VISIBLE);
+            final View searchBar = requireViewById(R.id.settings_search);
+            if (searchBar.getVisibility() == View.VISIBLE) {
+                searchBar.setVisibility(View.GONE);
+                setSearchActionVisibility(View.VISIBLE);
             } else {
                 getOnBackPressedDispatcher().onBackPressed();
             }
             return true;
         } else if (itemId == R.id.search) {
-            findViewById(R.id.settings_search).setVisibility(View.VISIBLE);
-            findViewById(R.id.search).setVisibility(View.GONE);
+            requireViewById(R.id.settings_search).setVisibility(View.VISIBLE);
+            setSearchActionVisibility(View.GONE);
             return true;
         } else {
             return false;
         }
     }
 
+    /** The toolbar's action view for the search menu item, absent while it is in overflow. */
+    private void setSearchActionVisibility(int visibility) {
+        final View searchAction = findViewById(R.id.search);
+        if (searchAction != null) {
+            searchAction.setVisibility(visibility);
+        }
+    }
+
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         applyColorTheme();
         setContentView(R.layout.activity_settings);
@@ -135,7 +156,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
         }
 
         if (!Strings.isNullOrEmpty(prev_text)) {
-            ((EditText) findViewById(R.id.settings_search)).setText(prev_text);
+            ((EditText) requireViewById(R.id.settings_search)).setText(prev_text);
         }
 
         BuildLayout(prev_text);
@@ -152,7 +173,9 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getKeyCode() == KeyEvent.KEYCODE_SEARCH
                 && event.getAction() == KeyEvent.ACTION_DOWN) {
-            onOptionsItemSelected(mToolbar.getMenu().findItem(R.id.search));
+            if (mToolbar != null) {
+                onOptionsItemSelected(mToolbar.getMenu().findItem(R.id.search));
+            }
             //            (findViewById(R.id.settings_search)).requestFocus();
             MotionEvent motionEventDown =
                     MotionEvent.obtain(
@@ -170,15 +193,15 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             0,
                             0,
                             0);
-            (findViewById(R.id.settings_search)).dispatchTouchEvent(motionEventDown);
-            (findViewById(R.id.settings_search)).dispatchTouchEvent(motionEventUp);
+            (requireViewById(R.id.settings_search)).dispatchTouchEvent(motionEventDown);
+            (requireViewById(R.id.settings_search)).dispatchTouchEvent(motionEventUp);
             return true;
         }
         return super.dispatchKeyEvent(event);
     }
 
-    private void BuildLayout(String text) {
-        LinearLayout parent = (LinearLayout) findViewById(R.id.settings_parent);
+    private void BuildLayout(@Nullable String text) {
+        LinearLayout parent = (LinearLayout) requireViewById(R.id.settings_parent);
 
         /* Clear the settings out, then re-add the default top-level settings */
         parent.removeAllViews();
@@ -204,7 +227,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
             mSettingsRedditFragment.Bind();
 
             /* Go through each subview and scan it for matching text, non-matches */
-            loopViews(parent, text.toLowerCase(), true, "");
+            loopViews(parent, text.toLowerCase(Locale.getDefault()), true, "");
         }
 
         /* Try to clean up the mess we've made */
@@ -216,13 +239,13 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
         SettingValues.expandedSettings = true;
         setSettingItems();
 
-        final ScrollView mScrollView = ((ScrollView) findViewById(R.id.base));
+        final ScrollView mScrollView = ((ScrollView) requireViewById(R.id.base));
 
         prefsListener =
                 new SharedPreferences.OnSharedPreferenceChangeListener() {
                     @Override
                     public void onSharedPreferenceChanged(
-                            SharedPreferences sharedPreferences, String key) {
+                            SharedPreferences sharedPreferences, @Nullable String key) {
                         SettingsActivity.changed = true;
                     }
                 };
@@ -277,7 +300,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                 }
 
                 // Found matching text!
-                else if (((TextView) child).getText().toString().toLowerCase().contains(text)) {
+                else if (((TextView) child).getText().toString().toLowerCase(Locale.getDefault()).contains(text)) {
                     foundText = true;
                 }
 
@@ -312,10 +335,10 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
     }
 
     private void setSettingItems() {
-        View pro = findViewById(R.id.settings_child_pro);
+        View pro = requireViewById(R.id.settings_child_pro);
         pro.setVisibility(View.GONE);
 
-        ((EditText) findViewById(R.id.settings_search))
+        ((EditText) requireViewById(R.id.settings_search))
                 .addTextChangedListener(
                         new SimpleTextWatcher() {
                             @Override
@@ -329,7 +352,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_general)
+        requireViewById(R.id.settings_child_general)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -339,7 +362,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_history)
+        requireViewById(R.id.settings_child_history)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -349,7 +372,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_about)
+        requireViewById(R.id.settings_child_about)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -359,7 +382,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_debug)
+        requireViewById(R.id.settings_child_debug)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -369,7 +392,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_offline)
+        requireViewById(R.id.settings_child_offline)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -381,7 +404,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_datasave)
+        requireViewById(R.id.settings_child_datasave)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -391,7 +414,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_subtheme)
+        requireViewById(R.id.settings_child_subtheme)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -402,7 +425,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_filter)
+        requireViewById(R.id.settings_child_filter)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -413,18 +436,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_synccit)
-                .setOnClickListener(
-                        new OnSingleClickListener() {
-                            @Override
-                            public void onSingleClick(View v) {
-
-                                Intent i = new Intent(SettingsActivity.this, SettingsSynccit.class);
-                                startActivity(i);
-                            }
-                        });
-
-        findViewById(R.id.settings_child_reorder)
+        requireViewById(R.id.settings_child_reorder)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -435,7 +447,19 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_maintheme)
+        requireViewById(R.id.settings_child_megareddits)
+                .setOnClickListener(
+                        new OnSingleClickListener() {
+                            @Override
+                            public void onSingleClick(View v) {
+                                Intent i =
+                                        new Intent(
+                                                SettingsActivity.this, SettingsMegareddits.class);
+                                startActivity(i);
+                            }
+                        });
+
+        requireViewById(R.id.settings_child_maintheme)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -446,7 +470,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_handling)
+        requireViewById(R.id.settings_child_handling)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -457,7 +481,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_layout)
+        requireViewById(R.id.settings_child_layout)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -467,7 +491,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_backup)
+        requireViewById(R.id.settings_child_backup)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -477,7 +501,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_font)
+        requireViewById(R.id.settings_child_font)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -487,7 +511,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_tablet)
+        requireViewById(R.id.settings_child_tablet)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -499,7 +523,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                                 final View dialoglayout = inflater.inflate(R.layout.tabletui, null);
 
                                 dialoglayout
-                                        .findViewById(R.id.title)
+                                        .requireViewById(R.id.title)
                                         .setBackgroundColor(Palette.getDefaultColor());
 
                                 // Column counts 1 through 8 for the portrait and landscape
@@ -509,11 +533,11 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                                 };
 
                                 final TextView portraitCurrent =
-                                        dialoglayout.findViewById(R.id.portrait_current);
+                                        dialoglayout.requireViewById(R.id.portrait_current);
                                 portraitCurrent.setText(
                                         String.valueOf(SettingValues.portraitColumns));
                                 dialoglayout
-                                        .findViewById(R.id.portrait)
+                                        .requireViewById(R.id.portrait)
                                         .setOnClickListener(
                                                 v ->
                                                         DialogUtil.showWithCardBackground(
@@ -560,10 +584,10 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                                                                                 })));
 
                                 final TextView landscapeCurrent =
-                                        dialoglayout.findViewById(R.id.landscape_current);
+                                        dialoglayout.requireViewById(R.id.landscape_current);
                                 landscapeCurrent.setText(String.valueOf(Reddit.dpWidth));
                                 dialoglayout
-                                        .findViewById(R.id.landscape)
+                                        .requireViewById(R.id.landscape)
                                         .setOnClickListener(
                                                 v ->
                                                         DialogUtil.showWithCardBackground(
@@ -612,7 +636,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                                 final Dialog dialog = builder.create();
                                 DialogUtil.matchDialogToCardBackground(dialog);
                                 dialog.show();
-                                SwitchCompat s2 = dialog.findViewById(R.id.fullcomment);
+                                SwitchCompat s2 = dialog.requireViewById(R.id.fullcomment);
                                 s2.setChecked(SettingValues.fullCommentOverride);
                                 s2.setOnCheckedChangeListener(
                                         new CompoundButton.OnCheckedChangeListener() {
@@ -629,7 +653,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                                                         .apply();
                                             }
                                         });
-                                SwitchCompat s3 = dialog.findViewById(R.id.singlecolumnmultiwindow);
+                                SwitchCompat s3 = dialog.requireViewById(R.id.singlecolumnmultiwindow);
                                 s3.setChecked(SettingValues.singleColumnMultiWindow);
                                 s3.setOnCheckedChangeListener(
                                         new CompoundButton.OnCheckedChangeListener() {
@@ -649,7 +673,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_comments)
+        requireViewById(R.id.settings_child_comments)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -660,7 +684,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                             }
                         });
 
-        findViewById(R.id.settings_child_markdown)
+        requireViewById(R.id.settings_child_markdown)
                 .setOnClickListener(
                         new OnSingleClickListener() {
                             @Override
@@ -671,7 +695,7 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                         });
 
         if (Authentication.isLoggedIn && NetworkUtil.isConnected(this)) {
-            findViewById(R.id.settings_child_reddit_settings)
+            requireViewById(R.id.settings_child_reddit_settings)
                     .setOnClickListener(
                             new OnSingleClickListener() {
                                 @Override
@@ -682,24 +706,8 @@ public class SettingsActivity extends BaseActivity implements RestartActivity {
                                 }
                             });
         } else {
-            findViewById(R.id.settings_child_reddit_settings).setEnabled(false);
-            findViewById(R.id.settings_child_reddit_settings).setAlpha(0.25f);
-        }
-
-        if (Authentication.mod) {
-            findViewById(R.id.settings_child_moderation).setVisibility(View.VISIBLE);
-            findViewById(R.id.settings_child_moderation)
-                    .setOnClickListener(
-                            new View.OnClickListener() {
-                                @Override
-                                public void onClick(View v) {
-                                    Intent i =
-                                            new Intent(
-                                                    SettingsActivity.this,
-                                                    SettingsModeration.class);
-                                    startActivity(i);
-                                }
-                            });
+            requireViewById(R.id.settings_child_reddit_settings).setEnabled(false);
+            requireViewById(R.id.settings_child_reddit_settings).setAlpha(0.25f);
         }
     }
 

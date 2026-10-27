@@ -15,6 +15,7 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.Toolbar;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -36,32 +37,34 @@ import net.dean.jraw.ApiException;
 import net.dean.jraw.managers.InboxManager;
 import net.dean.jraw.models.Captcha;
 import net.dean.jraw.models.PrivateMessage;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 3/5/2015. */
+@NullMarked
 public class SendMessage extends BaseActivity {
     public static final String EXTRA_NAME = "name";
     public static final String EXTRA_REPLY = "reply";
     public static final String EXTRA_MESSAGE = "message";
     public static final String EXTRA_SUBJECT = "subject";
 
-    public String URL;
     private Boolean reply;
-    private PrivateMessage previousMessage;
+    private @Nullable PrivateMessage previousMessage;
     private EditText subject;
     private EditText to;
-    private String bodytext;
-    private String subjecttext;
-    private String totext;
+    @Nullable private String bodytext;
+    @Nullable private String subjecttext;
+    @Nullable private String totext;
     private EditText body;
 
+    @SuppressWarnings("NullAway.Init") // assigned in onPostExecute/sendMessage
     private String
             messageSentStatus; // the String to show in the Toast for when the message is sent
     private boolean messageSent = true; // whether or not the message was sent successfully
 
-    String author;
+    @Nullable String author;
     private ActivityResultLauncher<PickVisualMediaRequest> editorImageLauncher;
 
-    public void onCreate(Bundle savedInstanceState) {
+    @Override public void onCreate(@Nullable Bundle savedInstanceState) {
         disableSwipeBackLayout();
         super.onCreate(savedInstanceState);
 
@@ -90,15 +93,15 @@ public class SendMessage extends BaseActivity {
 
         MiscUtil.setupOldSwipeModeBackground(this, getWindow().getDecorView());
 
-        final Toolbar b = (Toolbar) findViewById(R.id.toolbar);
+        final Toolbar b = (Toolbar) requireViewById(R.id.toolbar);
         final String name;
         reply = getIntent() != null && getIntent().hasExtra(EXTRA_REPLY);
-        subject = (EditText) findViewById(R.id.subject);
-        to = (EditText) findViewById(R.id.to);
-        body = (EditText) findViewById(R.id.body);
-        View oldMSG = findViewById(R.id.oldMSG);
+        subject = (EditText) requireViewById(R.id.subject);
+        to = (EditText) requireViewById(R.id.to);
+        body = (EditText) requireViewById(R.id.body);
+        View oldMSG = requireViewById(R.id.oldMSG);
 
-        final TextView sendingAs = (TextView) findViewById(R.id.sendas);
+        final TextView sendingAs = (TextView) requireViewById(R.id.sendas);
         sendingAs.setText("Sending as /u/" + Authentication.name);
         author = Authentication.name;
         sendingAs.setOnClickListener(
@@ -131,14 +134,14 @@ public class SendMessage extends BaseActivity {
                 });
 
         if (getIntent() != null && getIntent().hasExtra(EXTRA_NAME)) {
-            name = getIntent().getExtras().getString(EXTRA_NAME, "");
+            name = MiscUtil.orEmpty(getIntent().getStringExtra(EXTRA_NAME));
             to.setText(name);
             to.setInputType(InputType.TYPE_NULL);
 
             if (reply) {
                 b.setTitle(getString(R.string.mail_reply_to, name));
                 previousMessage = DataShare.sharedMessage;
-                if (previousMessage.getSubject() != null)
+                if (previousMessage != null && previousMessage.getSubject() != null)
                     subject.setText(getString(R.string.mail_re, previousMessage.getSubject()));
                 subject.setInputType(InputType.TYPE_NULL);
 
@@ -154,7 +157,10 @@ public class SendMessage extends BaseActivity {
                             public void onClick(View v) {
                                 DialogUtil.showWithCardBackground(new AlertDialog.Builder(SendMessage.this)
                                         .setTitle(getString(R.string.mail_author_wrote, name))
-                                        .setMessage(previousMessage.getBody())
+                                        .setMessage(
+                                                previousMessage == null
+                                                        ? ""
+                                                        : previousMessage.getBody())
                                         );
                             }
                         });
@@ -186,7 +192,7 @@ public class SendMessage extends BaseActivity {
             sendingAs.setVisibility(View.GONE);
         }
 
-        findViewById(R.id.send)
+        requireViewById(R.id.send)
                 .setOnClickListener(
                         new View.OnClickListener() {
                             @Override
@@ -194,14 +200,14 @@ public class SendMessage extends BaseActivity {
                                 bodytext = body.getText().toString();
                                 totext = to.getText().toString();
                                 subjecttext = subject.getText().toString();
-                                ((FloatingActionButton) findViewById(R.id.send)).hide();
+                                ((FloatingActionButton) requireViewById(R.id.send)).hide();
 
                                 new AsyncDo(null, null).execute();
                             }
                         });
         DoEditorActions.doActions(
-                ((EditText) findViewById(R.id.body)),
-                findViewById(R.id.area),
+                ((EditText) requireViewById(R.id.body)),
+                requireViewById(R.id.area),
                 getSupportFragmentManager(),
                 SendMessage.this,
                 previousMessage == null ? null : previousMessage.getBody(),
@@ -210,10 +216,10 @@ public class SendMessage extends BaseActivity {
     }
 
     private class AsyncDo extends AsyncTask<Void, Void, Void> {
-        String tried;
-        Captcha captcha;
+        @Nullable String tried;
+        @Nullable Captcha captcha;
 
-        public AsyncDo(Captcha captcha, String tried) {
+        public AsyncDo(@Nullable Captcha captcha, @Nullable String tried) {
             this.captcha = captcha;
             this.tried = tried;
         }
@@ -224,7 +230,7 @@ public class SendMessage extends BaseActivity {
             return null;
         }
 
-        public void sendMessage(Captcha captcha, String captchaAttempt) {
+        public void sendMessage(@Nullable Captcha captcha, @Nullable String captchaAttempt) {
             if (reply) {
                 try {
                     new net.dean.jraw.managers.AccountManager(Authentication.reddit)
@@ -239,7 +245,7 @@ public class SendMessage extends BaseActivity {
                         new InboxManager(Authentication.reddit)
                                 .compose(totext, subjecttext, bodytext, captcha, captchaAttempt);
                     else {
-                        String to = author;
+                        String to = MiscUtil.orEmpty(author);
                         if (to.startsWith("/r/")) {
                             to = to.substring(3);
                             new InboxManager(Authentication.reddit)
@@ -277,7 +283,7 @@ public class SendMessage extends BaseActivity {
             // If the error wasn't that the user doesn't exist, show a generic failure message
             if (messageSentStatus == null) {
                 messageSentStatus = getString(R.string.msg_sent_failure);
-                ((FloatingActionButton) findViewById(R.id.send)).show();
+                ((FloatingActionButton) requireViewById(R.id.send)).show();
             }
 
             final String MESSAGE_SENT =
@@ -289,7 +295,7 @@ public class SendMessage extends BaseActivity {
             if (messageSent) {
                 finish();
             } else {
-                ((FloatingActionButton) findViewById(R.id.send)).show();
+                ((FloatingActionButton) requireViewById(R.id.send)).show();
                 messageSent = true;
             }
         }

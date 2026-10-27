@@ -6,6 +6,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
@@ -23,8 +24,10 @@ import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.LogUtil;
 import me.edgan.redditslide.util.MiscUtil;
 import net.dean.jraw.managers.WikiManager;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by ccrama on 9/17/2015. */
+@NullMarked
 public class Wiki extends BaseActivityAnim implements WikiPage.WikiPageListener {
 
     public static final String EXTRA_SUBREDDIT = "subreddit";
@@ -32,20 +35,24 @@ public class Wiki extends BaseActivityAnim implements WikiPage.WikiPageListener 
 
     private TabLayout tabs;
     private ToggleSwipeViewPager pager;
-    private String subreddit;
+    private String subreddit = "";
+    @SuppressWarnings("NullAway.Init") // assigned in doInBackground
     private WikiPagerAdapter adapter;
+    @SuppressWarnings("NullAway.Init") // assigned in doInBackground
     private List<String> pages;
-    private String page;
+    @Nullable private String page;
+    @SuppressWarnings("NullAway.Init") // assigned in createCustomCss
     private static String globalCustomCss;
+    @SuppressWarnings("NullAway.Init") // assigned in createCustomJavaScript
     private static String globalCustomJavaScript;
 
     @Override
-    public void onCreate(Bundle savedInstance) {
+    public void onCreate(@Nullable Bundle savedInstance) {
         overrideSwipeFromAnywhere();
 
         super.onCreate(savedInstance);
 
-        subreddit = getIntent().getExtras().getString(EXTRA_SUBREDDIT, "");
+        subreddit = MiscUtil.orEmpty(getIntent().getStringExtra(EXTRA_SUBREDDIT));
 
         applyColorTheme(subreddit);
         createCustomCss();
@@ -57,17 +64,17 @@ public class Wiki extends BaseActivityAnim implements WikiPage.WikiPageListener 
         setupSubredditAppBar(R.id.toolbar, "/r/" + subreddit + " wiki", true, subreddit);
 
         if (getIntent().hasExtra(EXTRA_PAGE)) {
-            page = getIntent().getExtras().getString(EXTRA_PAGE);
+            page = getIntent().getStringExtra(EXTRA_PAGE);
             LogUtil.v("Page is " + page);
         } else {
             page = "index";
         }
-        tabs = (TabLayout) findViewById(R.id.sliding_tabs);
+        tabs = (TabLayout) requireViewById(R.id.sliding_tabs);
         tabs.setTabMode(TabLayout.MODE_SCROLLABLE);
         tabs.setSelectedTabIndicatorColor(new ColorPreferences(Wiki.this).getColor("no sub"));
 
-        pager = (ToggleSwipeViewPager) findViewById(R.id.content_view);
-        findViewById(R.id.header).setBackgroundColor(Palette.getColor(subreddit));
+        pager = (ToggleSwipeViewPager) requireViewById(R.id.content_view);
+        requireViewById(R.id.header).setBackgroundColor(Palette.getColor(subreddit));
 
         new AsyncGetWiki().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
@@ -123,6 +130,7 @@ public class Wiki extends BaseActivityAnim implements WikiPage.WikiPageListener 
         return globalCustomJavaScript;
     }
 
+    @SuppressWarnings("NullAway.Init") // assigned in doInBackground
     public WikiManager wiki;
 
     @Override
@@ -180,7 +188,7 @@ public class Wiki extends BaseActivityAnim implements WikiPage.WikiPageListener 
                                             .setOnDismissListener(dialog -> finish())
                                             );
                                 } catch (Exception ignored) {
-
+                                    // Error dialog on a host that is finishing.
                                 }
                             }
                         });
@@ -210,7 +218,7 @@ public class Wiki extends BaseActivityAnim implements WikiPage.WikiPageListener 
                             .setOnDismissListener(dialog -> finish())
                             );
                 } catch (Exception e) {
-
+                    // Error dialog on a host that is finishing.
                 }
             }
         }

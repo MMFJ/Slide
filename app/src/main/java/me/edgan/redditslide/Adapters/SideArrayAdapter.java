@@ -3,7 +3,6 @@ package me.edgan.redditslide.Adapters;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -15,6 +14,7 @@ import android.widget.Filter;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
+import androidx.annotation.Nullable;
 import androidx.cardview.widget.CardView;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,6 +26,7 @@ import me.edgan.redditslide.Activities.MainPagerAdapterComment;
 import me.edgan.redditslide.Activities.SubredditView;
 import me.edgan.redditslide.CaseInsensitiveArrayList;
 import me.edgan.redditslide.Constants;
+import me.edgan.redditslide.Megareddits;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.UserSubscriptions;
@@ -45,6 +46,7 @@ public class SideArrayAdapter extends ArrayAdapter<String> {
     public boolean openInSubView = true;
     private final MainActivity mainActivity;
     private final Map<String, String> subProps = new HashMap<>();
+    private final Object objectsLock = new Object();
 
     public SideArrayAdapter(
             MainActivity activity,
@@ -84,78 +86,68 @@ public class SideArrayAdapter extends ArrayAdapter<String> {
     Map<String, String> multiToMatch;
 
     private void hideSearchbarUI() {
-        try {
-            AutoCompleteTextView toolbarSearchField = (AutoCompleteTextView) ((MainActivity) getContext()).findViewById(R.id.toolbar_search);
-            if (toolbarSearchField != null) {
-                InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        // The swallowed NullPointerException came from findViewById, not from the context: this
+        // adapter's constructor takes a MainActivity, so getContext() is always one. Each lookup
+        // below answers null once the activity's content view is torn down, or when the
+        // toolbar-search layout is not inflated at all -- and then there is no search bar to hide.
+        final MainActivity activity = (MainActivity) getContext();
+        final AutoCompleteTextView toolbarSearchField =
+                (AutoCompleteTextView) activity.requireViewById(R.id.toolbar_search);
+        final CardView suggestions =
+                (CardView) activity.requireViewById(R.id.toolbar_search_suggestions);
+        final ImageView closeSearch =
+                (ImageView) activity.requireViewById(R.id.close_search_toolbar);
+        // Hiding the keyboard is gated on the search field alone, as it was before: the other two
+        // views are only needed by the visibility block below.
+        if (toolbarSearchField != null) {
+            final InputMethodManager imm =
+                    (InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
                 imm.hideSoftInputFromWindow(toolbarSearchField.getWindowToken(), 0);
             }
+        }
+        if (toolbarSearchField == null || suggestions == null || closeSearch == null) {
+            return;
+        }
 
-            // Hide the toolbar search UI without an animation because we're starting a new activity
-            if ((SettingValues.subredditSearchMethod == Constants.SUBREDDIT_SEARCH_METHOD_TOOLBAR
-                            || SettingValues.subredditSearchMethod
-                                    == Constants.SUBREDDIT_SEARCH_METHOD_BOTH)
-                    && ((MainActivity) getContext())
-                                    .findViewById(R.id.toolbar_search)
-                                    .getVisibility()
-                            == View.VISIBLE) {
-                ((MainActivity) getContext())
-                        .findViewById(R.id.toolbar_search_suggestions)
-                        .setVisibility(View.GONE);
-                ((MainActivity) getContext())
-                        .findViewById(R.id.toolbar_search)
-                        .setVisibility(View.GONE);
-                ((MainActivity) getContext())
-                        .findViewById(R.id.close_search_toolbar)
-                        .setVisibility(View.GONE);
+        // Hide the toolbar search UI without an animation because we're starting a new activity
+        if ((SettingValues.subredditSearchMethod == Constants.SUBREDDIT_SEARCH_METHOD_TOOLBAR
+                        || SettingValues.subredditSearchMethod
+                                == Constants.SUBREDDIT_SEARCH_METHOD_BOTH)
+                && toolbarSearchField.getVisibility() == View.VISIBLE) {
+            suggestions.setVisibility(View.GONE);
+            toolbarSearchField.setVisibility(View.GONE);
+            closeSearch.setVisibility(View.GONE);
 
-                // Play the exit animations of the search toolbar UI to avoid the animations failing
-                // to animate upon the next time
-                // the search toolbar UI is called. Set animation to 0 because the UI is already
-                // hidden.
-                ((MainActivity) getContext()).toolbarSearchController
-                        .exitAnimationsForToolbarSearch(
-                                0,
-                                ((CardView)
-                                        ((MainActivity) getContext())
-                                                .findViewById(R.id.toolbar_search_suggestions)),
-                                ((AutoCompleteTextView)
-                                        ((MainActivity) getContext())
-                                                .findViewById(R.id.toolbar_search)),
-                                ((ImageView)
-                                        ((MainActivity) getContext())
-                                                .findViewById(R.id.close_search_toolbar)));
-                if (SettingValues.single) {
-                    ((MainActivity) getContext())
-                            .getSupportActionBar()
-                            .setTitle(((MainActivity) getContext()).selectedSub);
-                } else {
-                    ((MainActivity) getContext())
-                            .getSupportActionBar()
-                            .setTitle(((MainActivity) getContext()).tabViewModeTitle);
-                }
+            // Play the exit animations of the search toolbar UI to avoid the animations failing
+            // to animate upon the next time
+            // the search toolbar UI is called. Set animation to 0 because the UI is already
+            // hidden.
+            activity.toolbarSearchController.exitAnimationsForToolbarSearch(
+                    0, suggestions, toolbarSearchField, closeSearch);
+            final androidx.appcompat.app.ActionBar actionBar = activity.getSupportActionBar();
+            if (actionBar != null) {
+                actionBar.setTitle(
+                        SettingValues.single ? activity.selectedSub : activity.tabViewModeTitle);
             }
-        } catch (NullPointerException npe) {
-            Log.e(getClass().getName(), npe.getMessage());
         }
     }
 
     @Override
-    public View getView(final int position, View convertView, ViewGroup parent) {
+    public View getView(int position, @Nullable View convertView, ViewGroup parent) {
         if (position < fitems.size()) {
             convertView =
                     LayoutInflater.from(getContext())
                             .inflate(R.layout.subforsublist, parent, false);
 
             final String sub;
-            final String base = fitems.get(position);
-            if (multiToMatch.containsKey(fitems.get(position))
-                    && !fitems.get(position).contains("/m/")) {
-                sub = multiToMatch.get(fitems.get(position));
+            final String matched = multiToMatch.get(fitems.get(position));
+            if (matched != null && !fitems.get(position).contains("/m/")) {
+                sub = matched;
             } else {
                 sub = fitems.get(position);
             }
-            final TextView t = convertView.findViewById(R.id.name);
+            final TextView t = convertView.requireViewById(R.id.name);
             t.setText(sub);
 
             if (height == 0) {
@@ -175,14 +167,14 @@ public class SideArrayAdapter extends ArrayAdapter<String> {
             }
 
             final String subreddit =
-                    (sub.contains("+") || sub.contains("/m/"))
+                    (sub.contains("+") || sub.contains("/m/") || Megareddits.isKey(sub))
                             ? sub
                             : StringUtil.sanitizeString(
                                     sub.replace(
                                             getContext().getString(R.string.search_goto) + " ",
                                             ""));
 
-            final View colorView = convertView.findViewById(R.id.color);
+            final View colorView = convertView.requireViewById(R.id.color);
             colorView.setBackgroundResource(R.drawable.circle);
             BlendModeUtil.tintDrawableAsModulate(
                     colorView.getBackground(), Palette.getColor(subreddit));
@@ -190,7 +182,7 @@ public class SideArrayAdapter extends ArrayAdapter<String> {
                     new View.OnClickListener() {
                         @Override
                         public void onClick(View view) {
-                            boolean isSpecialOrMulti = UserSubscriptions.specialSubreddits.contains(subreddit.toLowerCase(Locale.ENGLISH)) || subreddit.startsWith("/m/");
+                            boolean isSpecialOrMulti = UserSubscriptions.specialSubreddits.contains(subreddit.toLowerCase(Locale.ENGLISH)) || subreddit.startsWith("/m/") || Megareddits.isKey(subreddit);
                             if (SettingValues.hideSubredditTabs) {
                                 // WHEN TABS ARE HIDDEN:
                                 if (isSpecialOrMulti) {
@@ -305,7 +297,7 @@ public class SideArrayAdapter extends ArrayAdapter<String> {
                     });
         } else {
             convertView = LayoutInflater.from(getContext()).inflate(R.layout.spacer, parent, false);
-            ViewGroup.LayoutParams params = convertView.findViewById(R.id.height).getLayoutParams();
+            ViewGroup.LayoutParams params = convertView.requireViewById(R.id.height).getLayoutParams();
             if ((fitems.size() * height) < parentL.getHeight()
                     && (SettingValues.subredditSearchMethod
                                     == Constants.SUBREDDIT_SEARCH_METHOD_DRAWER
@@ -325,13 +317,42 @@ public class SideArrayAdapter extends ArrayAdapter<String> {
         return fitems.size() + 1;
     }
 
+    // getView() inflates two unrelated layouts -- a subreddit row and the trailing spacer -- so the
+    // ListView has to be told there are two row types. Left at the default of one, AbsListView's
+    // RecycleBin pools them together and offers a recycled view of one kind for the other.
+    private static final int TYPE_SUBREDDIT = 0;
+    private static final int TYPE_SPACER = 1;
+
+    @Override
+    public int getViewTypeCount() {
+        return 2;
+    }
+
+    @Override
+    public int getItemViewType(int position) {
+        return position < fitems.size() ? TYPE_SUBREDDIT : TYPE_SPACER;
+    }
+
     public void updateHistory(ArrayList<String> history) {
-        for (String s : history) {
-            if (!objects.contains(s)) {
-                objects.add(s);
+        // Guarded because performFiltering copies this list on the Filter's worker thread while
+        // this runs on the UI thread (MainActivity.onResume). An ArrayList copy taken during an
+        // append does not just risk ConcurrentModificationException: it can also come back padded
+        // with nulls, and those nulls become rows.
+        synchronized (objectsLock) {
+            for (String s : history) {
+                if (!objects.contains(s)) {
+                    objects.add(s);
+                }
             }
         }
         notifyDataSetChanged();
+    }
+
+    /** A copy of the filter source, taken without racing {@link #updateHistory}. */
+    private CaseInsensitiveArrayList objectsSnapshot() {
+        synchronized (objectsLock) {
+            return new CaseInsensitiveArrayList(objects);
+        }
     }
 
     private class SubFilter extends Filter {
@@ -346,7 +367,7 @@ public class SideArrayAdapter extends ArrayAdapter<String> {
                 results.count = list.size();
             } else {
                 openInSubView = true;
-                final CaseInsensitiveArrayList list = new CaseInsensitiveArrayList(objects);
+                final CaseInsensitiveArrayList list = objectsSnapshot();
                 final CaseInsensitiveArrayList nlist = new CaseInsensitiveArrayList();
 
                 for (String sub : list) {
@@ -363,15 +384,29 @@ public class SideArrayAdapter extends ArrayAdapter<String> {
             return results;
         }
 
-        @SuppressWarnings("unchecked")
         @Override
         protected void publishResults(CharSequence constraint, FilterResults results) {
-            fitems = (CaseInsensitiveArrayList) results.values;
+            // The list this adapter renders and the count it reports must change together, under
+            // exactly one notification. The old order assigned fitems first -- which is what
+            // getCount() measures -- and only then called clear() and addAll(), each of which
+            // fires its own notifyDataSetChanged(). That published two intermediate states in
+            // which the reported count did not match the rows the ListView held. Silencing
+            // clear()/addAll() and notifying once, after both the data and fitems are in place,
+            // leaves no such state.
+            //
+            // A null results.values also used to leave fitems null, which getCount(), getView()
+            // and DrawerController's IME-search handler all dereference without a guard.
+            final CaseInsensitiveArrayList newItems =
+                    results.values instanceof CaseInsensitiveArrayList
+                            ? (CaseInsensitiveArrayList) results.values
+                            : new CaseInsensitiveArrayList();
+
+            setNotifyOnChange(false);
             clear();
-            if (fitems != null) {
-                addAll(fitems);
-                notifyDataSetChanged();
-            }
+            addAll(newItems);
+            fitems = newItems;
+            notifyDataSetChanged();
+            setNotifyOnChange(true);
         }
     }
 }

@@ -24,6 +24,7 @@ import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -51,6 +52,7 @@ import me.edgan.redditslide.util.ClipboardUtil;
 import me.edgan.redditslide.util.CompatUtil;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.TimeUtils;
 import net.dean.jraw.ApiException;
 import net.dean.jraw.managers.AccountManager;
@@ -67,8 +69,8 @@ import net.dean.jraw.models.VoteDirection;
 public class PopulateShadowboxInfo {
     public static void doActionbar(
             final Submission s, final View rootView, final Activity c, boolean extras) {
-        TextView title = rootView.findViewById(R.id.title);
-        TextView desc = rootView.findViewById(R.id.desc);
+        TextView title = rootView.requireViewById(R.id.title);
+        TextView desc = rootView.requireViewById(R.id.desc);
         String distingush = "";
         if (s != null) {
             if (s.getDistinguishedStatus() == DistinguishedStatus.MODERATOR) distingush = "[M]";
@@ -82,7 +84,7 @@ public class PopulateShadowboxInfo {
             SpannableStringBuilder subreddit =
                     new SpannableStringBuilder(" /r/" + s.getSubredditName() + " ");
 
-            String subname = s.getSubredditName().toLowerCase(Locale.ENGLISH);
+            String subname = MiscUtil.orEmpty(s.getSubredditName()).toLowerCase(Locale.ENGLISH);
             if ((SettingValues.colorSubName
                     && Palette.getColor(subname) != Palette.getDefaultColor())) {
                 subreddit.setSpan(
@@ -104,14 +106,14 @@ public class PopulateShadowboxInfo {
             titleString.append(TimeUtils.getTimeAgo(s.getCreated().getTime(), c));
 
             desc.setText(titleString);
-            ((TextView) rootView.findViewById(R.id.comments))
+            ((TextView) rootView.requireViewById(R.id.comments))
                     .setText(String.format(Locale.getDefault(), "%d", s.getCommentCount()));
-            ((TextView) rootView.findViewById(R.id.score))
+            ((TextView) rootView.requireViewById(R.id.score))
                     .setText(String.format(Locale.getDefault(), "%d", s.getScore()));
 
             if (extras) {
                 bindVoteAndSaveActions(s, rootView, c);
-                rootView.findViewById(R.id.menu)
+                rootView.requireViewById(R.id.menu)
                         .setOnClickListener(
                                 new View.OnClickListener() {
                                     @Override
@@ -126,8 +128,8 @@ public class PopulateShadowboxInfo {
     public static void doActionbar(
             final CommentNode node, final View rootView, final Activity c, boolean extras) {
         final Comment s = node.getComment();
-        TitleTextView title = rootView.findViewById(R.id.title);
-        TextView desc = rootView.findViewById(R.id.desc);
+        TitleTextView title = rootView.requireViewById(R.id.title);
+        TextView desc = rootView.requireViewById(R.id.desc);
         String distingush = "";
         if (s != null) {
             if (s.getDistinguishedStatus() == DistinguishedStatus.MODERATOR) distingush = "[M]";
@@ -157,7 +159,7 @@ public class PopulateShadowboxInfo {
             int authorcolor = Palette.getFontColorUser(s.getAuthor());
 
             if (Authentication.name != null
-                    && s.getAuthor()
+                    && MiscUtil.orEmpty(s.getAuthor())
                             .toLowerCase(Locale.ENGLISH)
                             .equals(Authentication.name.toLowerCase(Locale.ENGLISH))) {
                 author.setSpan(
@@ -189,7 +191,7 @@ public class PopulateShadowboxInfo {
             titleString.append(TimeUtils.getTimeAgo(s.getCreated().getTime(), c));
 
             desc.setText(titleString);
-            ((TextView) rootView.findViewById(R.id.score))
+            ((TextView) rootView.requireViewById(R.id.score))
                     .setText(String.format(Locale.getDefault(), "%d", s.getScore()));
 
             if (extras) {
@@ -208,9 +210,9 @@ public class PopulateShadowboxInfo {
     /** getAuthor() is declared on Submission and Comment separately, not their base class. */
     private static String authorOf(PublicContribution s) {
         if (s instanceof Submission) {
-            return ((Submission) s).getAuthor();
+            return MiscUtil.orEmpty(((Submission) s).getAuthor());
         } else if (s instanceof Comment) {
-            return ((Comment) s).getAuthor();
+            return MiscUtil.orEmpty(((Comment) s).getAuthor());
         } else {
             return "";
         }
@@ -218,8 +220,8 @@ public class PopulateShadowboxInfo {
 
     private static void bindVoteAndSaveActions(
             final PublicContribution s, final View rootView, final Activity c) {
-        final ImageView downvotebutton = rootView.findViewById(R.id.downvote);
-        final ImageView upvotebutton = rootView.findViewById(R.id.upvote);
+        final ImageView downvotebutton = rootView.requireViewById(R.id.downvote);
+        final ImageView upvotebutton = rootView.requireViewById(R.id.upvote);
 
         if (s.isArchived()) {
             downvotebutton.setVisibility(View.GONE);
@@ -233,15 +235,15 @@ public class PopulateShadowboxInfo {
             switch (ActionStates.getVoteDirection(s)) {
                 case UPVOTE:
                     {
-                        ((TextView) rootView.findViewById(R.id.score))
+                        ((TextView) rootView.requireViewById(R.id.score))
                                 .setTextColor(
                                         ContextCompat.getColor(c, R.color.md_orange_500));
                         BlendModeUtil.tintImageViewAsSrcAtop(
                                 upvotebutton,
                                 ContextCompat.getColor(c, R.color.md_orange_500));
-                        ((TextView) rootView.findViewById(R.id.score))
+                        ((TextView) rootView.requireViewById(R.id.score))
                                 .setTypeface(null, Typeface.BOLD);
-                        ((TextView) rootView.findViewById(R.id.score))
+                        ((TextView) rootView.requireViewById(R.id.score))
                                 .setText(
                                         String.format(
                                                 Locale.getDefault(),
@@ -258,15 +260,15 @@ public class PopulateShadowboxInfo {
                     }
                 case DOWNVOTE:
                     {
-                        ((TextView) rootView.findViewById(R.id.score))
+                        ((TextView) rootView.requireViewById(R.id.score))
                                 .setTextColor(
                                         ContextCompat.getColor(c, R.color.md_blue_500));
                         BlendModeUtil.tintImageViewAsSrcAtop(
                                 downvotebutton,
                                 ContextCompat.getColor(c, R.color.md_blue_500));
-                        ((TextView) rootView.findViewById(R.id.score))
+                        ((TextView) rootView.requireViewById(R.id.score))
                                 .setTypeface(null, Typeface.BOLD);
-                        ((TextView) rootView.findViewById(R.id.score))
+                        ((TextView) rootView.requireViewById(R.id.score))
                                 .setText(
                                         String.format(
                                                 Locale.getDefault(),
@@ -283,15 +285,15 @@ public class PopulateShadowboxInfo {
                     }
                 case NO_VOTE:
                     {
-                        ((TextView) rootView.findViewById(R.id.score))
+                        ((TextView) rootView.requireViewById(R.id.score))
                                 .setTextColor(
-                                        ((TextView) rootView.findViewById(R.id.comments))
+                                        ((TextView) rootView.requireViewById(R.id.comments))
                                                 .getCurrentTextColor());
-                        ((TextView) rootView.findViewById(R.id.score))
+                        ((TextView) rootView.requireViewById(R.id.score))
                                 .setText(
                                         String.format(
                                                 Locale.getDefault(), "%d", s.getScore()));
-                        ((TextView) rootView.findViewById(R.id.score))
+                        ((TextView) rootView.requireViewById(R.id.score))
                                 .setTypeface(null, Typeface.NORMAL);
                         final List<ImageView> imageViewSet =
                                 Arrays.asList(downvotebutton, upvotebutton);
@@ -300,7 +302,7 @@ public class PopulateShadowboxInfo {
                     }
             }
         }
-        final ImageView save = (ImageView) rootView.findViewById(R.id.save);
+        final ImageView save = (ImageView) rootView.requireViewById(R.id.save);
         if (Authentication.isLoggedIn && Authentication.didOnline) {
             if (ActionStates.isSaved(s)) {
                 BlendModeUtil.tintImageViewAsSrcAtop(
@@ -336,7 +338,7 @@ public class PopulateShadowboxInfo {
                                 @Override
                                 protected void onPostExecute(Void aVoid) {
                                     ((SlidingUpPanelLayout)
-                                                    rootView.findViewById(
+                                                    rootView.requireViewById(
                                                             R.id.sliding_layout))
                                             .setPanelState(
                                                     SlidingUpPanelLayout.PanelState
@@ -644,7 +646,7 @@ final AlertDialog reportDialog =
                                                         .create();
                                         final RadioGroup reasonGroup =
                                                 reportView
-                                                        .findViewById(R.id.report_reasons);
+                                                        .requireViewById(R.id.report_reasons);
 
                                         reasonGroup.setOnCheckedChangeListener(
                                                 new RadioGroup.OnCheckedChangeListener() {
@@ -669,8 +671,12 @@ final AlertDialog reportDialog =
                                         // Load sub's report reasons and show the appropriate ones
                                         new AsyncTask<Void, Void, Ruleset>() {
                                             @Override
-                                            protected Ruleset doInBackground(Void... voids) {
+                                            protected @Nullable Ruleset doInBackground(
+                                                    Void... voids) {
                                                 try {
+                                                    if (Authentication.reddit == null) {
+                                                        return null;
+                                                    }
                                                     return Authentication.reddit.getRules(
                                                             submission.getSubredditName());
                                                 } catch (RuntimeException e) {
@@ -682,7 +688,7 @@ final AlertDialog reportDialog =
                                             @Override
                                             protected void onPostExecute(Ruleset rules) {
                                                 reportView
-                                                        .findViewById(R.id.report_loading)
+                                                        .requireViewById(R.id.report_loading)
                                                         .setVisibility(View.GONE);
                                                 if (rules == null) {
                                                     // Could not load rules (offline); leave the dialog as-is
@@ -752,7 +758,7 @@ final AlertDialog reportDialog =
                                     case 6:
                                         {
                                             ClipboardUtil.copyToClipboard(
-                                                    mContext, "Link", submission.getUrl());
+                                                    mContext, "Link", MiscUtil.orEmpty(submission.getUrl()));
                                             Toast.makeText(
                                                             mContext,
                                                             R.string.submission_link_copied,
@@ -761,6 +767,16 @@ final AlertDialog reportDialog =
                                         }
                                         break;
                                 }
+                            }
+                        })
+                // Long press on the author: the profile's user options (message, follow, block...).
+                .longListener(
+                        (dialog, which) -> {
+                            if (which == 1) {
+                                Intent i = new Intent(mContext, Profile.class);
+                                i.putExtra(Profile.EXTRA_PROFILE, submission.getAuthor());
+                                i.putExtra(Profile.EXTRA_USER_OPTIONS, true);
+                                mContext.startActivity(i);
                             }
                         });
 

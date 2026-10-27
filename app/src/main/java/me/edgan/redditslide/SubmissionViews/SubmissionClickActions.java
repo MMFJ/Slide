@@ -6,12 +6,11 @@ import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
-import com.fasterxml.jackson.databind.JsonNode;
+import androidx.annotation.Nullable;
 import com.google.android.material.snackbar.Snackbar;
 import java.util.ArrayList;
 import me.edgan.redditslide.Activities.Album;
 import me.edgan.redditslide.Activities.AlbumPager;
-import me.edgan.redditslide.Activities.FullscreenVideo;
 import me.edgan.redditslide.Activities.GalleryImage;
 import me.edgan.redditslide.Activities.MainActivity;
 import me.edgan.redditslide.Activities.MediaView;
@@ -23,6 +22,7 @@ import me.edgan.redditslide.Activities.Search;
 import me.edgan.redditslide.Activities.SubredditView;
 import me.edgan.redditslide.Activities.Tumblr;
 import me.edgan.redditslide.Activities.TumblrPager;
+import me.edgan.redditslide.Adapters.CardSubmissionViewHolder;
 import me.edgan.redditslide.Adapters.SubmissionViewHolder;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.DataShare;
@@ -32,9 +32,8 @@ import me.edgan.redditslide.PostMatch;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Visuals.Palette;
-import me.edgan.redditslide.util.CompatUtil;
 import me.edgan.redditslide.util.FileUtil;
-import me.edgan.redditslide.util.JsonUtil;
+import me.edgan.redditslide.util.GalleryTiles;
 import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.NetworkUtil;
@@ -47,13 +46,95 @@ import net.dean.jraw.models.Submission;
  */
 public class SubmissionClickActions {
 
+    /**
+     * Record that the user opened this post and dim its card to match.
+     *
+     * <p>Shared so that every way of opening a post from a card marks it read the same way. The
+     * gallery grid's tiles open the viewer without going through {@link #addClickFunctions}'s
+     * listener, and before this was shared they left the post unread — so a gallery opened from a
+     * tile never turned up in the read history, while the same post opened from its title did.
+     */
+    public static void markRead(
+            final Activity contextActivity,
+            final Submission submission,
+            final @Nullable SubmissionViewHolder holder) {
+        if (!SettingValues.storeHistory
+                || !(holder instanceof CardSubmissionViewHolder cardHolder)) {
+            return;
+        }
+        if (submission.isNsfw() && !SettingValues.storeNSFWHistory) {
+            return;
+        }
+        HasSeen.addSeen(submission.getFullName());
+        if (contextActivity instanceof MainActivity
+                || contextActivity instanceof MultiredditOverview
+                || contextActivity instanceof SubredditView
+                || contextActivity instanceof Search
+                || contextActivity instanceof Profile) {
+            holder.title.setAlpha(0.54f);
+            cardHolder.setBodyAlpha(0.54f);
+        }
+    }
+
+    /**
+     * Open a Reddit gallery post's viewer on image {@code startIndex}, or hand the post to the
+     * browser when the in-app album viewer is switched off.
+     *
+     * <p>{@code startIndex} is an index into {@link GalleryTiles#imagesFor}, which is also what
+     * fills {@link RedditGallery#GALLERY_URLS} here — so a caller that identified an image from that
+     * list (the feed's gallery grid) can name it by position. Every other entry point passes 0 and
+     * behaves exactly as before.
+     *
+     * <p>{@code adapterPosition} is the feed row, not an image: it is what lets the viewer offer the
+     * "comments" menu item for the post it came from. Pass -1 when there is no row.
+     */
+    public static void openRedditGallery(
+            final Activity contextActivity,
+            final Submission submission,
+            final int startIndex,
+            final int adapterPosition) {
+        if (!SettingValues.album) {
+            LinkUtil.openExternally(submission.getUrl());
+            return;
+        }
+
+        final Intent i;
+        if (SettingValues.albumSwipe) {
+            i = new Intent(contextActivity, RedditGalleryPager.class);
+            i.putExtra(AlbumPager.SUBREDDIT, submission.getSubredditName());
+        } else {
+            i = new Intent(contextActivity, RedditGallery.class);
+            i.putExtra(Album.SUBREDDIT, submission.getSubredditName());
+        }
+
+        i.putExtra(EXTRA_SUBMISSION_TITLE, FileUtil.buildDownloadName(submission));
+        i.putExtra(RedditGallery.SUBREDDIT, submission.getSubredditName());
+        i.putExtra(RedditGallery.EXTRA_START_INDEX, startIndex);
+
+        // GalleryTiles resolves the crosspost parent the way the card's display path does, so the
+        // list handed to the viewer is the same one the card drew its images from. The grid relies
+        // on that: tile k has to be viewer image k.
+        final ArrayList<GalleryImage> urls =
+                new ArrayList<>(GalleryTiles.imagesFor(submission.getDataNode()));
+
+        final Bundle urlsBundle = new Bundle();
+        urlsBundle.putSerializable(RedditGallery.GALLERY_URLS, urls);
+        i.putExtras(urlsBundle);
+
+        // MMFJ: set DataShare for upvoting in gallery
+        DataShare.sharedSubmission = submission;
+
+        PopulateBase.addAdaptorPosition(i, submission, adapterPosition, contextActivity);
+        contextActivity.startActivity(i);
+        contextActivity.overridePendingTransition(R.anim.slideright, R.anim.fade_out);
+    }
+
     public static void addClickFunctions(
             final View base,
             final ContentType.Type type,
             final Activity contextActivity,
             final Submission submission,
-            final SubmissionViewHolder holder,
-            final boolean full) {
+            final SubmissionViewHolder holder) {
         base.setOnClickListener(
                 new OnSingleClickListener() {
                     @Override
@@ -61,19 +142,7 @@ public class SubmissionClickActions {
                         if (NetworkUtil.isConnected(contextActivity)
                                 || (!NetworkUtil.isConnected(contextActivity)
                                         && ContentType.fullImage(type))) {
-                            if (SettingValues.storeHistory && !full) {
-                                if (!submission.isNsfw() || SettingValues.storeNSFWHistory) {
-                                    HasSeen.addSeen(submission.getFullName());
-                                    if (contextActivity instanceof MainActivity
-                                            || contextActivity instanceof MultiredditOverview
-                                            || contextActivity instanceof SubredditView
-                                            || contextActivity instanceof Search
-                                            || contextActivity instanceof Profile) {
-                                        holder.title.setAlpha(0.54f);
-                                        holder.body.setAlpha(0.54f);
-                                    }
-                                }
-                            }
+                            markRead(contextActivity, submission, holder);
                             if (!(contextActivity instanceof PeekViewActivity)
                                     || !((PeekViewActivity) contextActivity).isPeeking()
                                     || (base instanceof HeaderImageLinkView && ((HeaderImageLinkView) base).popped)) {
@@ -99,72 +168,17 @@ public class SubmissionClickActions {
                                         case DEVIANTART:
                                         case XKCD:
                                         case IMAGE:
-                                            SubmissionThumbnailHelper.openImage(type, contextActivity, submission,
-                                                    holder.leadImage, holder.getBindingAdapterPosition());
-                                            break;
-                                        case EMBEDDED:
-                                            if (SettingValues.video) {
-                                                String data = CompatUtil.fromHtml(submission.getDataNode()
-                                                        .get("media_embed").get("content").asText()).toString();
-                                                {
-                                                    Intent i = new Intent(contextActivity, FullscreenVideo.class);
-                                                    i.putExtra(FullscreenVideo.EXTRA_HTML, data);
-                                                    contextActivity.startActivity(i);
-                                                }
-                                            } else {
-                                                LinkUtil.openExternally(submission.getUrl());
-                                            }
+                                            SubmissionThumbnailHelper.openImage(type, contextActivity, submission, holder.leadImage, holder.getBindingAdapterPosition());
                                             break;
                                         case REDDIT:
-                                            SubmissionThumbnailHelper.openRedditContent(submission.getUrl(),
-                                                    contextActivity);
+                                            SubmissionThumbnailHelper.openRedditContent(submission.getUrl(), contextActivity);
                                             break;
                                         case REDDIT_GALLERY:
-                                            if (SettingValues.album) {
-                                                Intent i;
-                                                if (SettingValues.albumSwipe) {
-                                                    i = new Intent(contextActivity, RedditGalleryPager.class);
-                                                    i.putExtra(AlbumPager.SUBREDDIT, submission.getSubredditName());
-                                                } else {
-                                                    i = new Intent(contextActivity, RedditGallery.class);
-                                                    i.putExtra(Album.SUBREDDIT, submission.getSubredditName());
-                                                }
-
-                                                i.putExtra(
-                                                        EXTRA_SUBMISSION_TITLE,
-                                                        FileUtil.buildDownloadName(submission));
-                                                i.putExtra(RedditGallery.SUBREDDIT, submission.getSubredditName());
-
-                                                ArrayList<GalleryImage> urls = new ArrayList<>();
-
-                                                JsonNode dataNode = submission.getDataNode();
-
-                                                if (dataNode.has("gallery_data")) {
-                                                    JsonUtil.getGalleryData(dataNode, urls);
-                                                } else if (dataNode.has("crosspost_parent_list")) { // Else, try getting
-                                                                                                    // crosspost gallery
-                                                                                                    // data
-                                                    JsonNode crosspost_parent = dataNode.get("crosspost_parent_list")
-                                                            .get(0);
-                                                    if (crosspost_parent.has("gallery_data")) {
-                                                        JsonUtil.getGalleryData(crosspost_parent, urls);
-                                                    }
-                                                }
-
-                                                Bundle urlsBundle = new Bundle();
-                                                urlsBundle.putSerializable(RedditGallery.GALLERY_URLS, urls);
-                                                i.putExtras(urlsBundle);
-
-                                                // Set DataShare for upvoting in gallery
-                                                DataShare.sharedSubmission = submission;
-
-                                                PopulateBase.addAdaptorPosition(i, submission, holder.getBindingAdapterPosition(), contextActivity);
-                                                contextActivity.startActivity(i);
-                                                contextActivity.overridePendingTransition(R.anim.slideright,
-                                                        R.anim.fade_out);
-                                            } else {
-                                                LinkUtil.openExternally(submission.getUrl());
-                                            }
+                                            openRedditGallery(
+                                                    contextActivity,
+                                                    submission,
+                                                    0,
+                                                    holder.getBindingAdapterPosition());
                                             break;
                                         case LINK:
                                             LinkUtil.openUrl(
@@ -198,8 +212,7 @@ public class SubmissionClickActions {
 
                                                 PopulateBase.addAdaptorPosition(i, submission, holder.getBindingAdapterPosition(), contextActivity);
                                                 contextActivity.startActivity(i);
-                                                contextActivity.overridePendingTransition(R.anim.slideright,
-                                                        R.anim.fade_out);
+                                                contextActivity.overridePendingTransition(R.anim.slideright, R.anim.fade_out);
                                             } else {
                                                 LinkUtil.openExternally(submission.getUrl());
                                             }
@@ -218,8 +231,7 @@ public class SubmissionClickActions {
 
                                                 PopulateBase.addAdaptorPosition(i, submission, holder.getBindingAdapterPosition(), contextActivity);
                                                 contextActivity.startActivity(i);
-                                                contextActivity.overridePendingTransition(R.anim.slideright,
-                                                        R.anim.fade_out);
+                                                contextActivity.overridePendingTransition(R.anim.slideright, R.anim.fade_out);
                                             } else {
                                                 LinkUtil.openExternally(submission.getUrl());
                                             }
@@ -227,8 +239,7 @@ public class SubmissionClickActions {
                                         case VREDDIT_REDIRECT:
                                         case GIF:
                                         case VREDDIT_DIRECT:
-                                            SubmissionThumbnailHelper.openGif(contextActivity, submission,
-                                                    holder.getBindingAdapterPosition());
+                                            SubmissionThumbnailHelper.openGif(contextActivity, submission, holder.getBindingAdapterPosition());
                                             break;
                                         case NONE:
                                             if (holder != null) {
@@ -238,8 +249,7 @@ public class SubmissionClickActions {
                                             break;
                                         case VIDEO:
                                             if (!LinkUtil.tryOpenWithVideoPlugin(submission.getUrl())) {
-                                                LinkUtil.openUrl(submission.getUrl(), Palette.getStatusBarColor(),
-                                                        contextActivity);
+                                                LinkUtil.openUrl(submission.getUrl(), Palette.getStatusBarColor(), contextActivity);
                                             }
 
                                             break;
@@ -249,11 +259,9 @@ public class SubmissionClickActions {
                                 }
                             }
                         } else {
-                            if (!(contextActivity instanceof PeekViewActivity)
-                                    || !((PeekViewActivity) contextActivity).isPeeking()) {
+                            if (!(contextActivity instanceof PeekViewActivity) || !((PeekViewActivity) contextActivity).isPeeking()) {
 
-                                Snackbar s = Snackbar.make(holder.itemView, R.string.go_online_view_content,
-                                        Snackbar.LENGTH_SHORT);
+                                Snackbar s = Snackbar.make(holder.itemView, R.string.go_online_view_content, Snackbar.LENGTH_SHORT);
                                 LayoutUtils.showSnackbar(s);
                             }
                         }

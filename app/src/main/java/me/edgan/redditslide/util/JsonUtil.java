@@ -1,21 +1,24 @@
 package me.edgan.redditslide.util;
 
 import android.util.Log;
+import androidx.annotation.Nullable;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import me.edgan.redditslide.Activities.GalleryImage;
 import org.apache.commons.text.StringEscapeUtils;
+import org.jspecify.annotations.NullMarked;
 
 /** Created by TacoTheDank on 04/04/2021. */
+@NullMarked
 public class JsonUtil {
     private static final String TAG = "JsonUtil";
 
     /** Whether this post links to another Reddit post (domain reddit.com or *.reddit.com). */
-    public static boolean linksToReddit(JsonNode dataNode) {
-        if (dataNode == null || !dataNode.has("domain") || dataNode.get("domain").isNull()) {
+    public static boolean linksToReddit(@Nullable JsonNode dataNode) {
+        if (dataNode == null || !dataNode.has("domain") || dataNode.path("domain").isNull()) {
             return false;
         }
-        String domain = dataNode.get("domain").asText("");
+        String domain = dataNode.path("domain").asText("");
         return domain.equals("reddit.com") || domain.endsWith(".reddit.com");
     }
 
@@ -26,14 +29,16 @@ public class JsonUtil {
      * itself) loads fine, so rewrite to it — but only for reddit links, so genuine external-link
      * previews (news sites, etc.) keep their external-preview URLs.
      */
-    public static String normalizeRedditPreviewHost(String url, boolean linksToReddit) {
+    public static @Nullable String normalizeRedditPreviewHost(
+            @Nullable String url, boolean linksToReddit) {
         if (linksToReddit && url != null) {
             return url.replace("://external-preview.redd.it/", "://preview.redd.it/");
         }
         return url;
     }
 
-    public static void getGalleryData(final JsonNode data, final ArrayList<GalleryImage> urls) {
+    public static void getGalleryData(
+            final @Nullable JsonNode data, final ArrayList<GalleryImage> urls) {
         if (data == null || !data.has("gallery_data") || data.get("gallery_data") == null ||
             !data.get("gallery_data").has("items") || data.get("gallery_data").get("items") == null) {
             Log.w(TAG, "Missing or null gallery_data or items in gallery data");
@@ -45,9 +50,9 @@ public class JsonUtil {
                 continue;
             }
 
-            String mediaId = identifier.get("media_id").asText();
-            if (data.has("media_metadata") && data.get("media_metadata").has(mediaId)) {
-                JsonNode mediaNode = data.get("media_metadata").get(mediaId);
+            String mediaId = identifier.path("media_id").asText();
+            if (data.has("media_metadata") && data.path("media_metadata").has(mediaId)) {
+                JsonNode mediaNode = data.path("media_metadata").get(mediaId);
                 if (mediaNode == null || !mediaNode.has("s")) {
                     continue;
                 }
@@ -59,8 +64,8 @@ public class JsonUtil {
                 image.mediaId = mediaId;
 
                 // Caption lives on the gallery_data item, not in media_metadata
-                if (identifier.has("caption") && !identifier.get("caption").isNull()) {
-                    image.caption = identifier.get("caption").asText();
+                if (identifier.has("caption") && !identifier.path("caption").isNull()) {
+                    image.caption = identifier.path("caption").asText();
                 }
 
                 // Make sure metadata exists
@@ -70,7 +75,7 @@ public class JsonUtil {
 
                 // Set metadata fields that determine animation status
                 if (mediaNode.has("e")) {
-                    image.metadata.e = mediaNode.get("e").asText();
+                    image.metadata.e = mediaNode.path("e").asText();
 
                     // Detect animated content based on the e field
                     if ("AnimatedImage".equals(image.metadata.e)) {
@@ -79,7 +84,7 @@ public class JsonUtil {
                 }
 
                 if (mediaNode.has("m")) {
-                    image.metadata.m = mediaNode.get("m").asText();
+                    image.metadata.m = mediaNode.path("m").asText();
 
                     // Also check MIME type for animation
                     if (image.metadata.m != null && image.metadata.m.contains("gif")) {
@@ -101,19 +106,19 @@ public class JsonUtil {
                 JsonNode s = mediaNode.get("s");
                 if (s != null) {
                     if (s.has("mp4")) {
-                        image.metadata.source.mp4 = StringEscapeUtils.unescapeHtml4(s.get("mp4").asText());
+                        image.metadata.source.mp4 = StringEscapeUtils.unescapeHtml4(s.path("mp4").asText());
                     }
                     if (s.has("gif")) {
-                        image.metadata.source.gif = StringEscapeUtils.unescapeHtml4(s.get("gif").asText());
+                        image.metadata.source.gif = StringEscapeUtils.unescapeHtml4(s.path("gif").asText());
                     }
                     if (s.has("u")) {
-                        image.metadata.source.u = StringEscapeUtils.unescapeHtml4(s.get("u").asText());
+                        image.metadata.source.u = StringEscapeUtils.unescapeHtml4(s.path("u").asText());
                     }
                 }
 
                 // Add preview images if available
-                if (mediaNode.has("p") && mediaNode.get("p").isArray() && mediaNode.get("p").size() > 0) {
-                    JsonNode previewArray = mediaNode.get("p");
+                if (mediaNode.has("p") && mediaNode.path("p").isArray() && mediaNode.path("p").size() > 0) {
+                    JsonNode previewArray = mediaNode.path("p");
                     image.metadata.p = new GalleryImage.MediaMetadata.Preview[previewArray.size()];
 
                     for (int i = 0; i < previewArray.size(); i++) {
@@ -125,13 +130,13 @@ public class JsonUtil {
                         GalleryImage.MediaMetadata.Preview p = new GalleryImage.MediaMetadata.Preview();
 
                         if (preview.has("u")) {
-                            p.u = StringEscapeUtils.unescapeHtml4(preview.get("u").asText());
+                            p.u = StringEscapeUtils.unescapeHtml4(preview.path("u").asText());
                         }
                         if (preview.has("x")) {
-                            p.x = preview.get("x").asInt();
+                            p.x = preview.path("x").asInt();
                         }
                         if (preview.has("y")) {
-                            p.y = preview.get("y").asInt();
+                            p.y = preview.path("y").asInt();
                         }
 
                         image.metadata.p[i] = p;

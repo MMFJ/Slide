@@ -10,6 +10,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.widget.ProgressBar;
+import androidx.annotation.Nullable;
+import androidx.fragment.app.FragmentActivity;
 import com.google.gson.Gson;
 import com.sothree.slidinguppanel.SlidingUpPanelLayout;
 import me.edgan.redditslide.Activities.MediaView;
@@ -28,23 +30,26 @@ import me.edgan.redditslide.util.FileUtil;
 import me.edgan.redditslide.util.GifUtils;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MiscUtil;
 import net.dean.jraw.models.Comment;
 
 /** Created by ccrama on 6/2/2015. */
 public class MediaFragmentComment extends BaseMediaFragment {
 
-    public String sub;
+    public String sub = "";
     public int i;
+    @SuppressWarnings("NullAway.Init") // bound in onCreateView
     private ExoVideoView videoView;
     private long stopPosition;
     public boolean isGif;
+    @SuppressWarnings("NullAway.Init") // set from the bundle in onCreate
     private CommentUrlObject s;
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         LogUtil.v("Destroying");
-        ((SubsamplingScaleImageView) rootView.findViewById(R.id.submission_image)).recycle();
+        ((SubsamplingScaleImageView) rootView.requireViewById(R.id.submission_image)).recycle();
     }
 
     @Override
@@ -71,7 +76,7 @@ public class MediaFragmentComment extends BaseMediaFragment {
         if (videoView != null) {
             stopPosition = videoView.getCurrentPosition();
             videoView.pause();
-            ((SlidingUpPanelLayout) rootView.findViewById(R.id.sliding_layout))
+            ((SlidingUpPanelLayout) rootView.requireViewById(R.id.sliding_layout))
                     .setPanelState(SlidingUpPanelLayout.PanelState.COLLAPSED);
             outState.putLong("position", stopPosition);
         }
@@ -79,7 +84,9 @@ public class MediaFragmentComment extends BaseMediaFragment {
 
     @Override
     public View onCreateView(
-            LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+            LayoutInflater inflater,
+            @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState) {
         rootView = (ViewGroup) inflater.inflate(R.layout.submission_mediacard, container, false);
         if (s == null) {
             // Arguments were missing in onCreate; nothing to populate.
@@ -88,24 +95,26 @@ public class MediaFragmentComment extends BaseMediaFragment {
         if (savedInstanceState != null && savedInstanceState.containsKey("position")) {
             stopPosition = savedInstanceState.getLong("position");
         }
-        final SlidingUpPanelLayout slideLayout = rootView.findViewById(R.id.sliding_layout);
+        final SlidingUpPanelLayout slideLayout = rootView.requireViewById(R.id.sliding_layout);
 
         if (getActivity() != null) {
             PopulateShadowboxInfo.doActionbar(s.comment, rootView, getActivity(), true);
         }
-        (rootView.findViewById(R.id.thumbimage2)).setVisibility(View.GONE);
+        (rootView.requireViewById(R.id.thumbimage2)).setVisibility(View.GONE);
 
-        ContentType.Type type = ContentType.getContentType(contentUrl);
+        ContentType.Type type =
+                contentUrl == null
+                        ? ContentType.Type.NONE
+                        : ContentType.getContentType(contentUrl);
 
         if (ContentType.fullImage(type)) {
-            (rootView.findViewById(R.id.thumbimage2)).setVisibility(View.GONE);
+            (rootView.requireViewById(R.id.thumbimage2)).setVisibility(View.GONE);
         }
         addClickFunctions(
-                (rootView.findViewById(R.id.submission_image)),
+                (rootView.requireViewById(R.id.submission_image)),
                 slideLayout,
-                rootView,
                 type,
-                getActivity(),
+                requireActivity(),
                 s);
         doLoad(contentUrl);
 
@@ -113,23 +122,23 @@ public class MediaFragmentComment extends BaseMediaFragment {
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        ((SlidingUpPanelLayout) rootView.findViewById(R.id.sliding_layout))
+                        ((SlidingUpPanelLayout) rootView.requireViewById(R.id.sliding_layout))
                                 .setPanelState(SlidingUpPanelLayout.PanelState.EXPANDED);
                     }
                 };
-        rootView.findViewById(R.id.base).setOnClickListener(openClick);
-        final View title = rootView.findViewById(R.id.title);
+        rootView.requireViewById(R.id.base).setOnClickListener(openClick);
+        final View title = rootView.requireViewById(R.id.title);
         title.getViewTreeObserver()
                 .addOnGlobalLayoutListener(
                         new ViewTreeObserver.OnGlobalLayoutListener() {
                             @Override
                             public void onGlobalLayout() {
-                                ((SlidingUpPanelLayout) rootView.findViewById(R.id.sliding_layout))
+                                ((SlidingUpPanelLayout) rootView.requireViewById(R.id.sliding_layout))
                                         .setPanelHeight(title.getMeasuredHeight());
                                 title.getViewTreeObserver().removeOnGlobalLayoutListener(this);
                             }
                         });
-        ((SlidingUpPanelLayout) rootView.findViewById(R.id.sliding_layout))
+        ((SlidingUpPanelLayout) rootView.requireViewById(R.id.sliding_layout))
                 .addPanelSlideListener(
                         new SlidingUpPanelLayout.SimplePanelSlideListener() {
                             @Override
@@ -139,29 +148,41 @@ public class MediaFragmentComment extends BaseMediaFragment {
                                     SlidingUpPanelLayout.PanelState newState) {
                                 if (newState == SlidingUpPanelLayout.PanelState.EXPANDED) {
                                     final Comment c = s.comment.getComment();
-                                    rootView.findViewById(R.id.base)
+                                    rootView.requireViewById(R.id.base)
                                             .setOnClickListener(
                                                     new View.OnClickListener() {
                                                         @Override
                                                         public void onClick(View v) {
+                                                            // A detached fragment has no host here; there is nothing to act on.
+                                                            final FragmentActivity activity = getActivity();
+                                                            if (activity == null) {
+                                                                return;
+                                                            }
+                                                            // link_id is "t3_" + the submission
+                                                            // id; without it there is no
+                                                            // submission to open.
+                                                            final String linkId =
+                                                                    c.getDataNode()
+                                                                            .path("link_id")
+                                                                            .asText();
+                                                            if (linkId.length() <= 3) {
+                                                                return;
+                                                            }
                                                             String url =
                                                                     "https://reddit.com"
                                                                             + "/r/"
                                                                             + c.getSubredditName()
                                                                             + "/comments/"
-                                                                            + c.getDataNode()
-                                                                                    .get("link_id")
-                                                                                    .asText()
-                                                                                    .substring(3)
+                                                                            + linkId.substring(3)
                                                                             + "/nothing/"
                                                                             + c.getId()
                                                                             + "?context=3";
                                                             OpenRedditLink.openUrl(
-                                                                    getActivity(), url, true);
+                                                                    activity, url, true);
                                                         }
                                                     });
                                 } else {
-                                    rootView.findViewById(R.id.base).setOnClickListener(openClick);
+                                    rootView.requireViewById(R.id.base).setOnClickListener(openClick);
                                 }
                             }
                         });
@@ -169,7 +190,7 @@ public class MediaFragmentComment extends BaseMediaFragment {
     }
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Bundle bundle = this.getArguments();
         if (bundle != null) {
@@ -181,16 +202,20 @@ public class MediaFragmentComment extends BaseMediaFragment {
                     && i >= 0
                     && i < ShadowboxComments.comments.size()) {
                 s = ShadowboxComments.comments.get(i);
-                sub = s.comment.getComment().getSubredditName();
+                sub = MiscUtil.orEmpty(s.comment.getComment().getSubredditName());
                 contentUrl = bundle.getString("contentUrl");
             }
         }
         client = Reddit.client;
         gson = new Gson();
-        imgurKey = SecretConstants.getImgurApiKey(getContext());
+        imgurKey = SecretConstants.getImgurApiKey(requireContext());
     }
 
-    public void doLoad(final String contentUrl) {
+    public void doLoad(final @Nullable String contentUrl) {
+        if (contentUrl == null) {
+            return;
+        }
+
         switch (ContentType.getContentType(contentUrl)) {
             case DEVIANTART:
                 doLoadDeviantArt(contentUrl);
@@ -215,7 +240,6 @@ public class MediaFragmentComment extends BaseMediaFragment {
     private static void addClickFunctions(
             final View base,
             final SlidingUpPanelLayout slidingPanel,
-            final View clickingArea,
             final ContentType.Type type,
             final Activity contextActivity,
             final CommentUrlObject submission) {
@@ -256,19 +280,23 @@ public class MediaFragmentComment extends BaseMediaFragment {
     }
 
     public void doLoadGif(final String dat) {
+        // A detached fragment has no host here; there is nothing to act on.
+        final FragmentActivity activity = getActivity();
+        if (activity == null) {
+            return;
+        }
         isGif = true;
         videoView = rootView.findViewById(R.id.gif);
         videoView.clearFocus();
-        rootView.findViewById(R.id.gifarea).setVisibility(View.VISIBLE);
-        rootView.findViewById(R.id.submission_image).setVisibility(View.GONE);
-        final ProgressBar loader = rootView.findViewById(R.id.gifprogress);
-        rootView.findViewById(R.id.progress).setVisibility(View.GONE);
+        rootView.requireViewById(R.id.gifarea).setVisibility(View.VISIBLE);
+        rootView.requireViewById(R.id.submission_image).setVisibility(View.GONE);
+        final ProgressBar loader = rootView.requireViewById(R.id.gifprogress);
+        rootView.requireViewById(R.id.progress).setVisibility(View.GONE);
         GifUtils.AsyncLoadGif gif =
                 new GifUtils.AsyncLoadGif(
-                        getActivity(),
+                        activity,
                         videoView,
                         loader,
-                        rootView.findViewById(R.id.placeholder),
                         false,
                         true,
                         sub);
