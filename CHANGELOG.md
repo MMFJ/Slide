@@ -6,6 +6,13 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+8.0.8.1 / 2026-10-27
+===================
+* Batch DL: Bottom action bar is now permanently visible rather than hiding/showing during scrolling, keeping all controls readily accessible
+* Batch DL: Moved triple-dots (marking options) button to the far left of the bottom menu bar
+* Batch DL: Added long-press to the "Load 4 pages" button to load all remaining pages (up to 25 pages / ~625 posts) with a subtle "(hold for all)" subtitle, haptic feedback, toast confirmation, and tap-to-cancel support
+* Batch DL: Replaced text "DOWNLOAD" button with a compact download icon button and dedicated progress counter ("X/Y") during active downloads to optimize screen space on smaller devices
+
 8.0.8.0 / 2026-10-26
 ===================
 * Merged upstream updates from 7.7.8 through 8.0.8 into mmfj-mod (cygnusx-1-org/Slide version 8.0.8), including Megareddits, multi-reddit editing, gallery posting fix, resume-where-left-off polish, profile search improvements, and dependency upgrades. All MMFJ fork enhancements (Batch Download, MediaView gesture controls, score container upvote target, thumbnail dHash dedup, hot pink icon) are preserved.

@@ -74,19 +74,12 @@
         android:layout_gravity="bottom"
         android:background="?attr/card_background"
         android:elevation="4dp"
+        android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="8dp"
+        android:padding="4dp"
         android:visibility="gone">
 
-        <!-- Type filter button — wired in Phase 3 -->
-        <Button
-            android:id="@+id/batch_dl_type_btn"
-            style="?android:attr/borderlessButtonStyle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/batch_dl_type_filter"
-            android:textColor="?attr/fontColor" />
-
+        <!-- Triple-dots button on the far left -->
         <ImageButton
             android:id="@+id/batch_dl_mark_btn"
             android:layout_width="48dp"
@@ -96,12 +89,31 @@
             android:src="@drawable/ic_more_vert"
             android:tint="?attr/fontColor" />
 
+        <!-- Type filter button -->
+        <Button
+            android:id="@+id/batch_dl_type_btn"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/batch_dl_type_filter"
+            android:textColor="?attr/fontColor" />
+
+        <!-- Load more button -->
+        <Button
+            android:id="@+id/batch_dl_load_more"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Load 4 pages ↓"
+            android:textColor="?attr/fontColor"
+            android:visibility="gone" />
+
         <Space
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1" />
 
-        <!-- Select All icon button — wired in Phase 3 -->
+        <!-- Select All icon button -->
         <ImageButton
             android:id="@+id/batch_dl_select_all"
             android:layout_width="48dp"
@@ -111,14 +123,26 @@
             android:src="@drawable/ic_done_all"
             android:tint="?attr/fontColor" />
 
-        <!-- Download button — wired in Phase 4 -->
-        <Button
-            android:id="@+id/batch_dl_download"
-            style="?android:attr/borderlessButtonStyle"
+        <!-- Download progress text (visible during download) -->
+        <TextView
+            android:id="@+id/batch_dl_download_progress"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/batch_dl_download"
-            android:textColor="?attr/fontColor" />
+            android:paddingStart="4dp"
+            android:paddingEnd="2dp"
+            android:textColor="?attr/fontColor"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <!-- Download icon button -->
+        <ImageButton
+            android:id="@+id/batch_dl_download"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/batch_dl_download"
+            android:src="@drawable/ic_download"
+            android:tint="?attr/fontColor" />
 
     </LinearLayout>
 

@@ -6,10 +6,13 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.RelativeSizeSpan;
+import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.LinearInterpolator;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.TextView;
@@ -67,8 +70,9 @@ public class BatchDownloadFragment extends Fragment {
     @Nullable private View actionBar;
     @Nullable private Button typBtn;        // opens Type filter dialog
     @Nullable private ImageButton selectAllBtn;
-    @Nullable private Button downloadBtn;
-    @Nullable private Button loadMoreBtn;   // injected into the action bar in updateLoadMoreFooter
+    @Nullable private ImageButton downloadBtn;
+    @Nullable private TextView downloadProgress;
+    @Nullable private Button loadMoreBtn;
 
     // ---- action-bar filter state ----
     private boolean showImages = true;
@@ -130,6 +134,8 @@ public class BatchDownloadFragment extends Fragment {
         typBtn       = v.findViewById(R.id.batch_dl_type_btn);
         selectAllBtn = v.findViewById(R.id.batch_dl_select_all);
         downloadBtn  = v.findViewById(R.id.batch_dl_download);
+        downloadProgress = v.findViewById(R.id.batch_dl_download_progress);
+        loadMoreBtn  = v.findViewById(R.id.batch_dl_load_more);
 
         ImageButton markBtn = v.findViewById(R.id.batch_dl_mark_btn);
         markBtn.setOnClickListener(view -> {
@@ -181,8 +187,7 @@ public class BatchDownloadFragment extends Fragment {
             if (adapter != null) adapter.toggleSelectAll();
         });
 
-        // --- Phase 3: scroll-hide on RecyclerView ---
-        recyclerView.addOnScrollListener(buildScrollHideListener());
+        // Action bar remains always visible; no scroll-hide listener needed
 
         // --- Phase 4: Start download service ---
         downloadBtn.setOnClickListener(view -> {
@@ -208,7 +213,10 @@ public class BatchDownloadFragment extends Fragment {
 
                 if (downloadBtn != null) {
                     downloadBtn.setEnabled(false);
-                    downloadBtn.setText("0/" + queue.size());
+                }
+                if (downloadProgress != null) {
+                    downloadProgress.setText("0/" + queue.size());
+                    downloadProgress.setVisibility(View.VISIBLE);
                 }
             }
         });
@@ -229,8 +237,9 @@ public class BatchDownloadFragment extends Fragment {
             if (BatchDownloadService.BROADCAST_PROGRESS.equals(action)) {
                 int progress = intent.getIntExtra(BatchDownloadService.EXTRA_PROGRESS, 0);
                 int total = intent.getIntExtra(BatchDownloadService.EXTRA_TOTAL, 0);
-                if (downloadBtn != null) {
-                    downloadBtn.setText(progress + "/" + total);
+                if (downloadProgress != null) {
+                    downloadProgress.setText(progress + "/" + total);
+                    downloadProgress.setVisibility(View.VISIBLE);
                 }
             } else if (BatchDownloadService.BROADCAST_ITEM_DONE.equals(action)) {
                 String id = intent.getStringExtra(BatchDownloadService.EXTRA_SUBMISSION_ID);
@@ -257,7 +266,9 @@ public class BatchDownloadFragment extends Fragment {
             } else if (BatchDownloadService.BROADCAST_FINISHED.equals(action)) {
                 if (downloadBtn != null) {
                     downloadBtn.setEnabled(true);
-                    downloadBtn.setText(R.string.batch_dl_download);
+                }
+                if (downloadProgress != null) {
+                    downloadProgress.setVisibility(View.GONE);
                 }
                 if (getContext() != null) {
                     Toast.makeText(getContext(), R.string.info_photo_saved, Toast.LENGTH_SHORT).show();
@@ -363,8 +374,14 @@ public class BatchDownloadFragment extends Fragment {
 
         @Override
         protected void onPreExecute() {
-            if (appendMode && swipeRefreshLayout != null) {
-                swipeRefreshLayout.setRefreshing(true);
+            if (appendMode) {
+                if (swipeRefreshLayout != null) {
+                    swipeRefreshLayout.setRefreshing(true);
+                }
+                if (loadMoreBtn != null) {
+                    loadMoreBtn.setEnabled(true);
+                    loadMoreBtn.setText("Loading 1/" + pagesToFetch + " ✕");
+                }
             }
         }
 
@@ -393,6 +410,7 @@ public class BatchDownloadFragment extends Fragment {
                 // Fetch up to pagesToFetch pages in a single background task
                 LinkedHashMap<String, BatchDownloadItem> deduped = new LinkedHashMap<>();
                 for (int p = 0; p < pagesToFetch && paginator.hasNext() && !isCancelled(); p++) {
+                    publishProgress(String.valueOf(p + 1), String.valueOf(pagesToFetch));
                     List<Contribution> page = paginator.next();
                     hasMore = paginator.hasNext();
 
@@ -506,6 +524,26 @@ public class BatchDownloadFragment extends Fragment {
                 e.printStackTrace();
                 return new ArrayList<>();
             }
+        }
+
+        @Override
+        protected void onProgressUpdate(String... values) {
+            if (loadMoreBtn != null && values != null && values.length >= 2) {
+                loadMoreBtn.setText("Loading " + values[0] + "/" + values[1] + " ✕");
+            }
+        }
+
+        @Override
+        protected void onCancelled(List<BatchDownloadItem> results) {
+            currentTask = null;
+            if (swipeRefreshLayout != null) {
+                swipeRefreshLayout.setRefreshing(false);
+            }
+            if (adapter != null && results != null && !results.isEmpty()) {
+                adapter.appendItems(results);
+            }
+            showState(State.READY);
+            updateLoadMoreFooter(hasMore);
         }
 
         @Override
@@ -625,88 +663,50 @@ public class BatchDownloadFragment extends Fragment {
      */
     private void showActionBar() {
         if (actionBar != null) {
-            actionBar.animate()
-                    .translationY(0)
-                    .setInterpolator(new android.view.animation.LinearInterpolator())
-                    .setDuration(180)
-                    .start();
+            actionBar.setVisibility(View.VISIBLE);
+            actionBar.setTranslationY(0);
         }
     }
 
-    private RecyclerView.OnScrollListener buildScrollHideListener() {
-        return new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                // Action-bar slide hide/show
-                if (actionBar != null && actionBar.getVisibility() == View.VISIBLE) {
-                    int barH = actionBar.getHeight();
-                    if (barH > 0) {
-                        float current = actionBar.getTranslationY();
-                        float next = Math.max(0f, Math.min(barH, current + dy));
-                        actionBar.setTranslationY(next);
-                    }
-                }
-
-                // Infinite scroll: auto-load next page when within 5 items of the bottom
-                if (dy > 0 && currentTask == null) {
-                    LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-                    if (lm != null) {
-                        int totalItems   = lm.getItemCount();
-                        int lastVisible  = lm.findLastVisibleItemPosition();
-                        if (totalItems > 0 && lastVisible >= totalItems - 5) {
-                            loadMorePage();
-                        }
-                    }
-                }
-            }
-
-            @Override
-            public void onScrollStateChanged(@NonNull RecyclerView rv, int state) {
-                if (state != RecyclerView.SCROLL_STATE_IDLE) return;
-                if (actionBar == null || actionBar.getVisibility() != View.VISIBLE) return;
-                int barH = actionBar.getHeight();
-                boolean hide = actionBar.getTranslationY() > barH * 0.6f;
-                actionBar.animate()
-                        .translationY(hide ? barH : 0)
-                        .setInterpolator(new LinearInterpolator())
-                        .setDuration(180);
-            }
-        };
+    private void setLoadMoreButtonDefaultText() {
+        if (loadMoreBtn == null) return;
+        SpannableString text = new SpannableString("Load 4 pages ↓\n(hold for all)");
+        text.setSpan(new RelativeSizeSpan(0.7f), 15, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        loadMoreBtn.setText(text);
     }
 
-    // -------------------------------------------------------------------------
-    // Load More — proper footer button (replaces Phase 2 type-button hack)
-    // -------------------------------------------------------------------------
-
     private void updateLoadMoreFooter(boolean hasMore) {
-        // Re-wire the Type button to its normal job (filter dialog)
-        // and manage a separate "Load more" button appended to the action bar.
         if (typBtn != null) {
             typBtn.setOnClickListener(v -> showTypeFilterDialog());
             updateTypeBtnLabel();
         }
 
-        if (actionBar == null) return;
-
-        // Find or create the Load More button inside the action bar
-        if (loadMoreBtn == null) {
-            loadMoreBtn = new Button(getContext(), null,
-                    android.R.attr.borderlessButtonStyle);
-            loadMoreBtn.setText("Load 4 pages ↓");
-            // Insert before the spacer (index 2) so it sits after the Type and Mark buttons
-            if (actionBar instanceof android.widget.LinearLayout) {
-                ((android.widget.LinearLayout) actionBar).addView(loadMoreBtn, 2);
-            }
-        }
+        if (loadMoreBtn == null) return;
 
         if (hasMore) {
             loadMoreBtn.setVisibility(View.VISIBLE);
             loadMoreBtn.setEnabled(true);
+            setLoadMoreButtonDefaultText();
             loadMoreBtn.setOnClickListener(v -> {
-                if (loadMoreBtn != null) {
-                    loadMoreBtn.setEnabled(false);
+                if (currentTask != null) {
+                    currentTask.cancel(true);
+                    if (getContext() != null) {
+                        Toast.makeText(getContext(), "Loading cancelled", Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    loadMorePages(4);
                 }
-                loadMorePages(4);
+            });
+            loadMoreBtn.setOnLongClickListener(v -> {
+                if (currentTask != null) {
+                    return true;
+                }
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                if (getContext() != null) {
+                    Toast.makeText(getContext(), "Loading all remaining pages (up to 25)…", Toast.LENGTH_SHORT).show();
+                }
+                loadMorePages(25);
+                return true;
             });
         } else {
             loadMoreBtn.setVisibility(View.GONE);

@@ -16,7 +16,7 @@ This fork uses **4-part versioning**: `MAJOR.MINOR.PATCH.BUILD`
 ## Current Status
 
 > [!NOTE]
-> Current version is `8.0.8.0` based on upstream Slide **8.0.8** (from cygnusx-1-org).
+> Current version is `8.0.8.1` based on upstream Slide **8.0.8** (from cygnusx-1-org).
 
 ## Workflow
 
