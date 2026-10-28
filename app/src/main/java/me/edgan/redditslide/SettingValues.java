@@ -86,6 +86,9 @@ public class SettingValues {
     public static final String PREF_OVERRIDE_LANGUAGE = "overrideLanguage";
     public static final String PREF_IMMERSIVE_MODE = "immersiveMode";
     public static final String PREF_OLD_SWIPE_MODE = "oldSwipeMode";
+    public static final String PREF_LONG_PRESS_DOWNLOAD = "long_press_action_download";
+    public static final String PREF_LONG_PRESS_UPVOTE = "long_press_action_upvote";
+    public static final String PREF_LONG_PRESS_MARK_READ = "long_press_action_mark_read";
     public static final String PREF_HIDE_SUBREDDIT_TABS = "hideSubredditTabs";
     public static final String PREF_SHOW_DOMAIN = "showDomain";
     public static final String PREF_CARD_TEXT = "cardText";
@@ -283,6 +286,9 @@ public class SettingValues {
     public static boolean shareLongLink;
     public static boolean isMuted;
     public static boolean unmuteDefault;
+    public static boolean longPressDownload;
+    public static boolean longPressUpvote;
+    public static boolean longPressMarkRead;
     public static int subredditSearchMethod;
     public static int backButtonBehavior;
     public static int nightStart;
@@ -431,6 +437,9 @@ public class SettingValues {
         imageSubfolders = prefs.getBoolean(PREF_IMAGE_SUBFOLDERS, false);
         imageTypeSubfolders = prefs.getBoolean(PREF_IMAGE_TYPE_SUBFOLDERS, false);
         imageDownloadButton = prefs.getBoolean(PREF_IMAGE_DOWNLOAD_BUTTON, true);
+        longPressDownload = prefs.getBoolean(PREF_LONG_PRESS_DOWNLOAD, true);
+        longPressUpvote = prefs.getBoolean(PREF_LONG_PRESS_UPVOTE, false);
+        longPressMarkRead = prefs.getBoolean(PREF_LONG_PRESS_MARK_READ, false);
         isMuted = prefs.getBoolean(PREF_MUTE, false);
         unmuteDefault = prefs.getBoolean(PREF_UNMUTE_DEFAULT, false);
 

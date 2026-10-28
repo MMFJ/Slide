@@ -722,6 +722,74 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
         }
 
         {
+            final RelativeLayout longPressLayout =
+                    context.findViewById(R.id.settings_general_long_press_actions);
+            final TextView longPressSummary =
+                    context.findViewById(R.id.settings_general_long_press_actions_current);
+
+            if (longPressLayout != null && longPressSummary != null) {
+                updateLongPressActionsSummary(longPressSummary);
+
+                longPressLayout.setOnClickListener(
+                        v -> {
+                            final CharSequence[] items =
+                                    new CharSequence[] {
+                                        context.getString(R.string.long_press_action_download),
+                                        context.getString(R.string.long_press_action_upvote),
+                                        context.getString(R.string.long_press_action_mark_read)
+                                    };
+                            final boolean[] checked =
+                                    new boolean[] {
+                                        SettingValues.longPressDownload,
+                                        SettingValues.longPressUpvote,
+                                        SettingValues.longPressMarkRead
+                                    };
+
+                            DialogUtil.showWithCardBackground(
+                                    new AlertDialog.Builder(context)
+                                            .setTitle(
+                                                    R.string
+                                                            .settings_general_long_press_actions_title)
+                                            .setMultiChoiceItems(
+                                                    items,
+                                                    checked,
+                                                    (dialog, which, isChecked) -> {
+                                                        checked[which] = isChecked;
+                                                    })
+                                            .setPositiveButton(
+                                                    R.string.btn_ok,
+                                                    (dialog, which) -> {
+                                                        SettingValues.longPressDownload =
+                                                                checked[0];
+                                                        SettingValues.longPressUpvote = checked[1];
+                                                        SettingValues.longPressMarkRead =
+                                                                checked[2];
+
+                                                        SettingValues.prefs
+                                                                .edit()
+                                                                .putBoolean(
+                                                                        SettingValues
+                                                                                .PREF_LONG_PRESS_DOWNLOAD,
+                                                                        checked[0])
+                                                                .putBoolean(
+                                                                        SettingValues
+                                                                                .PREF_LONG_PRESS_UPVOTE,
+                                                                        checked[1])
+                                                                .putBoolean(
+                                                                        SettingValues
+                                                                                .PREF_LONG_PRESS_MARK_READ,
+                                                                        checked[2])
+                                                                .apply();
+
+                                                        updateLongPressActionsSummary(
+                                                                longPressSummary);
+                                                    })
+                                            .setNegativeButton(R.string.btn_cancel, null));
+                        });
+            }
+        }
+
+        {
             SwitchCompat subfolderSwitch = context.findViewById(R.id.settings_general_subfolder);
 
             if (subfolderSwitch != null) {
@@ -2137,6 +2205,25 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                     })
                     .setNegativeButton(R.string.btn_cancel, null)
                     .show();
+        }
+    }
+
+    private void updateLongPressActionsSummary(TextView summaryView) {
+        java.util.List<String> activeActions = new java.util.ArrayList<>();
+        if (SettingValues.longPressDownload) {
+            activeActions.add(context.getString(R.string.long_press_action_download));
+        }
+        if (SettingValues.longPressUpvote) {
+            activeActions.add(context.getString(R.string.long_press_action_upvote));
+        }
+        if (SettingValues.longPressMarkRead) {
+            activeActions.add(context.getString(R.string.long_press_action_mark_read));
+        }
+
+        if (activeActions.isEmpty()) {
+            summaryView.setText(R.string.long_press_action_none);
+        } else {
+            summaryView.setText(String.join(", ", activeActions));
         }
     }
 }

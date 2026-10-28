@@ -4,6 +4,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.app.Activity;
 import android.os.Handler;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
@@ -16,7 +17,9 @@ import androidx.core.content.ContextCompat;
 import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.DataShare;
+import me.edgan.redditslide.HasSeen;
 import me.edgan.redditslide.R;
+import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.Vote;
 import net.dean.jraw.models.Submission;
 import net.dean.jraw.models.VoteDirection;
@@ -135,5 +138,48 @@ public class MediaGestureHelper {
                             })
                     .start();
         }
+    }
+
+    /**
+     * Executes the user-configured long-press actions (Download, Upvote toggle, Mark read).
+     *
+     * @param activity Hosting activity
+     * @param submission Associated submission (can be null; falls back to DataShare.sharedSubmission)
+     * @param downloadAction Runnable to perform image/media download if enabled
+     * @return true if at least one action was executed, false if none were configured or performed
+     */
+    public static boolean executeLongPressActions(
+            final Activity activity,
+            @Nullable final Submission submission,
+            @Nullable final Runnable downloadAction) {
+
+        boolean anyAction = false;
+        final Submission target = submission != null ? submission : DataShare.sharedSubmission;
+
+        if (SettingValues.longPressDownload && downloadAction != null) {
+            downloadAction.run();
+            anyAction = true;
+        }
+
+        if (SettingValues.longPressUpvote) {
+            if (handleUpvote(activity, target)) {
+                anyAction = true;
+            }
+        }
+
+        if (SettingValues.longPressMarkRead) {
+            if (target != null) {
+                HasSeen.addSeen(target.getFullName());
+                Toast.makeText(activity, R.string.marked_as_read, Toast.LENGTH_SHORT).show();
+                anyAction = true;
+            }
+        }
+
+        if (anyAction) {
+            View decor = activity.getWindow().getDecorView();
+            decor.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        }
+
+        return anyAction;
     }
 }

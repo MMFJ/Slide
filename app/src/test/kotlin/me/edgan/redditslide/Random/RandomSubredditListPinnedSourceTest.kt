@@ -23,7 +23,13 @@ class RandomSubredditListPinnedSourceTest {
     private fun replaceByRename(path: File, contents: String) {
         val temp = File(path.path + ".tmp")
         temp.writeBytes(contents.toByteArray())
-        check(temp.renameTo(path)) { "rename failed" }
+        if (!temp.renameTo(path)) {
+            org.junit.Assume.assumeFalse(
+                "Windows does not support renaming over an open file handle",
+                System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+            )
+            error("rename failed")
+        }
     }
 
     @Test

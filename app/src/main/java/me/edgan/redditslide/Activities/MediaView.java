@@ -775,6 +775,22 @@ public class MediaView extends BaseSaveActivity implements HibernateState.Restor
 
                                 return false;
                             }
+
+                            @Override
+                            public void onLongPress(@NonNull MotionEvent e) {
+                                if (ContentType.getContentType(contentUrl) != ContentType.Type.XKCD) {
+                                    String urlToSave =
+                                            actuallyLoaded != null ? actuallyLoaded : contentUrl;
+                                    boolean handled =
+                                            MediaGestureHelper.executeLongPressActions(
+                                                    MediaView.this,
+                                                    DataShare.sharedSubmission,
+                                                    () -> doImageSave(isGif, urlToSave, index));
+                                    if (handled) {
+                                        gestureConsumed = true;
+                                    }
+                                }
+                            }
                         });
 
         requireViewById(R.id.rotate_right)

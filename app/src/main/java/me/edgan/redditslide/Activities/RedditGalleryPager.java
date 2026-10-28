@@ -386,6 +386,45 @@ public class RedditGalleryPager extends BaseSaveActivity implements GalleryParen
 
                                 return false;
                             }
+
+                            @Override
+                            public void onLongPress(@NonNull MotionEvent e) {
+                                int currentItem = p != null ? p.getCurrentItem() : 0;
+                                if (SettingValues.oldSwipeMode && currentItem > 0) {
+                                    currentItem--;
+                                }
+                                if (images != null && currentItem >= 0 && currentItem < images.size()) {
+                                    final GalleryImage elem = images.get(currentItem);
+                                    final String elemUrl = elem.url;
+                                    final int finalIndex = currentItem;
+                                    Runnable downloadRunnable = null;
+                                    if (elemUrl != null) {
+                                        downloadRunnable =
+                                                () -> {
+                                                    if (elem.isAnimated()) {
+                                                        GifUtils.cacheSaveGif(
+                                                                Uri.parse(elemUrl),
+                                                                RedditGalleryPager.this,
+                                                                subreddit != null ? subreddit : "",
+                                                                submissionTitle != null
+                                                                        ? submissionTitle
+                                                                        : "",
+                                                                true);
+                                                    } else {
+                                                        doImageSave(false, elemUrl, finalIndex);
+                                                    }
+                                                };
+                                    }
+                                    boolean handled =
+                                            MediaGestureHelper.executeLongPressActions(
+                                                    RedditGalleryPager.this,
+                                                    DataShare.sharedSubmission,
+                                                    downloadRunnable);
+                                    if (handled) {
+                                        gestureConsumed = true;
+                                    }
+                                }
+                            }
                         });
 
         setupGridAndPagerListeners(adapter);

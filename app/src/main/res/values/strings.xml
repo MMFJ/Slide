@@ -746,6 +746,13 @@
     <string name="settings_general_title_drawer_items">Drawer Items</string>
     <string name="settings_general_subtitle_drawer_items">Select which drawer items to display</string>
 
+    <string name="settings_general_long_press_actions_title">Long-press image actions</string>
+    <string name="long_press_action_download">Download</string>
+    <string name="long_press_action_upvote">Upvote toggle</string>
+    <string name="long_press_action_mark_read">Mark as read</string>
+    <string name="long_press_action_none">None</string>
+    <string name="marked_as_read">Marked as read</string>
+
 
     <!-- Settings titles displayed in settings activity-->
     <string name="settings_title_backup">Backup &amp; restore</string>

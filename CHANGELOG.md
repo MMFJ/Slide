@@ -6,6 +6,16 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+8.0.8.4 / 2026-10-27
+===================
+* Long-Press Actions Setting: Added configurable multi-choice setting in Settings › General under Images ("Long-press image actions")
+  - Options: Download (checked by default), Upvote toggle, Mark as read
+  - Summary reflects the active combination (or "None")
+* Media Viewers Long-Press: Added long-press action execution to MediaView, RedditGalleryPager, and AlbumPager
+  - Executes all selected actions simultaneously with haptic feedback
+  - Cancels underlying touch dispatch to prevent unintended playback control overlays or image dismissals
+  - Preserves XKCD comic alt-text dialog on long-press in MediaView
+
 8.0.8.3 / 2026-10-27
 ===================
 * Gallery & Album Pagers: Added swipe gestures to horizontal paging mode (RedditGalleryPager and AlbumPager)

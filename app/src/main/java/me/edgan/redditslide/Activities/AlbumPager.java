@@ -283,6 +283,36 @@ public class AlbumPager extends BaseSaveActivity {
 
                                 return false;
                             }
+
+                            @Override
+                            public void onLongPress(@NonNull MotionEvent e) {
+                                int currentItem = p != null ? p.getCurrentItem() : 0;
+                                if (SettingValues.oldSwipeMode && currentItem > 0) {
+                                    currentItem--;
+                                }
+                                if (images != null && currentItem >= 0 && currentItem < images.size()) {
+                                    final Image elem = images.get(currentItem);
+                                    final String elemUrl = elem.getImageUrl();
+                                    final int finalIndex = currentItem;
+                                    Runnable downloadRunnable = null;
+                                    if (elemUrl != null) {
+                                        downloadRunnable =
+                                                () ->
+                                                        doImageSave(
+                                                                elem.animated(),
+                                                                elemUrl,
+                                                                finalIndex);
+                                    }
+                                    boolean handled =
+                                            MediaGestureHelper.executeLongPressActions(
+                                                    AlbumPager.this,
+                                                    DataShare.sharedSubmission,
+                                                    downloadRunnable);
+                                    if (handled) {
+                                        gestureConsumed = true;
+                                    }
+                                }
+                            }
                         });
 
         String url = MiscUtil.orEmpty(getIntent().getStringExtra("url"));
