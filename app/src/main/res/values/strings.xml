@@ -748,9 +748,10 @@
 
     <string name="settings_general_long_press_actions_title">Long-press image actions</string>
     <string name="long_press_action_download">Download</string>
-    <string name="long_press_action_upvote">Upvote toggle</string>
+    <string name="long_press_action_upvote">Upvote</string>
     <string name="long_press_action_mark_read">Mark as read</string>
     <string name="long_press_action_none">None</string>
+    <string name="quick_action">Quick action</string>
     <string name="marked_as_read">Marked as read</string>
 
 

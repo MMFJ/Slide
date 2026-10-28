@@ -3,6 +3,10 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     tools:ignore="UnusedResources">
     <item
+        android:id="@+id/quick_action"
+        android:title="@string/quick_action"
+        android:icon="@drawable/ic_speed" />
+    <item
         android:id="@+id/open_link"
         android:title="@string/open_externally"
         android:icon="@drawable/ic_open_in_new" />

@@ -6,6 +6,12 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+8.0.8.6 / 2026-10-27
+===================
+* Idempotent Long-Press Upvoting & Reading: Long-pressing media now always sets the post to upvoted (never reverses or cancels an existing upvote) and marks it as read, allowing repeated downloads or long-presses on the same item without undoing upvotes
+* Feed Image Quick Action: When Peek is turned off, long-pressing feed card previews and thumbnails opens the link bottom sheet with a new "Quick action" item (speedometer icon) that executes the user-configured quick actions (Download, Upvote, Mark as read)
+* Settings UI: Renamed setting option from "Upvote toggle" to "Upvote" to reflect the idempotent upvoting behavior
+
 8.0.8.5 / 2026-10-27
 ===================
 * Vertical Scrolling Galleries Long-Press: Added long-press action execution to vertical gallery and album lists (RedditGalleryView, AlbumView, and TumblrView)

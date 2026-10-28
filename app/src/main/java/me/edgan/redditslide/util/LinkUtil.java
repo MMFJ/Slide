@@ -457,17 +457,32 @@ public class LinkUtil {
      */
     public static void showLinkBottomSheet(
             final Activity activity, final Context themedContext, final String url) {
-        BottomSheet.Builder b = new BottomSheet.Builder(activity).title(url).grid();
-        int[] attrs = new int[] {R.attr.tintColor};
-        TypedArray ta = themedContext.obtainStyledAttributes(attrs);
+        showLinkBottomSheet(activity, themedContext, url, null);
+    }
 
-        int color = ta.getColor(0, Color.WHITE);
-        Drawable open = BlendModeUtil.getTintedDrawable(themedContext, R.drawable.ic_open_in_new, color);
-        Drawable share = BlendModeUtil.getTintedDrawable(themedContext, R.drawable.ic_share, color);
-        Drawable copy = BlendModeUtil.getTintedDrawable(themedContext, R.drawable.ic_content_copy, color);
+    /**
+     * Bottom sheet for a link or media card: includes configured quick actions when a submission is provided.
+     */
+    public static void showLinkBottomSheet(
+            final Activity activity,
+            final Context themedContext,
+            final String url,
+            @Nullable final Submission submission) {
+        final BottomSheet.Builder b = new BottomSheet.Builder(activity).title(url).grid();
+        final int[] attrs = new int[] {R.attr.tintColor};
+        final TypedArray ta = themedContext.obtainStyledAttributes(attrs);
+
+        final int color = ta.getColor(0, Color.WHITE);
+        final Drawable open = BlendModeUtil.getTintedDrawable(themedContext, R.drawable.ic_open_in_new, color);
+        final Drawable share = BlendModeUtil.getTintedDrawable(themedContext, R.drawable.ic_share, color);
+        final Drawable copy = BlendModeUtil.getTintedDrawable(themedContext, R.drawable.ic_content_copy, color);
+        final Drawable quickAction = BlendModeUtil.getTintedDrawable(themedContext, R.drawable.ic_speed, color);
 
         ta.recycle();
 
+        if (submission != null) {
+            b.sheet(R.id.quick_action, quickAction, activity.getString(R.string.quick_action));
+        }
         b.sheet(R.id.open_link, open, activity.getString(R.string.open_externally));
         b.sheet(R.id.share_link, share, activity.getString(R.string.share_link));
         b.sheet(R.id.copy_link, copy, activity.getString(R.string.submission_link_copy));
@@ -475,7 +490,31 @@ public class LinkUtil {
                         new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
-                                if (which == R.id.open_link) {
+                                if (which == R.id.quick_action) {
+                                    if (submission != null) {
+                                        final Runnable downloadRunnable =
+                                                () -> {
+                                                    final ContentType.Type type =
+                                                            ContentType.getContentType(submission);
+                                                    final boolean isGif =
+                                                            type == ContentType.Type.GIF
+                                                                    || type == ContentType.Type.VIDEO
+                                                                    || type == ContentType.Type.STREAMABLE
+                                                                    || type == ContentType.Type.VREDDIT_REDIRECT
+                                                                    || type == ContentType.Type.VREDDIT_DIRECT;
+                                                    ImageSaveUtils.doImageSave(
+                                                            activity,
+                                                            isGif,
+                                                            url,
+                                                            -1,
+                                                            submission.getSubredditName(),
+                                                            submission.getTitle(),
+                                                            () -> StorageUtil.showDirectoryChooser(activity));
+                                                };
+                                        MediaGestureHelper.executeLongPressActions(
+                                                activity, submission, downloadRunnable);
+                                    }
+                                } else if (which == R.id.open_link) {
                                     LinkUtil.openExternally(url);
                                 } else if (which == R.id.share_link) {
                                     Reddit.defaultShareText("", url, activity);

@@ -67,6 +67,31 @@ public class MediaGestureHelper {
     }
 
     /**
+     * Ensures the submission is upvoted (idempotent; will not undo/reverse an existing upvote).
+     *
+     * @param activity Hosting activity
+     * @param target Submission to upvote
+     * @return true if target was valid, false if null or upvoting not available
+     */
+    public static boolean setUpvoted(final Activity activity, @Nullable final Submission target) {
+        if (target == null) {
+            return false;
+        }
+        if (!Authentication.isLoggedIn || !Authentication.didOnline) {
+            Toast.makeText(activity, R.string.vote_err_login, Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
+        final VoteDirection currentVote = ActionStates.getVoteDirection(target);
+        if (currentVote != VoteDirection.UPVOTE) {
+            new Vote(true, null, activity).execute(target);
+            ActionStates.setVoteDirection(target, VoteDirection.UPVOTE);
+            showVoteFeedback(activity, true);
+        }
+        return true;
+    }
+
+    /**
      * Shows a brief visual floating icon (check circle for upvote, close for remove)
      * centered over the activity window.
      */
@@ -162,7 +187,7 @@ public class MediaGestureHelper {
         }
 
         if (SettingValues.longPressUpvote) {
-            if (handleUpvote(activity, target)) {
+            if (setUpvoted(activity, target)) {
                 anyAction = true;
             }
         }
