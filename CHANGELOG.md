@@ -6,6 +6,12 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+8.0.8.2 / 2026-10-27
+===================
+* MediaView: Successful swipe gestures (upvote or download) now properly consume touch dispatch and cancel child view events, preventing videos from dimming the screen or displaying play/pause controls
+* MediaView: Extracted reusable MediaGestureHelper for unified voting toggle, action states, and floating visual feedback
+* Batch DL: Updated load-more button subtitle from "(hold for all)" to "(hold for 25)" to precisely reflect the 25-page batch fetch limit
+
 8.0.8.1 / 2026-10-27
 ===================
 * Batch DL: Bottom action bar is now permanently visible rather than hiding/showing during scrolling, keeping all controls readily accessible

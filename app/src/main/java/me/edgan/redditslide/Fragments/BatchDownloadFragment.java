@@ -670,7 +670,7 @@ public class BatchDownloadFragment extends Fragment {
 
     private void setLoadMoreButtonDefaultText() {
         if (loadMoreBtn == null) return;
-        SpannableString text = new SpannableString("Load 4 pages ↓\n(hold for all)");
+        SpannableString text = new SpannableString("Load 4 pages ↓\n(hold for 25)");
         text.setSpan(new RelativeSizeSpan(0.7f), 15, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         loadMoreBtn.setText(text);
     }

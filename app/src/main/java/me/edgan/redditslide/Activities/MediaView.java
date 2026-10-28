@@ -58,6 +58,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import me.edgan.redditslide.util.MediaGestureHelper;
 import me.edgan.redditslide.ActionStates;
 import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.ContentType;
@@ -145,6 +146,7 @@ public class MediaView extends BaseSaveActivity implements HibernateState.Restor
 
     // Swipe gesture detection
     @Nullable private GestureDetector swipeGestureDetector;
+    private boolean gestureConsumed = false;
     private static final int SWIPE_MIN_DISTANCE = 100; // dp
     private static final int SWIPE_THRESHOLD_VELOCITY = 1000; // pixels per second
 
@@ -174,10 +176,31 @@ public class MediaView extends BaseSaveActivity implements HibernateState.Restor
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            gestureConsumed = false;
+        }
+
         // Pass touch events to swipe gesture detector
         if (swipeGestureDetector != null) {
             swipeGestureDetector.onTouchEvent(event);
         }
+
+        if (gestureConsumed) {
+            // Cancel touch dispatch on children so a fling gesture is not misinterpreted
+            // as a tap by ExoVideoView or other child views (which would dim the screen
+            // and show playback controls).
+            final MotionEvent cancel = MotionEvent.obtain(event);
+            cancel.setAction(MotionEvent.ACTION_CANCEL);
+            super.dispatchTouchEvent(cancel);
+            cancel.recycle();
+
+            if (event.getActionMasked() == MotionEvent.ACTION_UP
+                    || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                gestureConsumed = false;
+            }
+            return true;
+        }
+
         // Continue with normal touch event handling
         return super.dispatchTouchEvent(event);
     }
@@ -701,6 +724,7 @@ public class MediaView extends BaseSaveActivity implements HibernateState.Restor
                                     }
 
                                     if (canTriggerDownload) {
+                                        gestureConsumed = true;
                                         String urlToSave =
                                                 actuallyLoaded != null ? actuallyLoaded : contentUrl;
                                         doImageSave(isGif, urlToSave, index);
@@ -736,6 +760,7 @@ public class MediaView extends BaseSaveActivity implements HibernateState.Restor
                                     }
 
                                     if (canTriggerUpvote) {
+                                        gestureConsumed = true;
                                         handleUpvoteGesture();
 
                                         View saveBtn = findViewById(R.id.save);
@@ -1541,34 +1566,7 @@ public class MediaView extends BaseSaveActivity implements HibernateState.Restor
 
     /** Handles the upvote gesture triggered by swiping up */
     private void handleUpvoteGesture() {
-        // Check if user is logged in
-        if (!Authentication.isLoggedIn || !Authentication.didOnline) {
-            Toast.makeText(this, R.string.vote_err_login, Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        // Check if we have access to the submission
-        Submission submission = DataShare.sharedSubmission;
-        if (submission == null) {
-            Toast.makeText(this, "Upvoting not available", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        // Get current vote direction
-        VoteDirection currentVote = ActionStates.getVoteDirection(submission);
-
-        // Toggle vote: if already upvoted, remove upvote; otherwise, upvote
-        boolean isUpvoting = (currentVote != VoteDirection.UPVOTE);
-
-        if (isUpvoting) {
-            new Vote(true, null, this).execute(submission);
-            ActionStates.setVoteDirection(submission, VoteDirection.UPVOTE);
-            showVoteFeedback(true);
-        } else {
-            new Vote(null, this).execute(submission);
-            ActionStates.setVoteDirection(submission, VoteDirection.NO_VOTE);
-            showVoteFeedback(false);
-        }
+        MediaGestureHelper.handleUpvote(this, DataShare.sharedSubmission);
     }
 
     /**
@@ -1577,73 +1575,7 @@ public class MediaView extends BaseSaveActivity implements HibernateState.Restor
      * @param isUpvote true if upvoting, false if removing upvote
      */
     private void showVoteFeedback(boolean isUpvote) {
-        final ImageView feedbackIcon = new ImageView(this);
-
-        if (isUpvote) {
-            feedbackIcon.setImageResource(R.drawable.ic_check_circle);
-            BlendModeUtil.tintImageViewAsSrcAtop(
-                    feedbackIcon, ContextCompat.getColor(this, R.color.md_green_500));
-        } else {
-            feedbackIcon.setImageResource(R.drawable.ic_close);
-            BlendModeUtil.tintImageViewAsSrcAtop(
-                    feedbackIcon, ContextCompat.getColor(this, R.color.md_grey_600));
-        }
-
-        int iconSize = (int) (72 * getResources().getDisplayMetrics().density); // 72dp
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(iconSize, iconSize);
-        feedbackIcon.setLayoutParams(params);
-        feedbackIcon.setAlpha(0f);
-
-        View rootView = findViewById(android.R.id.content);
-        if (rootView instanceof android.view.ViewGroup) {
-            android.view.ViewGroup viewGroup = (android.view.ViewGroup) rootView;
-
-            LinearLayout container = new LinearLayout(this);
-            container.setLayoutParams(
-                    new LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            LinearLayout.LayoutParams.MATCH_PARENT));
-            container.setGravity(android.view.Gravity.CENTER);
-            container.addView(feedbackIcon);
-            container.setClickable(false);
-            container.setFocusable(false);
-
-            viewGroup.addView(container);
-
-            feedbackIcon
-                    .animate()
-                    .alpha(1f)
-                    .setDuration(150)
-                    .setListener(
-                            new AnimatorListenerAdapter() {
-                                @Override
-                                public void onAnimationEnd(Animator animation) {
-                                    new Handler()
-                                            .postDelayed(
-                                                    new Runnable() {
-                                                        @Override
-                                                        public void run() {
-                                                            feedbackIcon
-                                                                    .animate()
-                                                                    .alpha(0f)
-                                                                    .setDuration(200)
-                                                                    .setListener(
-                                                                            new AnimatorListenerAdapter() {
-                                                                                @Override
-                                                                                public void onAnimationEnd(
-                                                                                        Animator animation) {
-                                                                                    viewGroup.removeView(
-                                                                                            container);
-                                                                                }
-                                                                            })
-                                                                    .start();
-                                                        }
-                                                    },
-                                                    500);
-                                }
-                            })
-                    .start();
-        }
+        MediaGestureHelper.showVoteFeedback(this, isUpvote);
     }
 }
 
