@@ -45,9 +45,9 @@ android {
         minSdk 29
         targetSdk 36
         vectorDrawables.useSupportLibrary true
-        versionCode 810
+        versionCode 811
         // Mod versioning: cygnusx-1-org/Slide version (8.0.8) + MMFJ build number
-        versionName "8.0.8.2"
+        versionName "8.0.8.3"
     }
 
     flavorDimensions "variant"

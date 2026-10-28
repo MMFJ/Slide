@@ -6,6 +6,13 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+8.0.8.3 / 2026-10-27
+===================
+* Gallery & Album Pagers: Added swipe gestures to horizontal paging mode (RedditGalleryPager and AlbumPager)
+  - Swipe up: Toggles upvote on the submission with haptic feedback, floating confirmation icon, and zoom guard protection
+  - Swipe down: Downloads the currently viewed individual image/gif/video only (instead of downloading the entire album) with zoom/pan translation guard
+  - Touch event interception: Consumes vertical fling gestures and dispatches ACTION_CANCEL to child views to prevent accidental page transitions or playback control interference
+
 8.0.8.2 / 2026-10-27
 ===================
 * MediaView: Successful swipe gestures (upvote or download) now properly consume touch dispatch and cancel child view events, preventing videos from dimming the screen or displaying play/pause controls

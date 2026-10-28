@@ -7,14 +7,18 @@ import android.app.Dialog;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.PointF;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.view.GestureDetector;
+import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -57,11 +61,13 @@ import me.edgan.redditslide.Views.SubsamplingScaleImageView;
 import me.edgan.redditslide.Views.ToolbarColorizeHelper;
 import me.edgan.redditslide.Visuals.ColorPreferences;
 import me.edgan.redditslide.Visuals.FontPreferences;
+import me.edgan.redditslide.DataShare;
 import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.GifUtils;
 import me.edgan.redditslide.util.ImageSaveUtils;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MediaGestureHelper;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.StorageUtil;
@@ -85,6 +91,11 @@ public class AlbumPager extends BaseSaveActivity {
 
     @Nullable private String lastContentUrl;
     private int lastIndex = -1;
+
+    @Nullable private GestureDetector swipeGestureDetector;
+    private boolean gestureConsumed = false;
+    private static final int SWIPE_MIN_DISTANCE = 100; // dp
+    private static final int SWIPE_THRESHOLD_VELOCITY = 1000; // pixels per second
 
     private static final String TAG = "AlbumPager";
 
@@ -186,9 +197,136 @@ public class AlbumPager extends BaseSaveActivity {
 
         adapterPosition = getIntent().getIntExtra(MediaView.ADAPTER_POSITION, -1);
 
+        // Initialize swipe gesture detector for swipe-to-download and swipe-to-upvote
+        final float density = getResources().getDisplayMetrics().density;
+        final int minSwipeDistance = (int) (SWIPE_MIN_DISTANCE * density);
+
+        swipeGestureDetector =
+                new GestureDetector(
+                        this,
+                        new GestureDetector.SimpleOnGestureListener() {
+                            @Override
+                            public boolean onFling(
+                                    @Nullable MotionEvent e1,
+                                    @NonNull MotionEvent e2,
+                                    float velocityX,
+                                    float velocityY) {
+                                if (e1 == null) {
+                                    return false;
+                                }
+
+                                float diffY = e2.getY() - e1.getY();
+                                float diffX = e2.getX() - e1.getX();
+
+                                // Check if this is a downward swipe (download current image)
+                                if (Math.abs(diffY) > Math.abs(diffX) * 2
+                                        && diffY > minSwipeDistance
+                                        && Math.abs(velocityY) > SWIPE_THRESHOLD_VELOCITY) {
+
+                                    SubsamplingScaleImageView imageView = getCurrentImageView();
+                                    boolean canTriggerDownload = true;
+
+                                    if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
+                                        PointF vTranslate = imageView.vTranslate;
+                                        if (vTranslate != null && vTranslate.y < -10) {
+                                            canTriggerDownload = false;
+                                        }
+                                    }
+
+                                    if (canTriggerDownload) {
+                                        int currentItem = p != null ? p.getCurrentItem() : 0;
+                                        if (SettingValues.oldSwipeMode && currentItem > 0) {
+                                            currentItem--;
+                                        }
+                                        if (images != null && currentItem >= 0 && currentItem < images.size()) {
+                                            Image elem = images.get(currentItem);
+                                            String elemUrl = elem.getImageUrl();
+                                            if (elemUrl != null) {
+                                                gestureConsumed = true;
+                                                doImageSave(elem.animated(), elemUrl, currentItem);
+
+                                                View decor = getWindow().getDecorView();
+                                                decor.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                                                return true;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Check if this is an upward swipe (upvote post)
+                                if (Math.abs(diffY) > Math.abs(diffX) * 2
+                                        && diffY < -minSwipeDistance
+                                        && Math.abs(velocityY) > SWIPE_THRESHOLD_VELOCITY) {
+
+                                    SubsamplingScaleImageView imageView = getCurrentImageView();
+                                    boolean canTriggerUpvote = true;
+
+                                    if (imageView != null && imageView.getVisibility() == View.VISIBLE) {
+                                        float currentScale = imageView.getScale();
+                                        float minScale = imageView.getMinScale();
+
+                                        if (currentScale > minScale * 1.01f) {
+                                            canTriggerUpvote = false;
+                                        }
+                                    }
+
+                                    if (canTriggerUpvote) {
+                                        gestureConsumed = true;
+                                        MediaGestureHelper.handleUpvote(
+                                                AlbumPager.this, DataShare.sharedSubmission);
+
+                                        View decor = getWindow().getDecorView();
+                                        decor.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                                        return true;
+                                    }
+                                }
+
+                                return false;
+                            }
+                        });
+
         String url = MiscUtil.orEmpty(getIntent().getStringExtra("url"));
         pagerLoad = new LoadIntoPager(url, this);
         pagerLoad.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+    }
+
+    @Nullable
+    private SubsamplingScaleImageView getCurrentImageView() {
+        if (p != null) {
+            for (int idx = 0; idx < p.getChildCount(); idx++) {
+                View child = p.getChildAt(idx);
+                if (child.getLeft() <= p.getScrollX() && child.getRight() > p.getScrollX()) {
+                    return child.findViewById(R.id.image);
+                }
+            }
+        }
+        return findViewById(R.id.image);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            gestureConsumed = false;
+        }
+
+        if (swipeGestureDetector != null) {
+            swipeGestureDetector.onTouchEvent(event);
+        }
+
+        if (gestureConsumed) {
+            final MotionEvent cancel = MotionEvent.obtain(event);
+            cancel.setAction(MotionEvent.ACTION_CANCEL);
+            super.dispatchTouchEvent(cancel);
+            cancel.recycle();
+
+            if (event.getActionMasked() == MotionEvent.ACTION_UP
+                    || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                gestureConsumed = false;
+            }
+            return true;
+        }
+
+        return super.dispatchTouchEvent(event);
     }
 
     LoadIntoPager pagerLoad;
