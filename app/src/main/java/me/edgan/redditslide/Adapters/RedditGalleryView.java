@@ -260,6 +260,17 @@ public class RedditGalleryView extends VerticalMediaAdapter {
         // first would leave an inert row still clickable.
         holder.itemView.setOnClickListener(playable ? v -> openMedia(url, index) : null);
         holder.itemView.setClickable(playable);
+        final View.OnLongClickListener staticLongClickListener =
+                playable
+                        ? v -> {
+                            onMediaLongClick(index);
+                            return true;
+                        }
+                        : null;
+        holder.itemView.setOnLongClickListener(staticLongClickListener);
+        holder.itemView.setLongClickable(playable);
+        holder.image.setOnLongClickListener(staticLongClickListener);
+        holder.image.setLongClickable(playable);
     }
 
 }

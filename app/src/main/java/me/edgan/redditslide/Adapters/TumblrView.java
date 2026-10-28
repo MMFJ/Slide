@@ -27,9 +27,11 @@ import java.io.File;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
+import me.edgan.redditslide.Activities.BaseSaveActivity;
 import me.edgan.redditslide.Activities.MediaView;
 import me.edgan.redditslide.Activities.Tumblr;
 import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.DataShare;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.Reddit;
 import me.edgan.redditslide.SettingValues;
@@ -41,10 +43,13 @@ import me.edgan.redditslide.Visuals.FontPreferences;
 import me.edgan.redditslide.util.DialogUtil;
 import me.edgan.redditslide.util.GifDrawable;
 import me.edgan.redditslide.util.GifUtils;
+import me.edgan.redditslide.util.ImageSaveUtils;
 import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MediaGestureHelper;
 import me.edgan.redditslide.util.MediaRowLoadState;
+import me.edgan.redditslide.util.StorageUtil;
 import me.edgan.redditslide.util.SubmissionParser;
 
 public class TumblrView extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
@@ -287,6 +292,36 @@ public class TumblrView extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // After setOnClickListener, not before: that method turns clickable back on when it is
             // handed a null listener, so setting this first would leave an inert row still clickable.
             albumHolder.itemView.setClickable(playable);
+            final View.OnLongClickListener staticLongClickListener =
+                    playable
+                            ? v -> {
+                                final Runnable downloadRunnable =
+                                        (imageUrl == null)
+                                                ? null
+                                                : () -> {
+                                                    if (main instanceof BaseSaveActivity) {
+                                                        ((BaseSaveActivity) main)
+                                                                .doImageSave(false, imageUrl, position);
+                                                    } else {
+                                                        ImageSaveUtils.doImageSave(
+                                                                main,
+                                                                false,
+                                                                imageUrl,
+                                                                position,
+                                                                subreddit,
+                                                                submissionTitle,
+                                                                () -> StorageUtil.showDirectoryChooser(main));
+                                                    }
+                                                };
+                                MediaGestureHelper.executeLongPressActions(
+                                        main, DataShare.sharedSubmission, downloadRunnable);
+                                return true;
+                            }
+                            : null;
+            albumHolder.itemView.setOnLongClickListener(staticLongClickListener);
+            albumHolder.itemView.setLongClickable(playable);
+            albumHolder.image.setOnLongClickListener(staticLongClickListener);
+            albumHolder.image.setLongClickable(playable);
 
         } else if (holder instanceof GifViewHolder) {
             final int position = hasToolbarSpacer ? i - 1 : i;
@@ -323,6 +358,33 @@ public class TumblrView extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
             // Tag the itemView with the URL to check in callbacks
             gifHolder.itemView.setTag(gifUrl);
+
+            final View.OnLongClickListener gifLongClickListener =
+                    v -> {
+                        final Runnable downloadRunnable =
+                                () -> {
+                                    if (main instanceof BaseSaveActivity) {
+                                        ((BaseSaveActivity) main)
+                                                .doImageSave(true, gifUrl, position);
+                                    } else {
+                                        ImageSaveUtils.doImageSave(
+                                                main,
+                                                true,
+                                                gifUrl,
+                                                position,
+                                                subreddit,
+                                                submissionTitle,
+                                                () -> StorageUtil.showDirectoryChooser(main));
+                                    }
+                                };
+                        MediaGestureHelper.executeLongPressActions(
+                                main, DataShare.sharedSubmission, downloadRunnable);
+                        return true;
+                    };
+            gifHolder.itemView.setOnLongClickListener(gifLongClickListener);
+            gifHolder.itemView.setLongClickable(true);
+            gifHolder.gifDisplay.setOnLongClickListener(gifLongClickListener);
+            gifHolder.gifDisplay.setLongClickable(true);
 
             // Load only what this row is not already showing; see MediaRowLoadState. Recycling drops
             // the drawable and calls released(), so a reused row loads again. Everything that touches

@@ -195,5 +195,16 @@ public class AlbumView extends VerticalMediaAdapter {
         // After setOnClickListener, not before: that method turns clickable back on when it is
         // handed a null listener, so setting this first would leave an inert row still clickable.
         holder.itemView.setClickable(playable);
+        final View.OnLongClickListener staticLongClickListener =
+                playable
+                        ? v -> {
+                            onMediaLongClick(index);
+                            return true;
+                        }
+                        : null;
+        holder.itemView.setOnLongClickListener(staticLongClickListener);
+        holder.itemView.setLongClickable(playable);
+        holder.image.setOnLongClickListener(staticLongClickListener);
+        holder.image.setLongClickable(playable);
     }
 }

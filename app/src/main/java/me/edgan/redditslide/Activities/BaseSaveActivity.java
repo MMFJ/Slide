@@ -68,7 +68,7 @@ public abstract class BaseSaveActivity extends FullScreenActivity {
      * @param contentUrl URL of the content to save
      * @param index Index in a gallery (if applicable)
      */
-    protected void doImageSave(boolean isGif, String contentUrl, int index) {
+    public void doImageSave(boolean isGif, String contentUrl, int index) {
         // Updated to use the unified ImageSaveUtils, removing the old logic and doOnClick reference
         ImageSaveUtils.doImageSave(
                 this,

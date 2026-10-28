@@ -38,7 +38,7 @@ public class ImageSaveUtils {
             int index,
             @Nullable String subreddit,
             @Nullable String submissionTitle,
-            Runnable showFirstDialogCallback) {
+            @Nullable Runnable showFirstDialogCallback) {
 
         Uri storageUri = StorageUtil.getStorageUri(activity);
         if (storageUri == null || !StorageUtil.hasStorageAccess(activity)) {

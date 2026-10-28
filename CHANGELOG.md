@@ -6,6 +6,14 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+8.0.8.5 / 2026-10-27
+===================
+* Vertical Scrolling Galleries Long-Press: Added long-press action execution to vertical gallery and album lists (RedditGalleryView, AlbumView, and TumblrView)
+  - Long-pressing on any image row, video player, or play button directly triggers user-configured actions (Download, Upvote toggle, Mark as read)
+  - Preserves normal single-tap behavior to open media in full-screen MediaView
+  - Uses specific media index and metadata for downloading the exact selected image/video within the gallery
+  - Provides haptic feedback upon action trigger
+
 8.0.8.4 / 2026-10-27
 ===================
 * Long-Press Actions Setting: Added configurable multi-choice setting in Settings › General under Images ("Long-press image actions")

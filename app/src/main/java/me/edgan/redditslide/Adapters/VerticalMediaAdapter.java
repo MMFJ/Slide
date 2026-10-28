@@ -17,16 +17,21 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.recyclerview.widget.RecyclerView;
 import java.util.concurrent.Executor;
+import me.edgan.redditslide.Activities.BaseSaveActivity;
 import me.edgan.redditslide.Activities.MediaView;
+import me.edgan.redditslide.DataShare;
 import me.edgan.redditslide.R;
 import me.edgan.redditslide.SettingValues;
 import me.edgan.redditslide.SpoilerRobotoTextView;
 import me.edgan.redditslide.Views.ExoVideoView;
 import me.edgan.redditslide.Views.MaxHeightImageView;
 import me.edgan.redditslide.util.GifUtils;
+import me.edgan.redditslide.util.ImageSaveUtils;
 import me.edgan.redditslide.util.LayoutUtils;
 import me.edgan.redditslide.util.LinkUtil;
+import me.edgan.redditslide.util.MediaGestureHelper;
 import me.edgan.redditslide.util.MediaRowLoadState;
+import me.edgan.redditslide.util.StorageUtil;
 
 /**
  * Shared machinery for the vertical album/gallery lists — the single-column RecyclerViews behind
@@ -263,11 +268,21 @@ abstract class VerticalMediaAdapter extends RecyclerView.Adapter<RecyclerView.Vi
 
         // The play button and the video area both open MediaView; neither does anything without a
         // url, so a tap cannot launch MediaView with nothing to show.
+        final View.OnLongClickListener longClickListener =
+                playable
+                        ? v -> {
+                            onMediaLongClick(index);
+                            return true;
+                        }
+                        : null;
+
         if (holder.playButton != null) {
             holder.playButton.setVisibility(playable ? View.VISIBLE : View.GONE);
             holder.playButton.setAlpha(0.8f);
             holder.playButton.setOnClickListener(
                     url == null ? null : v -> openMedia(url, index));
+            holder.playButton.setOnLongClickListener(longClickListener);
+            holder.playButton.setLongClickable(playable);
         }
         // setClickable after setOnClickListener, not before: that method turns clickable back on
         // when it is handed a null listener, so setting it first would leave an unplayable row
@@ -275,6 +290,11 @@ abstract class VerticalMediaAdapter extends RecyclerView.Adapter<RecyclerView.Vi
         holder.exoVideoView.setOnClickListener(
                 url == null ? null : v -> openMedia(url, index));
         holder.exoVideoView.setClickable(playable);
+        holder.exoVideoView.setOnLongClickListener(longClickListener);
+        holder.exoVideoView.setLongClickable(playable);
+
+        holder.itemView.setOnLongClickListener(longClickListener);
+        holder.itemView.setLongClickable(playable);
 
         // Load only what this row is not already showing; see MediaRowLoadState for why the player's
         // own state cannot answer that.
@@ -318,6 +338,33 @@ abstract class VerticalMediaAdapter extends RecyclerView.Adapter<RecyclerView.Vi
             intent.putExtra("index", index);
         }
         main.startActivity(intent);
+    }
+
+    /**
+     * Handles long-press on a media item in the vertical list, executing the user-configured
+     * quick actions (e.g. download, upvote, mark read).
+     */
+    protected void onMediaLongClick(final int index) {
+        if (index < 0 || index >= mediaCount()) {
+            return;
+        }
+        final String url = mediaUrlAt(index);
+        final boolean isAnimated = isAnimatedAt(index);
+        final Runnable downloadRunnable = (url == null) ? null : () -> {
+            if (main instanceof BaseSaveActivity) {
+                ((BaseSaveActivity) main).doImageSave(isAnimated, url, index);
+            } else {
+                ImageSaveUtils.doImageSave(
+                        main,
+                        isAnimated,
+                        url,
+                        index,
+                        subreddit,
+                        submissionTitle,
+                        () -> StorageUtil.showDirectoryChooser(main));
+            }
+        };
+        MediaGestureHelper.executeLongPressActions(main, DataShare.sharedSubmission, downloadRunnable);
     }
 
     /**

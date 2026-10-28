@@ -259,6 +259,34 @@ public class VerticalMediaRowLoadTest {
                 spacer.itemView.getLayoutParams().height);
     }
 
+    @Test
+    public void bindingPlayableRowSetsLongClickListener() {
+        final VerticalMediaAdapter adapter = newAdapter(1);
+        final VerticalMediaAdapter.AnimatedViewHolder holder = animatedRow();
+
+        adapter.onBindViewHolder(holder, 0);
+
+        assertTrue(holder.itemView.isLongClickable());
+        assertTrue(holder.exoVideoView.isLongClickable());
+        if (holder.playButton != null) {
+            assertTrue(holder.playButton.isLongClickable());
+        }
+    }
+
+    @Test
+    public void bindingUnplayableRowClearsLongClickListener() {
+        final VerticalMediaAdapter adapter = unplayableAdapter();
+        final VerticalMediaAdapter.AnimatedViewHolder holder = animatedRow();
+
+        adapter.onBindViewHolder(holder, 0);
+
+        assertFalse(holder.itemView.isLongClickable());
+        assertFalse(holder.exoVideoView.isLongClickable());
+        if (holder.playButton != null) {
+            assertFalse(holder.playButton.isLongClickable());
+        }
+    }
+
     private RecyclerView.ViewHolder spacerRow(final VerticalMediaAdapter adapter) {
         final RecyclerView list = new RecyclerView(activity);
         list.setLayoutManager(new LinearLayoutManager(activity));
