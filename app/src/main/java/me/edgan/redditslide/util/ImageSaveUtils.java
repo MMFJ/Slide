@@ -7,18 +7,111 @@ import android.os.AsyncTask;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import com.google.gson.JsonObject;
+import me.edgan.redditslide.Activities.GalleryImage;
+import me.edgan.redditslide.ContentType;
+import me.edgan.redditslide.ImgurAlbum.AlbumUtils;
+import me.edgan.redditslide.ImgurAlbum.Image;
 import me.edgan.redditslide.Notifications.ImageDownloadNotificationService;
 import me.edgan.redditslide.R;
+import java.util.List;
+import net.dean.jraw.models.Submission;
 import org.jspecify.annotations.NullMarked;
-// Added
-// Added
-
-// Added
 
 @NullMarked
 public class ImageSaveUtils {
     private static final String TAG = "ImageSaveUtils";
     public static final String EXTRA_SUBMISSION_TITLE = ImageDownloadNotificationService.EXTRA_SUBMISSION_TITLE;
+
+    /**
+     * Downloads all media for a submission: if the submission is a Reddit gallery or Imgur album,
+     * downloads all images in the gallery/album. Otherwise, downloads the single media file.
+     */
+    public static void saveSubmissionMedia(
+            final Activity activity,
+            final Submission submission,
+            @Nullable final String fallbackUrl) {
+        final ContentType.Type type = ContentType.getContentType(submission);
+        if (type == ContentType.Type.REDDIT_GALLERY) {
+            final List<GalleryImage> images = GalleryTiles.imagesFor(submission.getDataNode());
+            if (images != null && !images.isEmpty()) {
+                int index = 0;
+                for (final GalleryImage elem : images) {
+                    final String elemUrl = elem.url;
+                    if (elemUrl != null) {
+                        if (elem.isAnimated()) {
+                            final String subName =
+                                    submission.getSubredditName() != null
+                                            ? submission.getSubredditName()
+                                            : "";
+                            final String title =
+                                    submission.getTitle() != null ? submission.getTitle() : "";
+                            GifUtils.cacheSaveGif(
+                                    Uri.parse(elemUrl),
+                                    activity,
+                                    subName,
+                                    title,
+                                    true);
+                        } else {
+                            doImageSave(
+                                    activity,
+                                    false,
+                                    elemUrl,
+                                    index,
+                                    submission.getSubredditName(),
+                                    submission.getTitle(),
+                                    () -> StorageUtil.showDirectoryChooser(activity));
+                        }
+                    }
+                    index++;
+                }
+                return;
+            }
+        } else if (type == ContentType.Type.ALBUM) {
+            final String albumUrl = fallbackUrl != null ? fallbackUrl : submission.getUrl();
+            if (albumUrl != null) {
+                new AlbumUtils.GetAlbumWithCallback(albumUrl, activity) {
+                    @Override
+                    public boolean doWithData(@Nullable List<Image> jsonElements) {
+                        if (!super.doWithData(jsonElements) || jsonElements == null) {
+                            return false;
+                        }
+                        int index = 0;
+                        for (final Image elem : jsonElements) {
+                            if (elem.getImageUrl() != null) {
+                                doImageSave(
+                                        activity,
+                                        elem.animated(),
+                                        elem.getImageUrl(),
+                                        index,
+                                        submission.getSubredditName(),
+                                        submission.getTitle(),
+                                        () -> StorageUtil.showDirectoryChooser(activity));
+                            }
+                            index++;
+                        }
+                        return true;
+                    }
+                }.execute();
+                return;
+            }
+        }
+
+        final boolean isGif =
+                type == ContentType.Type.GIF
+                        || type == ContentType.Type.VIDEO
+                        || type == ContentType.Type.STREAMABLE
+                        || type == ContentType.Type.VREDDIT_REDIRECT
+                        || type == ContentType.Type.VREDDIT_DIRECT;
+        final String url = fallbackUrl != null ? fallbackUrl : submission.getUrl();
+        doImageSave(
+                activity,
+                isGif,
+                url,
+                -1,
+                submission.getSubredditName(),
+                submission.getTitle(),
+                () -> StorageUtil.showDirectoryChooser(activity));
+    }
 
     /**
      * Saves an image or gif to the device storage

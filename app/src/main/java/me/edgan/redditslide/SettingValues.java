@@ -613,7 +613,7 @@ public class SettingValues {
         actionbarTap = prefs.getBoolean(PREF_ACTIONBAR_TAP, false);
         colorIcon = prefs.getBoolean(PREF_COLOR_ICON, false);
         peek = prefs.getBoolean(PREF_PEEK, false);
-        noPreviewImageLongClick = prefs.getBoolean(PREF_NO_PREVIEW_IMAGE_LONGCLICK, true);
+        noPreviewImageLongClick = prefs.getBoolean(PREF_NO_PREVIEW_IMAGE_LONGCLICK, false);
         selectedBrowser = PrefUtil.getString(prefs, PREF_SELECTED_BROWSER, "");
         selectedDrawerItems = prefs.getLong(PREF_SELECTED_DRAWER_ITEMS, -1);
 

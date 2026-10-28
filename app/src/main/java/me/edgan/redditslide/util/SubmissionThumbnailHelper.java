@@ -124,6 +124,9 @@ public class SubmissionThumbnailHelper {
                     EXTRA_SUBMISSION_TITLE,
                     FileUtil.buildDownloadName(submission));
 
+            // MMFJ: lets MediaView upvote the submission via swipe gesture
+            DataShare.sharedSubmission = submission;
+
             String videoUrl = GifUtils.AsyncLoadGif.getVideoUrlFromSubmission(submission);
             GifUtils.AsyncLoadGif.VideoType t =
                     GifUtils.AsyncLoadGif.getVideoType(videoUrl);

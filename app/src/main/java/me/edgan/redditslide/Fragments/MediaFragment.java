@@ -342,6 +342,7 @@ public class MediaFragment extends BaseMediaFragment {
                             switch (type) {
                                 case STREAMABLE:
                                     if (SettingValues.video) {
+                                        DataShare.sharedSubmission = submission;
                                         Intent myIntent =
                                                 new Intent(contextActivity, MediaView.class);
                                         myIntent.putExtra(MediaView.EXTRA_URL, submission.getUrl());

@@ -6,6 +6,13 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+8.0.8.7 / 2026-10-28
+===================
+* Feed Preview Long-Press Fix: Fixed issue where long-pressing previews on the main feed did nothing by defaulting legacy `noPreviewImageLongClick` setting to false, resolving Activity context safely across wrapper layers, and guarding parent view lookups
+* Feed Preview Gallery Download: When downloading via long-press quick action on the main feed, posts that are Reddit galleries or albums now download all items in the gallery/album rather than only the preview thumbnail
+* Gallery Image Single-Tap Fix: Fixed regression where tapping individual images in vertical gallery/album views (RedditGalleryView, AlbumView, TumblrView) no longer opened the image
+* Video/GIF Upvoting Gesture Fix: Fixed upvoting gesture (swipe-up) not working on GIFs and videos in MediaView by properly passing the post's Submission context upon launch
+
 8.0.8.6 / 2026-10-27
 ===================
 * Idempotent Long-Press Upvoting & Reading: Long-pressing media now always sets the post to upvoted (never reverses or cancels an existing upvote) and marks it as read, allowing repeated downloads or long-presses on the same item without undoing upvotes

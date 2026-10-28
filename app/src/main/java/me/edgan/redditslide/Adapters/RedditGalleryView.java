@@ -258,8 +258,11 @@ public class RedditGalleryView extends VerticalMediaAdapter {
         // Clicking on the static image. setClickable comes after setOnClickListener, not before:
         // that method turns clickable back on when it is handed a null listener, so setting it
         // first would leave an inert row still clickable.
-        holder.itemView.setOnClickListener(playable ? v -> openMedia(url, index) : null);
+        final View.OnClickListener clickListener = playable ? v -> openMedia(url, index) : null;
+        holder.itemView.setOnClickListener(clickListener);
         holder.itemView.setClickable(playable);
+        holder.image.setOnClickListener(clickListener);
+        holder.image.setClickable(playable);
         final View.OnLongClickListener staticLongClickListener =
                 playable
                         ? v -> {

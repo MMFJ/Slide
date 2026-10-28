@@ -269,29 +269,33 @@ public class TumblrView extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 albumHolder.body.setVisibility(View.GONE);
             }
 
-            albumHolder.itemView.setOnClickListener(!playable ? null : new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    if (imageUrl == null) {
-                        return;
-                    }
+            final View.OnClickListener albumClickListener =
+                    !playable
+                            ? null
+                            : view -> {
+                                if (imageUrl == null || main == null) {
+                                    return;
+                                }
 
-                    if (SettingValues.image) {
-                        Intent myIntent = new Intent(main, MediaView.class);
-                        myIntent.putExtra(MediaView.SUBREDDIT, subreddit);
-                        myIntent.putExtra(MediaView.EXTRA_URL, imageUrl);
-                        if (submissionTitle != null) {
-                            myIntent.putExtra(MediaView.EXTRA_SUBMISSION_TITLE, submissionTitle);
-                        }
-                        main.startActivity(myIntent);
-                    } else {
-                        LinkUtil.openExternally(imageUrl);
-                    }
-                }
-            });
+                                if (SettingValues.image) {
+                                    Intent myIntent = new Intent(main, MediaView.class);
+                                    myIntent.putExtra(MediaView.SUBREDDIT, subreddit);
+                                    myIntent.putExtra(MediaView.EXTRA_URL, imageUrl);
+                                    if (submissionTitle != null) {
+                                        myIntent.putExtra(
+                                                MediaView.EXTRA_SUBMISSION_TITLE, submissionTitle);
+                                    }
+                                    main.startActivity(myIntent);
+                                } else {
+                                    LinkUtil.openExternally(imageUrl);
+                                }
+                            };
+            albumHolder.itemView.setOnClickListener(albumClickListener);
             // After setOnClickListener, not before: that method turns clickable back on when it is
             // handed a null listener, so setting this first would leave an inert row still clickable.
             albumHolder.itemView.setClickable(playable);
+            albumHolder.image.setOnClickListener(albumClickListener);
+            albumHolder.image.setClickable(playable);
             final View.OnLongClickListener staticLongClickListener =
                     playable
                             ? v -> {

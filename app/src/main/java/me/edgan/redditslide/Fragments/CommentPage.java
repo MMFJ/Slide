@@ -1097,6 +1097,7 @@ public class CommentPage extends Fragment implements Toolbar.OnMenuItemClickList
         } else if (itemId == R.id.content) {
                 {
                     if (adapter != null && adapter.submission != null) {
+                        DataShare.sharedSubmission = adapter.submission;
                         if (!PostMatch.openExternal(adapter.submission.getUrl())) {
                             ContentType.Type type = ContentType.getContentType(adapter.submission);
                             switch (type) {

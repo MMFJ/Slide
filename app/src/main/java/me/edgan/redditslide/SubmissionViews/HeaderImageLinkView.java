@@ -458,33 +458,15 @@ public class HeaderImageLinkView extends RelativeLayout {
             final Submission submission) {
         popped = false;
 
-        if (url == null || SettingValues.noPreviewImageLongClick) {
+        if (url == null) {
+            return;
+        }
+        if (SettingValues.noPreviewImageLongClick && SettingValues.peek) {
             return;
         }
 
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-        Activity activity = null;
-        final Context context = getContext();
-
-        if (context instanceof Activity) {
-            activity = (Activity) context;
-        } else if (context instanceof ContextThemeWrapper) {
-            activity = (Activity) ((ContextThemeWrapper) context).getBaseContext();
-        } else if (context instanceof ContextWrapper) {
-            Context context1 = ((ContextWrapper) context).getBaseContext();
-            if (context1 instanceof Activity) {
-                activity = (Activity) context1;
-            } else if (context1 instanceof ContextWrapper) {
-                Context context2 = ((ContextWrapper) context1).getBaseContext();
-                if (context2 instanceof Activity) {
-                    activity = (Activity) context2;
-                } else if (context2 instanceof ContextWrapper) {
-                    activity = (Activity) ((ContextThemeWrapper) context2).getBaseContext();
-                }
-            }
-        } else {
-            throw new RuntimeException("Could not find activity from context:" + context);
-        }
+        final Activity activity = activityOf(getContext());
 
         if (activity != null && !activity.isFinishing()) {
             if (SettingValues.peek && event != null) {
@@ -617,13 +599,21 @@ public class HeaderImageLinkView extends RelativeLayout {
                             if (!submission.isNsfw() || SettingValues.storeNSFWHistory) {
                                 HasSeen.addSeen(submission.getFullName());
                                 final View card = (View) getParent();
-                                card.requireViewById(R.id.title).setAlpha(0.54f);
-                                card.requireViewById(R.id.body).setAlpha(0.54f);
-                                // The other seat the preview can be in; absent from the three
-                                // cards that draw their image above the title.
-                                final View bodyBelow = card.findViewById(R.id.body_below);
-                                if (bodyBelow != null) {
-                                    bodyBelow.setAlpha(0.54f);
+                                if (card != null) {
+                                    final View titleView = card.findViewById(R.id.title);
+                                    if (titleView != null) {
+                                        titleView.setAlpha(0.54f);
+                                    }
+                                    final View bodyView = card.findViewById(R.id.body);
+                                    if (bodyView != null) {
+                                        bodyView.setAlpha(0.54f);
+                                    }
+                                    // The other seat the preview can be in; absent from the three
+                                    // cards that draw their image above the title.
+                                    final View bodyBelow = card.findViewById(R.id.body_below);
+                                    if (bodyBelow != null) {
+                                        bodyBelow.setAlpha(0.54f);
+                                    }
                                 }
                             }
                         }

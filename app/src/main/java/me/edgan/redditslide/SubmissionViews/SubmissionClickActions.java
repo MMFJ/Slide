@@ -157,6 +157,8 @@ public class SubmissionClickActions {
                                                 myIntent.putExtra(
                                                         EXTRA_SUBMISSION_TITLE,
                                                         FileUtil.buildDownloadName(submission));
+                                                // MMFJ: lets MediaView upvote the submission via swipe gesture
+                                                DataShare.sharedSubmission = submission;
                                                 PopulateBase.addAdaptorPosition(myIntent, submission, holder.getBindingAdapterPosition(), contextActivity);
                                                 contextActivity.startActivity(myIntent);
                                             } else {

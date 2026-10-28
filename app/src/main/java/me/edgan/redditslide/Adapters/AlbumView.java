@@ -191,10 +191,13 @@ public class AlbumView extends VerticalMediaAdapter {
 
         // -1: the Imgur still path has never sent an index, and MediaView only uses one to page a
         // gallery and to name a saved file.
-        holder.itemView.setOnClickListener(url == null ? null : v -> openMedia(url, -1));
+        final View.OnClickListener clickListener = url == null ? null : v -> openMedia(url, -1);
+        holder.itemView.setOnClickListener(clickListener);
         // After setOnClickListener, not before: that method turns clickable back on when it is
         // handed a null listener, so setting this first would leave an inert row still clickable.
         holder.itemView.setClickable(playable);
+        holder.image.setOnClickListener(clickListener);
+        holder.image.setClickable(playable);
         final View.OnLongClickListener staticLongClickListener =
                 playable
                         ? v -> {

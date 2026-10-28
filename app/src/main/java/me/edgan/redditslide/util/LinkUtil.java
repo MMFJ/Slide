@@ -493,24 +493,7 @@ public class LinkUtil {
                                 if (which == R.id.quick_action) {
                                     if (submission != null) {
                                         final Runnable downloadRunnable =
-                                                () -> {
-                                                    final ContentType.Type type =
-                                                            ContentType.getContentType(submission);
-                                                    final boolean isGif =
-                                                            type == ContentType.Type.GIF
-                                                                    || type == ContentType.Type.VIDEO
-                                                                    || type == ContentType.Type.STREAMABLE
-                                                                    || type == ContentType.Type.VREDDIT_REDIRECT
-                                                                    || type == ContentType.Type.VREDDIT_DIRECT;
-                                                    ImageSaveUtils.doImageSave(
-                                                            activity,
-                                                            isGif,
-                                                            url,
-                                                            -1,
-                                                            submission.getSubredditName(),
-                                                            submission.getTitle(),
-                                                            () -> StorageUtil.showDirectoryChooser(activity));
-                                                };
+                                                () -> ImageSaveUtils.saveSubmissionMedia(activity, submission, url);
                                         MediaGestureHelper.executeLongPressActions(
                                                 activity, submission, downloadRunnable);
                                     }

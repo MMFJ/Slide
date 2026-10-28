@@ -287,12 +287,15 @@ abstract class VerticalMediaAdapter extends RecyclerView.Adapter<RecyclerView.Vi
         // setClickable after setOnClickListener, not before: that method turns clickable back on
         // when it is handed a null listener, so setting it first would leave an unplayable row
         // swallowing taps and announcing itself as actionable.
-        holder.exoVideoView.setOnClickListener(
-                url == null ? null : v -> openMedia(url, index));
+        final View.OnClickListener clickListener =
+                url == null ? null : v -> openMedia(url, index);
+        holder.exoVideoView.setOnClickListener(clickListener);
         holder.exoVideoView.setClickable(playable);
         holder.exoVideoView.setOnLongClickListener(longClickListener);
         holder.exoVideoView.setLongClickable(playable);
 
+        holder.itemView.setOnClickListener(clickListener);
+        holder.itemView.setClickable(playable);
         holder.itemView.setOnLongClickListener(longClickListener);
         holder.itemView.setLongClickable(playable);
 
