@@ -1489,6 +1489,21 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
 
         userAgentLayout.setOnClickListener(v -> showUserAgentDialog());
 
+        // * Use /api/info the Old Way
+        // Live: every lookup reads it as it runs, so unlike the rows above it needs no restart.
+        final View useOldApiInfoRow =
+                context.requireViewById(R.id.settings_general_use_old_api_info_row);
+        final SwitchCompat useOldApiInfoSwitch =
+                context.requireViewById(R.id.settings_general_use_old_api_info);
+        useOldApiInfoSwitch.setChecked(
+                SettingValues.prefs.getBoolean(SettingValues.PREF_USE_OLD_API_INFO, false));
+        useOldApiInfoSwitch.setOnCheckedChangeListener(
+                (buttonView, isChecked) ->
+                        SettingValues.prefs
+                                .edit()
+                                .putBoolean(SettingValues.PREF_USE_OLD_API_INFO, isChecked)
+                                .apply());
+
         // * Enable overrides toggle
         {
             SwitchCompat enableOverridesSwitch =
@@ -1497,6 +1512,8 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
             // Grey out and disable the override rows when overrides are turned off.
             setOverrideRowsEnabled(
                     SettingValues.redditEnableOverrides, clientId, redirectUri, userAgentLayout);
+            setOverrideSwitchEnabled(
+                    SettingValues.redditEnableOverrides, useOldApiInfoRow, useOldApiInfoSwitch);
 
             if (enableOverridesSwitch != null) {
                 enableOverridesSwitch.setChecked(SettingValues.redditEnableOverrides);
@@ -1511,6 +1528,8 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
 
                             setOverrideRowsEnabled(
                                     isChecked, clientId, redirectUri, userAgentLayout);
+                            setOverrideSwitchEnabled(
+                                    isChecked, useOldApiInfoRow, useOldApiInfoSwitch);
                         });
             }
         }
@@ -2099,6 +2118,15 @@ public class SettingsGeneralFragment<ActivityType extends AppCompatActivity> {
                 row.setAlpha(enabled ? 1f : 0.5f);
             }
         }
+    }
+
+    /**
+     * The switch-row counterpart of {@link #setOverrideRowsEnabled}: the switch is what takes the
+     * touches, so it is the one disabled, and the row is dimmed the same way. Nothing moves.
+     */
+    private void setOverrideSwitchEnabled(boolean enabled, View row, SwitchCompat toggle) {
+        toggle.setEnabled(enabled);
+        row.setAlpha(enabled ? 1f : 0.5f);
     }
 
     private void showUserAgentDialog() {

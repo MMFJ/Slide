@@ -6,6 +6,15 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+8.1.1.0 / 2026-11-08
+===================
+* Merged upstream 8.1.1 updates:
+  - Fixed History, Local Saved, and random subreddits
+  - Added shared by-id thing lookup fallback when /api/info is blocked (HTTP 403)
+  - Fixed Inbox reload, Imgur video link playback in selftext, and OAuth login session restore
+* Touch-Anchored Feed Dialog for Tablet Browsing:
+  - Anchored feed item long-press menu near touch coordinates on tablet screens so top-left Quick Action button is positioned right beside thumb
+
 8.0.8.8 / 2026-10-31
 ===================
 * Feed Preview & Link Long-Press Scroll Cancellation: Fixed bug where scrolling over feed preview images or text links accidentally triggered long-press gestures, especially on tablets and lower-density screens
@@ -191,6 +200,23 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 ---
 
 ## Upstream (cygnusx-1-org/Slide) Changes
+
+8.1.1 / 2026-11-2
+============
+* Fixed History, Local Saved, and random subreddits
+* Renamed `Settings > Comments > Use Old Load More Comments Method` to
+`Settings > General > Use /api/info the Old Way`
+
+8.1.0 / 2026-10-31
+============
+* Load more comments fails with 403 "blocked by network security"
+
+8.0.9 / 2026-10-27
+=============
+* Fixed Inbox count in left sidebar doesn't reload on return from the Inbox #316
+* Fixed Imgur video link in a Reddit selftext post just gives a black screen #315
+* Fixed OAuth login failing after Login was recreated or its process died
+
 8.0.8 / 2026-10-21
 =============
 * Fixed Gallery posting is broken #314

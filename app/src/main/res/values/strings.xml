@@ -64,6 +64,14 @@
         <item quantity="one">cmt</item>
         <item quantity="other">cmts</item>
     </plurals>
+    <plurals name="err_rate_limited_seconds">
+        <item quantity="one">Reddit\'s request limit is almost used up. Try loading more comments again in %d second.</item>
+        <item quantity="other">Reddit\'s request limit is almost used up. Try loading more comments again in %d seconds.</item>
+    </plurals>
+    <plurals name="err_rate_limited_minutes">
+        <item quantity="one">Reddit\'s request limit is almost used up. Try loading more comments again in %d minute.</item>
+        <item quantity="other">Reddit\'s request limit is almost used up. Try loading more comments again in %d minutes.</item>
+    </plurals>
 
     <!-- Theme settings -->
     <string name="theme_light">Light</string>
@@ -1449,6 +1457,8 @@
     <string name="click_custom_user_agent">Click to set custom user agent</string>
     <string name="settings_enable_overrides">Enable Overrides</string>
     <string name="settings_enable_overrides_desc">Use your custom client ID, redirect URI, and user agent instead of the app defaults. Leave off unless you know you need it.</string>
+    <string name="settings_use_old_api_info">Use /api/info the Old Way</string>
+    <string name="settings_use_old_api_info_desc">Uses far fewer requests, but Load More Comments, History, Local Saved and random subreddits fail if Reddit blocks it for you</string>
 
     <string name="settings_section_sound">Sound</string>
     <string name="settings_unmute_default">Unmute videos by default</string>
