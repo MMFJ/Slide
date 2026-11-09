@@ -6,11 +6,13 @@ import android.content.DialogInterface;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.PointF;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.EditText;
@@ -504,6 +506,15 @@ public class PopulateSubmissionViewHolder {
 
         holder.leadImage.setSubmission(submission, full, baseSub, type);
 
+        final PointF lastCardTouch = new PointF(-1f, -1f);
+        holder.itemView.setOnTouchListener(
+                (v, event) -> {
+                    if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                        lastCardTouch.set(event.getRawX(), event.getRawY());
+                    }
+                    return false;
+                });
+
         holder.itemView.setOnLongClickListener(
                 new View.OnLongClickListener() {
                     @Override
@@ -520,7 +531,16 @@ public class PopulateSubmissionViewHolder {
                             if (SettingValues.actionbarTap && !full) {
                                 CreateCardView.toggleActionbar(holder.itemView);
                             } else {
-                                holder.itemView.requireViewById(R.id.menu).callOnClick();
+                                final PointF anchor = lastCardTouch.x >= 0 ? lastCardTouch : null;
+                                SubmissionBottomSheetActions.showBottomSheet(
+                                        mContext,
+                                        submission,
+                                        holder,
+                                        postList,
+                                        baseSub,
+                                        recyclerview,
+                                        full,
+                                        anchor);
                             }
                         }
                         return true;

@@ -549,7 +549,7 @@ public class HeaderImageLinkView extends RelativeLayout {
                         .with(new PeekViewOptions().setFullScreenPeek(true))
                         .show((PeekViewActivity) activity, event);
             } else {
-                LinkUtil.showLinkBottomSheet(activity, getContext(), url, submission);
+                LinkUtil.showLinkBottomSheet(activity, getContext(), url, submission, event);
             }
         }
     }

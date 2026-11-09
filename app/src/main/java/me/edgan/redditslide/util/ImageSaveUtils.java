@@ -7,13 +7,12 @@ import android.os.AsyncTask;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import com.google.gson.JsonObject;
+import java.util.List;
 import me.edgan.redditslide.Activities.GalleryImage;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.ImgurAlbum.AlbumUtils;
 import me.edgan.redditslide.ImgurAlbum.Image;
 import me.edgan.redditslide.Notifications.ImageDownloadNotificationService;
-import me.edgan.redditslide.R;
-import java.util.List;
 import net.dean.jraw.models.Submission;
 import org.jspecify.annotations.NullMarked;
 

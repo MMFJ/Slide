@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
 import android.graphics.Color;
+import android.graphics.PointF;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.view.ContextThemeWrapper;
@@ -86,6 +87,18 @@ public class SubmissionBottomSheetActions {
             final @Nullable String baseSub,
             final @Nullable RecyclerView recyclerview,
             final boolean full) {
+        showBottomSheet(mContext, submission, holder, posts, baseSub, recyclerview, full, null);
+    }
+
+    public static <T extends Contribution> void showBottomSheet(
+            final Activity mContext,
+            final Submission submission,
+            final SubmissionViewHolder holder,
+            final List<T> posts,
+            final @Nullable String baseSub,
+            final @Nullable RecyclerView recyclerview,
+            final boolean full,
+            final @Nullable PointF anchor) {
 
         int[] attrs = new int[] {R.attr.tintColor};
         TypedArray ta = mContext.obtainStyledAttributes(attrs);
@@ -119,7 +132,12 @@ public class SubmissionBottomSheetActions {
         // Prefer a title restored by "Recover post" so a recovered post's sheet isn't still headed
         // "[deleted by user]".
         final String recoveredTitle = PostRecovery.getRecoveredTitle(submission.getFullName());
-        final BottomSheet.Builder b = new BottomSheet.Builder(mContext).title(CompatUtil.fromHtml(recoveredTitle == null ? submission.getTitle() : recoveredTitle));
+        final BottomSheet.Builder b =
+                new BottomSheet.Builder(mContext)
+                        .title(
+                                CompatUtil.fromHtml(
+                                        recoveredTitle == null ? submission.getTitle() : recoveredTitle))
+                        .anchor(anchor);
 
         final boolean isReadLater = mContext instanceof PostReadLater;
         final boolean isAddedToReadLaterList = ReadLater.isToBeReadLater(submission);

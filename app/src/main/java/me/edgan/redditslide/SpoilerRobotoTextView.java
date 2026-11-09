@@ -1134,7 +1134,7 @@ private void loadGiphyEmote(EmoteSpanRequest request, int posCount) {
         }
 
         if (activity != null && !activity.isFinishing()) {
-            LinkUtil.showLinkBottomSheet(activity, getContext(), url);
+            LinkUtil.showLinkBottomSheet(activity, getContext(), url, null, event);
         }
     }
 

@@ -17,6 +17,7 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -457,7 +458,7 @@ public class LinkUtil {
      */
     public static void showLinkBottomSheet(
             final Activity activity, final Context themedContext, final String url) {
-        showLinkBottomSheet(activity, themedContext, url, null);
+        showLinkBottomSheet(activity, themedContext, url, null, null);
     }
 
     /**
@@ -468,7 +469,22 @@ public class LinkUtil {
             final Context themedContext,
             final String url,
             @Nullable final Submission submission) {
+        showLinkBottomSheet(activity, themedContext, url, submission, null);
+    }
+
+    /**
+     * Touch-anchored bottom sheet or floating menu for a link or media card.
+     */
+    public static void showLinkBottomSheet(
+            final Activity activity,
+            final Context themedContext,
+            final String url,
+            @Nullable final Submission submission,
+            @Nullable final MotionEvent event) {
         final BottomSheet.Builder b = new BottomSheet.Builder(activity).title(url).grid();
+        if (event != null) {
+            b.anchor(event);
+        }
         final int[] attrs = new int[] {R.attr.tintColor};
         final TypedArray ta = themedContext.obtainStyledAttributes(attrs);
 

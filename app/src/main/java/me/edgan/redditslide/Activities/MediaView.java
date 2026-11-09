@@ -2,8 +2,6 @@ package me.edgan.redditslide.Activities;
 
 import static me.edgan.redditslide.Notifications.ImageDownloadNotificationService.EXTRA_SUBMISSION_TITLE;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.app.NotificationManager;
 import android.content.ComponentName;
@@ -58,9 +56,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import me.edgan.redditslide.util.MediaGestureHelper;
-import me.edgan.redditslide.ActionStates;
-import me.edgan.redditslide.Authentication;
 import me.edgan.redditslide.ContentType;
 import me.edgan.redditslide.DataShare;
 import me.edgan.redditslide.Fragments.SubmissionsView;
@@ -76,7 +71,6 @@ import me.edgan.redditslide.Views.ExoVideoView;
 import me.edgan.redditslide.Views.ImageSource;
 import me.edgan.redditslide.Views.SubsamplingScaleImageView;
 import me.edgan.redditslide.Visuals.ColorPreferences;
-import me.edgan.redditslide.Vote;
 import me.edgan.redditslide.util.AnimatorUtil;
 import me.edgan.redditslide.util.BlendModeUtil;
 import me.edgan.redditslide.util.BottomSheet;
@@ -90,13 +84,12 @@ import me.edgan.redditslide.util.HttpUtil;
 import me.edgan.redditslide.util.ImageSaveUtils;
 import me.edgan.redditslide.util.LinkUtil;
 import me.edgan.redditslide.util.LogUtil;
+import me.edgan.redditslide.util.MediaGestureHelper;
 import me.edgan.redditslide.util.MiscUtil;
 import me.edgan.redditslide.util.NetworkUtil;
 import me.edgan.redditslide.util.PrefUtil;
 import me.edgan.redditslide.util.ShareUtil;
 import me.edgan.redditslide.util.StorageUtil;
-import net.dean.jraw.models.Submission;
-import net.dean.jraw.models.VoteDirection;
 import org.apache.commons.text.StringEscapeUtils;
 import org.jspecify.annotations.NullMarked;
 
@@ -1594,4 +1587,3 @@ public class MediaView extends BaseSaveActivity implements HibernateState.Restor
         MediaGestureHelper.showVoteFeedback(this, isUpvote);
     }
 }
-

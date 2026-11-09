@@ -1,19 +1,28 @@
 package me.edgan.redditslide.util;
 
+import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.graphics.Point;
+import android.graphics.PointF;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
+import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatDialog;
 import androidx.appcompat.widget.PopupMenu;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.res.ResourcesCompat;
@@ -43,6 +52,47 @@ public class BottomSheet {
 
     private static final int GRID_COLUMNS = 3;
 
+    public static boolean isTablet(Context context) {
+        return context.getResources().getBoolean(R.bool.isTablet)
+                || context.getResources().getConfiguration().smallestScreenWidthDp >= 600;
+    }
+
+    public static Point calculateAnchorPosition(
+            PointF anchor,
+            int dialogWidth,
+            int dialogHeight,
+            int screenWidth,
+            int screenHeight,
+            int marginH,
+            int marginV,
+            int offsetY) {
+        int x;
+        if (anchor.x <= screenWidth / 2f) {
+            x = (int) anchor.x;
+        } else {
+            x = (int) anchor.x - dialogWidth;
+        }
+        x = Math.max(marginH, Math.min(x, screenWidth - dialogWidth - marginH));
+
+        int y = (int) anchor.y - offsetY;
+        y = Math.max(marginV, Math.min(y, screenHeight - dialogHeight - marginV));
+
+        return new Point(x, y);
+    }
+
+    public static Point calculateAnchorPosition(
+            PointF anchor,
+            int dialogWidth,
+            int screenWidth,
+            int screenHeight,
+            int marginH,
+            int marginV,
+            int offsetY) {
+        final int estimatedHeight = Math.min(DisplayUtil.dpToPxVertical(360), screenHeight / 2);
+        return calculateAnchorPosition(
+                anchor, dialogWidth, estimatedHeight, screenWidth, screenHeight, marginH, marginV, offsetY);
+    }
+
     private static class Item {
         final int id;
         final @Nullable Drawable icon;
@@ -61,10 +111,28 @@ public class BottomSheet {
         private boolean grid;
         private @Nullable DialogInterface.OnClickListener listener;
         private @Nullable DialogInterface.OnClickListener longListener;
+        private @Nullable PointF anchor;
         private final List<Item> items = new ArrayList<>();
 
         public Builder(Context context) {
             this.context = context;
+        }
+
+        public Builder anchor(float x, float y) {
+            this.anchor = new PointF(x, y);
+            return this;
+        }
+
+        public Builder anchor(@Nullable PointF anchor) {
+            this.anchor = anchor;
+            return this;
+        }
+
+        public Builder anchor(@Nullable MotionEvent event) {
+            if (event != null) {
+                this.anchor = new PointF(event.getRawX(), event.getRawY());
+            }
+            return this;
         }
 
         public Builder title(CharSequence title) {
@@ -122,7 +190,7 @@ public class BottomSheet {
             return this;
         }
 
-        public BottomSheetDialog show() {
+        public Dialog show() {
             final int fontColor = resolveColor(context, R.attr.fontColor, 0xFFFFFFFF);
             final int tintColor = resolveColor(context, R.attr.tintColor, fontColor);
             final int background =
@@ -131,12 +199,28 @@ public class BottomSheet {
                             R.attr.card_background,
                             resolveColor(context, R.attr.activity_background, 0xFF424242));
 
-            final BottomSheetDialog dialog =
-                    new BottomSheetDialog(context, R.style.Slide_BottomSheetDialog);
+            final boolean tablet = isTablet(context);
+            final boolean useAnchored = (anchor != null) || tablet;
+
+            final Dialog dialog =
+                    useAnchored
+                            ? new AppCompatDialog(context, R.style.Slide_AnchoredDialog)
+                            : new BottomSheetDialog(context, R.style.Slide_BottomSheetDialog);
 
             final LinearLayout root = new LinearLayout(context);
             root.setOrientation(LinearLayout.VERTICAL);
-            root.setBackgroundColor(background);
+
+            if (useAnchored) {
+                final GradientDrawable bg = new GradientDrawable();
+                bg.setColor(background);
+                bg.setCornerRadius(DisplayUtil.dpToPxHorizontal(12));
+                root.setBackground(bg);
+                root.setElevation(DisplayUtil.dpToPxVertical(8));
+                root.setClipToOutline(true);
+            } else {
+                root.setBackgroundColor(background);
+            }
+
             root.setPadding(0, DisplayUtil.dpToPxVertical(8), 0, DisplayUtil.dpToPxVertical(8));
 
             if (title != null) {
@@ -169,18 +253,52 @@ public class BottomSheet {
                             ViewGroup.LayoutParams.WRAP_CONTENT));
 
             dialog.setContentView(root);
-            dialog.show();
 
-            // Open fully so long menus don't hide their last items behind the collapsed
-            // peek height; short menus are unaffected (they wrap to content height). Skip
-            // the collapsed state so a downward drag dismisses instead of snapping to peek.
-            final BottomSheetBehavior<?> behavior = dialog.getBehavior();
-            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-            behavior.setSkipCollapsed(true);
+            if (dialog instanceof BottomSheetDialog bsd) {
+                final BottomSheetBehavior<?> behavior = bsd.getBehavior();
+                behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+                behavior.setSkipCollapsed(true);
+            } else {
+                final Window window = dialog.getWindow();
+                if (window != null) {
+                    final DisplayMetrics dm = context.getResources().getDisplayMetrics();
+                    final int screenWidth = dm.widthPixels;
+                    final int screenHeight = dm.heightPixels;
+                    final int marginH = DisplayUtil.dpToPxHorizontal(16);
+                    final int marginV = DisplayUtil.dpToPxVertical(16);
+                    final int dialogWidth =
+                            Math.min(
+                                    DisplayUtil.dpToPxHorizontal(340),
+                                    Math.max(marginH, screenWidth - marginH * 2));
+
+                    final WindowManager.LayoutParams lp = window.getAttributes();
+                    if (anchor != null) {
+                        window.setGravity(Gravity.TOP | Gravity.START);
+                        final Point pos =
+                                calculateAnchorPosition(
+                                        anchor,
+                                        dialogWidth,
+                                        screenWidth,
+                                        screenHeight,
+                                        marginH,
+                                        marginV,
+                                        DisplayUtil.dpToPxVertical(24));
+                        lp.x = pos.x;
+                        lp.y = pos.y;
+                    } else {
+                        window.setGravity(Gravity.CENTER);
+                    }
+                    lp.width = dialogWidth;
+                    lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                    window.setAttributes(lp);
+                }
+            }
+
+            dialog.show();
             return dialog;
         }
 
-        private View buildList(BottomSheetDialog dialog, int fontColor, int tintColor) {
+        private View buildList(Dialog dialog, int fontColor, int tintColor) {
             final LinearLayout list = new LinearLayout(context);
             list.setOrientation(LinearLayout.VERTICAL);
 
@@ -224,7 +342,7 @@ public class BottomSheet {
             return list;
         }
 
-        private View buildGrid(BottomSheetDialog dialog, int fontColor, int tintColor) {
+        private View buildGrid(Dialog dialog, int fontColor, int tintColor) {
             final LinearLayout column = new LinearLayout(context);
             column.setOrientation(LinearLayout.VERTICAL);
 
@@ -290,7 +408,7 @@ public class BottomSheet {
             return column;
         }
 
-        private void bindClick(View view, BottomSheetDialog dialog, int id) {
+        private void bindClick(View view, Dialog dialog, int id) {
             view.setOnClickListener(
                     v -> {
                         if (listener != null) {

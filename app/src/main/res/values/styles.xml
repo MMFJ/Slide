@@ -19,6 +19,15 @@
         <item name="backgroundTint">@android:color/transparent</item>
     </style>
 
+    <!-- Touch-anchored floating dialog theme for tablet / anchored menus (util/BottomSheet).
+         Window is floating and transparent so root view controls its own corner radius and theme surface. -->
+    <style name="Slide.AnchoredDialog" parent="Theme.MaterialComponents.DayNight.Dialog">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="elevationOverlayEnabled">false</item>
+    </style>
+
     <!-- From SwipeBackLayout -->
     <style name="SwipeBackLayout">
         <item name="edge_size">50dip</item>

@@ -6,7 +6,6 @@ import static org.junit.Assert.assertTrue;
 import android.app.Application;
 import androidx.appcompat.app.AppCompatActivity;
 import java.util.concurrent.atomic.AtomicBoolean;
-import me.edgan.redditslide.HasSeen;
 import me.edgan.redditslide.SettingValues;
 import org.junit.After;
 import org.junit.Before;
