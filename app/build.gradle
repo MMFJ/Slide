@@ -45,9 +45,9 @@ android {
         minSdk 29
         targetSdk 36
         vectorDrawables.useSupportLibrary true
-        versionCode 815
+        versionCode 816
         // Mod versioning: cygnusx-1-org/Slide version (8.0.8) + MMFJ build number
-        versionName "8.0.8.7"
+        versionName "8.0.8.8"
     }
 
     flavorDimensions "variant"
@@ -155,6 +155,13 @@ android {
         // Required because build types use resValue (release/debug app_name); the global
         // android.defaults.buildfeatures.resvalues default is off in AGP 9.
         resValues = true
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+        vendor = JvmVendorSpec.JETBRAINS
     }
 }
 

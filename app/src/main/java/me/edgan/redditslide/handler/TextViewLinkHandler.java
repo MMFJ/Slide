@@ -1,6 +1,7 @@
 package me.edgan.redditslide.handler;
 
 import android.os.Handler;
+import android.os.Looper;
 import android.text.Layout;
 import android.text.Selection;
 import android.text.Spannable;
@@ -9,6 +10,7 @@ import android.text.method.BaseMovementMethod;
 import android.text.style.ImageSpan;
 import android.text.style.URLSpan;
 import android.view.MotionEvent;
+import android.view.ViewConfiguration;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -27,6 +29,8 @@ public class TextViewLinkHandler extends BaseMovementMethod {
 
     Spannable sequence;
     float position;
+    float downX;
+    float downY;
     boolean clickHandled;
     Handler handler;
     Runnable longClicked;
@@ -47,7 +51,7 @@ public class TextViewLinkHandler extends BaseMovementMethod {
         this.sequence = sequence;
 
         clickHandled = false;
-        handler = new Handler();
+        handler = new Handler(Looper.getMainLooper());
         longClicked =
                 new Runnable() {
                     @Override
@@ -131,31 +135,40 @@ public class TextViewLinkHandler extends BaseMovementMethod {
 
         if (link.length > 0) {
             comm.setLongClickable(false);
+            final int touchSlop = ViewConfiguration.get(widget.getContext()).getScaledTouchSlop();
 
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                position = event.getY(); // used to see if the user scrolled or not
-            }
-            if (!(event.getAction() == MotionEvent.ACTION_UP
-                    || event.getAction() == MotionEvent.ACTION_DOWN)) {
-                if (Math.abs((position - event.getY())) > 25) {
-                    handler.removeCallbacksAndMessages(null);
-                }
-                return super.onTouchEvent(widget, buffer, event);
-            }
-
-            switch (event.getAction()) {
+            switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
+                    downX = event.getX();
+                    downY = event.getY();
+                    position = event.getY();
                     clickHandled = false;
                     this.event = event;
+                    handler.removeCallbacksAndMessages(null);
                     if (SettingValues.peek) {
                         handler.postDelayed(
-                                longClicked, android.view.ViewConfiguration.getTapTimeout() + 50);
+                                longClicked, ViewConfiguration.getTapTimeout() + 50);
                     } else {
                         handler.postDelayed(
-                                longClicked, android.view.ViewConfiguration.getLongPressTimeout());
+                                longClicked, ViewConfiguration.getLongPressTimeout());
                     }
-
                     break;
+
+                case MotionEvent.ACTION_MOVE:
+                    final float dx = event.getX() - downX;
+                    final float dy = event.getY() - downY;
+                    if (Math.hypot(dx, dy) > touchSlop) {
+                        comm.setLongClickable(true);
+                        handler.removeCallbacksAndMessages(null);
+                    }
+                    return super.onTouchEvent(widget, buffer, event);
+
+                case MotionEvent.ACTION_CANCEL:
+                default:
+                    comm.setLongClickable(true);
+                    handler.removeCallbacksAndMessages(null);
+                    return super.onTouchEvent(widget, buffer, event);
+
                 case MotionEvent.ACTION_UP:
                     comm.setLongClickable(true);
                     handler.removeCallbacksAndMessages(null);

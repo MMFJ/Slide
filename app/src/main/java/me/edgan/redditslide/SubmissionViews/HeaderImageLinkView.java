@@ -7,10 +7,12 @@ import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Handler;
+import android.os.Looper;
 import android.util.AttributeSet;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
@@ -103,6 +105,8 @@ public class HeaderImageLinkView extends RelativeLayout {
     @SuppressWarnings("NullAway.Init") // setBottomSheet, per the note above
     Runnable longClicked;
     float position;
+    float downX;
+    float downY;
     private TextView title;
     @Nullable private TextView info;
     public MaxHeightImageView backdrop;
@@ -221,6 +225,14 @@ public class HeaderImageLinkView extends RelativeLayout {
     public HeaderImageLinkView(Context context, AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
         init();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+        }
+        super.onDetachedFromWindow();
     }
 
     boolean thumbUsed;
@@ -543,38 +555,43 @@ public class HeaderImageLinkView extends RelativeLayout {
     }
 
     public void setBottomSheet(View v, final Submission submission, final boolean full) {
-        handler = new Handler();
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+        }
+        handler = new Handler(Looper.getMainLooper());
+        final int touchSlop = ViewConfiguration.get(v.getContext()).getScaledTouchSlop();
         v.setOnTouchListener(
                 new OnTouchListener() {
                     @Override
                     public boolean onTouch(View v, MotionEvent event) {
                         HeaderImageLinkView.this.event = event;
 
-                        if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                            position = event.getY(); // used to see if the user scrolled or not
-                        }
-                        if (!(event.getAction() == MotionEvent.ACTION_UP
-                                || event.getAction() == MotionEvent.ACTION_DOWN)) {
-                            if (Math.abs((position - event.getY())) > 25) {
-                                handler.removeCallbacksAndMessages(null);
-                            }
-                            return false;
-                        }
-
-                        switch (event.getAction()) {
+                        switch (event.getActionMasked()) {
                             case MotionEvent.ACTION_DOWN:
+                                downX = event.getX();
+                                downY = event.getY();
+                                position = event.getY();
                                 clickHandled = false;
+                                handler.removeCallbacksAndMessages(null);
                                 if (SettingValues.peek) {
                                     handler.postDelayed(
                                             longClicked,
-                                            android.view.ViewConfiguration.getTapTimeout() + 50);
+                                            ViewConfiguration.getTapTimeout() + 50);
                                 } else {
                                     handler.postDelayed(
                                             longClicked,
-                                            android.view.ViewConfiguration.getLongPressTimeout());
+                                            ViewConfiguration.getLongPressTimeout());
                                 }
+                                return true;
 
-                                break;
+                            case MotionEvent.ACTION_MOVE:
+                                final float dx = event.getX() - downX;
+                                final float dy = event.getY() - downY;
+                                if (Math.hypot(dx, dy) > touchSlop) {
+                                    handler.removeCallbacksAndMessages(null);
+                                }
+                                return false;
+
                             case MotionEvent.ACTION_UP:
                                 handler.removeCallbacksAndMessages(null);
 
@@ -582,9 +599,13 @@ public class HeaderImageLinkView extends RelativeLayout {
                                     // regular click
                                     callOnClick();
                                 }
-                                break;
+                                return true;
+
+                            case MotionEvent.ACTION_CANCEL:
+                            default:
+                                handler.removeCallbacksAndMessages(null);
+                                return false;
                         }
-                        return true;
                     }
                 });
         longClicked =
@@ -627,6 +648,9 @@ public class HeaderImageLinkView extends RelativeLayout {
             final boolean full,
             @Nullable String baseSub,
             ContentType.Type type) {
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+        }
         this.type = type;
         if (!lastDone.equals(submission.getFullName())) {
             lq = false;
@@ -645,6 +669,9 @@ public class HeaderImageLinkView extends RelativeLayout {
             final boolean full,
             @Nullable String baseSub,
             ContentType.Type type) {
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+        }
         this.type = type;
         if (!lastDone.equals(submission.getFullName())) {
             lq = false;

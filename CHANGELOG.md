@@ -6,6 +6,13 @@ The old changelog can be read in the [CHANGELOG.md](https://github.com/Haptic-Ap
 
 ## MMFJ Fork Changes
 
+8.0.8.8 / 2026-10-31
+===================
+* Feed Preview & Link Long-Press Scroll Cancellation: Fixed bug where scrolling over feed preview images or text links accidentally triggered long-press gestures, especially on tablets and lower-density screens
+  - Added proper `MotionEvent.ACTION_CANCEL` handling so that parent `RecyclerView` scroll interception immediately aborts scheduled long-press and quick-action callbacks
+  - Replaced hardcoded unscaled 25px displacement threshold with dynamic 2D Euclidean distance against `ViewConfiguration.getScaledTouchSlop()`
+  - Added view lifecycle cleanup (`onDetachedFromWindow()` and adapter rebind cleanup) so recycled cards never fire stale callbacks
+
 8.0.8.7 / 2026-10-28
 ===================
 * Feed Preview Long-Press Fix: Fixed issue where long-pressing previews on the main feed did nothing by defaulting legacy `noPreviewImageLongClick` setting to false, resolving Activity context safely across wrapper layers, and guarding parent view lookups

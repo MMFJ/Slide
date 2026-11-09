@@ -12,7 +12,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import androidx.appcompat.app.AppCompatActivity;
@@ -21,6 +23,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.InputStream;
+import java.time.Duration;
 import java.util.HashSet;
 import me.edgan.redditslide.Activities.MediaView;
 import me.edgan.redditslide.Adapters.CardSubmissionViewHolder;
@@ -40,6 +43,7 @@ import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadow.api.Shadow;
 import org.robolectric.shadows.ShadowDrawable;
+import org.robolectric.shadows.ShadowLooper;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 33, application = Application.class)
@@ -279,6 +283,83 @@ public class HeaderImageLinkViewTest {
 
         holder.leadImage.applyUnavailablePlaceholder();
         assertThat(holder.leadImage.loadedUrl, is(second.getUrl()));
+    }
+
+    @Test
+    public void actionCancelCancelsPendingLongClick() throws Exception {
+        final TestActivity activity = createActivity();
+        final SubmissionViewHolder holder = inflateHolder(activity, R.layout.submission_list, false);
+        final Submission submission = new Submission(readFixture("tumblrVideoNoPreview.json"));
+        holder.leadImage.setSubmission(
+                submission, false, submission.getSubredditName(), ContentType.getContentType(submission));
+
+        final View target = holder.leadImage;
+        final MotionEvent down = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 10f, 10f, 0);
+        target.dispatchTouchEvent(down);
+        down.recycle();
+
+        assertFalse(holder.leadImage.clickHandled);
+
+        final MotionEvent cancel = MotionEvent.obtain(0, 50, MotionEvent.ACTION_CANCEL, 10f, 10f, 0);
+        target.dispatchTouchEvent(cancel);
+        cancel.recycle();
+
+        ShadowLooper.shadowMainLooper().idleFor(Duration.ofMillis(1000L));
+        assertFalse(holder.leadImage.clickHandled);
+    }
+
+    @Test
+    public void actionMoveBeyondTouchSlopCancelsPendingLongClick() throws Exception {
+        final TestActivity activity = createActivity();
+        final SubmissionViewHolder holder = inflateHolder(activity, R.layout.submission_list, false);
+        final Submission submission = new Submission(readFixture("tumblrVideoNoPreview.json"));
+        holder.leadImage.setSubmission(
+                submission, false, submission.getSubredditName(), ContentType.getContentType(submission));
+
+        final View target = holder.leadImage;
+        final int touchSlop = ViewConfiguration.get(target.getContext()).getScaledTouchSlop();
+
+        final MotionEvent down = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 10f, 10f, 0);
+        target.dispatchTouchEvent(down);
+        down.recycle();
+
+        assertFalse(holder.leadImage.clickHandled);
+
+        final MotionEvent move =
+                MotionEvent.obtain(0, 50, MotionEvent.ACTION_MOVE, 10f, 10f + touchSlop + 5, 0);
+        target.dispatchTouchEvent(move);
+        move.recycle();
+
+        ShadowLooper.shadowMainLooper().idleFor(Duration.ofMillis(1000L));
+        assertFalse(holder.leadImage.clickHandled);
+    }
+
+    @Test
+    public void actionMoveWithinTouchSlopFiresLongClick() throws Exception {
+        final TestActivity activity = createActivity();
+        final SubmissionViewHolder holder = inflateHolder(activity, R.layout.submission_list, false);
+        final Submission submission = new Submission(readFixture("tumblrVideoNoPreview.json"));
+        holder.leadImage.setSubmission(
+                submission, false, submission.getSubredditName(), ContentType.getContentType(submission));
+
+        final View target = holder.leadImage;
+        final int touchSlop = ViewConfiguration.get(target.getContext()).getScaledTouchSlop();
+
+        final MotionEvent down = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 10f, 10f, 0);
+        target.dispatchTouchEvent(down);
+        down.recycle();
+
+        assertFalse(holder.leadImage.clickHandled);
+
+        if (touchSlop > 2) {
+            final MotionEvent move =
+                    MotionEvent.obtain(0, 50, MotionEvent.ACTION_MOVE, 10f, 11f, 0);
+            target.dispatchTouchEvent(move);
+            move.recycle();
+        }
+
+        ShadowLooper.shadowMainLooper().idleFor(Duration.ofMillis(1000L));
+        assertTrue(holder.leadImage.clickHandled);
     }
 
     private static TestActivity createActivity() {
